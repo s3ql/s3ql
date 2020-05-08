@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2020-05-08, S3QL 3.4.1
 
   * Fixed mount.s3ql "NoneType can't be used in 'await' expression" crash.
 
