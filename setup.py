@@ -145,7 +145,7 @@ def main():
 
                      # Need trio.to_thread/from_thread
                      'trio >= 0.12',
-                     'pyfuse3 >= 1.0, < 2.0' ]
+                     'pyfuse3 >= 3.0, < 4.0' ]
     if sys.version_info < (3, 7, 0):
         required_pkgs.append('async_generator')
 
