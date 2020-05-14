@@ -272,7 +272,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if is_truncated.text == 'false':
             page_token = None
         elif len(names) == 0:
-            page_token = etree.find(root_xmlns_prefix + 'NextContinuationToke')
+            page_token = etree.find(root_xmlns_prefix + 'NextContinuationToken')
         else:
             page_token = names[-1]
 
