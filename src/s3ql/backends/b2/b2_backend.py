@@ -453,9 +453,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectW(key, self, headers)
 
-    @retry
     @copy_ancestor_docstring
-    def delete(self, key, force=False, is_retry=False):
+    def delete(self, key, force=False):
         log.debug('started with %s', key)
 
         if self.disable_versions:
@@ -470,7 +469,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if not file_ids:
             raise NoSuchObject(key)
 
-        for file_id in file_ids:
+        self._delete_file_ids(file_ids, force)
+
+    @retry
+    def _delete_file_ids(self, file_ids, force=False, is_retry=False):
+        for (i, file_id) in enumerate(file_ids):
             try:
                 self._delete_file_id(file_id['fileName'], file_id['fileId'])
             except B2Error as exc:
@@ -478,9 +481,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # Server may have deleted the object even though we did not
                     # receive the response.
                     if force or is_retry:
-                        pass
+                        del file_ids[i]
                     else:
                         raise exc
+
+            del file_ids[i]
 
     def _delete_file_id(self, file_name, file_id):
         request_dict = {
