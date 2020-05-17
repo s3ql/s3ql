@@ -481,11 +481,15 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # Server may have deleted the object even though we did not
                     # receive the response.
                     if force or is_retry:
-                        del file_ids[i]
+                        del file_ids[:i]
                     else:
                         raise exc
 
-            del file_ids[i]
+            except:
+                del file_ids[:i]
+                raise
+
+        del file_ids[:]
 
     def _delete_file_id(self, file_name, file_id):
         request_dict = {
