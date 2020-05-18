@@ -475,29 +475,28 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _delete_file_ids(self, file_ids, force=False, is_retry=False):
         for (i, file_id) in enumerate(file_ids):
             try:
-                self._delete_file_id(file_id['fileName'], file_id['fileId'])
-            except B2Error as exc:
-                if exc.code == 'file_not_present':
-                    # Server may have deleted the object even though we did not
-                    # receive the response.
-                    if force or is_retry:
-                        del file_ids[:i]
-                    else:
-                        raise exc
-
+                self._delete_file_id(file_id['fileName'], file_id['fileId'], force or is_retry)
             except:
                 del file_ids[:i]
                 raise
 
         del file_ids[:]
 
-    def _delete_file_id(self, file_name, file_id):
+    def _delete_file_id(self, file_name, file_id, force=False):
         request_dict = {
             'fileName': file_name,
             'fileId': file_id
         }
-        response = self._do_api_call('b2_delete_file_version', request_dict)
-        return response
+        try:
+            self._do_api_call('b2_delete_file_version', request_dict)
+        except B2Error as exc:
+            # Server may have deleted the object even though we did not
+            # receive the response.
+            if exc.code == 'file_not_present' and force:
+                return
+            raise exc
+
+        return
 
     def _list_file_versions(self, key):
         next_filename = self._get_key_with_prefix(key)
