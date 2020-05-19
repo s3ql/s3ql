@@ -24,7 +24,7 @@ pip install defusedxml \
             sphinx \
             cryptography \
             requests \
-            "pyfuse3 >= 1.0, < 2.0" \
+            "pyfuse3 >= 3.0, < 4.0" \
             "dugong >= 3.4, < 4.0" \
             "pytest == 4.6.5" \
             google-auth \
