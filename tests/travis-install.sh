@@ -29,8 +29,8 @@ pip install defusedxml \
             "pytest == 4.6.5" \
             google-auth \
             google-auth-oauthlib \
-            pytest_trio \
-            "trio == 0.12.0" \
+            "pytest_trio == 0.5.2" \
+            "trio == 0.12.1" \
             "attrs == 19.3.0"
 
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
