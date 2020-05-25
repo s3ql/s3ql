@@ -271,6 +271,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         is_truncated = etree.find(root_xmlns_prefix + 'IsTruncated')
         if is_truncated.text == 'false':
             page_token = None
+        elif len(names) == 0:
+            next_marker = etree.find(root_xmlns_prefix + 'NextMarker')
+            page_token = next_marker.text
         else:
             page_token = names[-1]
 
