@@ -381,6 +381,70 @@ The S3 compatible backend accepts the following backend options:
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
 
 
+Backblaze B2
+============
+
+Backblaze B2 is a cloud storage with its own API.
+
+The storage URL for backblaze b2 storage is ::
+
+   b2://<bucket-name>[/<prefix>]
+
+*bucket-name* is an (existing) bucket which has to be accessible with
+the provided account key. The *prefix* will be appended to all names
+used by S3QL and can be used to hold separate S3QL repositories in the
+same bucket.
+
+It is also possible to use an application key. The required key capabilities
+are the following:
+
+   - `listBuckets`
+   - `listFiles`
+   - `readFiles`
+   - `writeFiles`
+   - `deleteFiles`
+
+.. option:: disable-versions
+
+   If versioning of the bucket is not enabled, this option can be set.
+   When deleting objects, the bucket will not be scanned for all file versions
+   because it will be implied that only the one (the most recent) version of a
+   file exists. This will use only one class B transaction instead of
+   (possibly) multiple class C transactions.
+
+.. option:: retry-on-cap-exceeded
+
+   If there are data/transaction caps set for the backblaze account, this option
+   controls if operations should be retried as cap counters are reset every day.
+   Otherwise the exception would abort the program.
+
+.. option:: test-mode-fail-some-uploads
+
+   This option puts the backblaze B2 server into test mode by adding a special header
+   to the upload requests. The server will then randomly fail some uploads. Use
+   only to test the failure resiliency of the backend implementation as it causes
+   unnecessary traffic, delays and transactions.
+
+.. option:: test-mode-expire-some-tokens
+
+   Similarly to the option above this lets the server fail some authorization tokens
+   in order to test the reauthorization of the backend implementation.
+
+.. option:: test-mode-force-cap-exceeded
+
+   Like above this option instructs the server to behave as if the data/transaction
+   caps were exceeded. Use this only to test the backend implementation for correct/desired
+   behavior. Can be useful in conjunction with *retry-on-cap-exceeded* option.
+
+.. option:: tcp-timeout
+
+   Specifies the timeout used for TCP connections. If no data can be
+   exchanged with the remote server for longer than this period, the
+   TCP connection is closed and re-established (default: 20 seconds).
+
+.. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
+
+
 Local
 =====
 

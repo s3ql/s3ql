@@ -465,6 +465,26 @@ def test_delete(backend):
     assert_not_in_index(backend, [key])
     assert_not_readable(backend, key)
 
+@pytest.mark.with_backend('b2/aes')
+def test_delete_b2_versions(backend):
+    key = newname()
+    values = [ newvalue() for _ in range(3) ]
+
+    # Write values to same key, should become versions of the key
+    for value in values:
+        backend[key] = value
+
+    # Wait for it
+    assert_in_index(backend, [key])
+    fetch_object(backend, key)
+
+    # Delete it, should delete all versions
+    del backend[key]
+
+    assert_not_in_index(backend, [key])
+    assert_not_readable(backend, key)
+
+
 # No need to run with different encryption/compression settings,
 # ComprencBackend should just forward this 1:1 to the raw backend.
 @pytest.mark.with_backend('*/aes')
