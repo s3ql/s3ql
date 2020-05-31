@@ -86,7 +86,7 @@ async def ctx():
 
     cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
                        ctx.max_obj_size * 5)
-    cache.trio_token = trio.hazmat.current_trio_token()
+    cache.trio_token = trio.lowlevel.current_trio_token()
     ctx.cache = cache
     ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size,
                                 InodeCache(ctx.db, 0))

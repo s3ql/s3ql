@@ -217,7 +217,7 @@ class BlockCache(object):
     def init(self, threads=1):
         '''Start worker threads'''
 
-        self.trio_token = trio.hazmat.current_trio_token()
+        self.trio_token = trio.lowlevel.current_trio_token()
         self.to_upload = trio.open_memory_channel(0)
         for _ in range(threads):
             t = threading.Thread(target=self._upload_loop)

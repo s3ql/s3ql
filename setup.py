@@ -143,8 +143,8 @@ def main():
                      'google-auth',
                      'google-auth-oauthlib',
 
-                     # Need trio.to_thread/from_thread
-                     'trio >= 0.12',
+                     # Need trio.lowlevel
+                     'trio >= 0.15',
                      'pyfuse3 >= 3.0, < 4.0' ]
     if sys.version_info < (3, 7, 0):
         required_pkgs.append('async_generator')

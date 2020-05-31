@@ -100,7 +100,7 @@ async def ctx():
 
         cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
                            ctx.max_obj_size * 100)
-        cache.trio_token = trio.hazmat.current_trio_token()
+        cache.trio_token = trio.lowlevel.current_trio_token()
         ctx.cache = cache
 
         # Monkeypatch around the need for removal and upload threads

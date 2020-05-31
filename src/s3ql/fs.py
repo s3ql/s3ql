@@ -358,7 +358,7 @@ class Operations(pyfuse3.Operations):
                         queue.append((id_p, name_id))
                         break
 
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
 
         log.debug('finished')
 
@@ -410,7 +410,7 @@ class Operations(pyfuse3.Operations):
             batch_size = min(batch_size, 200) # somewhat arbitrary...
             batch_size = max(batch_size, 20000)
             log.debug('Adjusting batch_size to %d and yielding', batch_size)
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
             log.debug('re-acquired lock')
             stamp = time.time()
 
@@ -514,7 +514,7 @@ class Operations(pyfuse3.Operations):
                         queue.append((src_id, target_id, name_id))
                         break
 
-            await trio.hazmat.checkpoint()
+            await trio.lowlevel.checkpoint()
 
         # Make replication visible
         self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
