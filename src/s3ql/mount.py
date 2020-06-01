@@ -598,6 +598,9 @@ class MetadataUploadTask:
         log.debug('started')
 
         assert self.fs is not None
+        if self.interval == None:
+            log.info('Metadata upload disabled.')
+            self.quit = True
 
         while not self.quit:
             with trio.move_on_after(self.interval):
