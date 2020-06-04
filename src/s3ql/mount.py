@@ -600,8 +600,11 @@ class MetadataUploadTask:
         assert self.fs is not None
 
         while not self.quit:
-            with trio.move_on_after(self.interval):
+            if self.interval is None:
                 await self.event.wait()
+            else:
+                with trio.move_on_after(self.interval):
+                    await self.event.wait()
 
             if self.quit:
                 break
