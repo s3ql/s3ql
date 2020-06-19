@@ -6,6 +6,8 @@
  S3QL
 ======
 
+|TravisCI|_
+
 S3QL is a file system that stores all its data online using storage
 services like `Google Storage`_, `Amazon S3`_, or OpenStack_. S3QL
 effectively provides a virtual drive of dynamic, infinite capacity that
@@ -26,6 +28,8 @@ with extensive automated test cases for all its components.
 .. _`Google Storage`: http://code.google.com/apis/storage/
 .. _`Amazon S3`: http://aws.amazon.com/s3
 .. _OpenStack: http://openstack.org/projects/storage/
+.. |TravisCI| image:: https://travis-ci.org/s3ql/s3ql.svg?branch=master
+.. _TravisCI: https://travis-ci.org/github/s3ql/s3ql
 
 
 Features
