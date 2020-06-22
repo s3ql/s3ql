@@ -2,6 +2,9 @@ UNRELEASED CHANGES
 
   * S3QL now requires version 3.x rather than 1.x of the pyfuse3 module.
 
+  * Triggering a metadata upload (either through ``s3qlctrl upload-meta`` or the
+    ``--metadata-upload-interval``) works again (since release 3.4.0, this would continue
+    to upload metadata continuously after the first trigger).
 
 2020-05-08, S3QL 3.4.1
 

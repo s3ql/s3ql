@@ -605,7 +605,7 @@ class MetadataUploadTask:
             else:
                 with trio.move_on_after(self.interval):
                     await self.event.wait()
-
+            self.event = trio.Event()  # reset
             if self.quit:
                 break
 
