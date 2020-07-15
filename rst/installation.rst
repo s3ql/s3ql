@@ -35,7 +35,7 @@ that is not the case.
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
-  * `trio <https://github.com/python-trio/trio`_, version 0.9 or newer.
+  * `trio <https://github.com/python-trio/trio>`_, version 0.9 or newer.
   * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
     version between 3.0 (inclusive) and 4.0 (exclusive)
   * `dugong <https://pypi.org/project/dugong/>`_, any
@@ -53,7 +53,7 @@ that is not the case.
     (optional, required for ADC authentication with Google Storage)
   * `google-auth-oauthlib <https://pypi.python.org/project/google-auth-oauthlib/>`_
     (optional, required for browser-based authentication with Google Storage)
-  * `pytest_trio <https://github.com/python-trio/pytest-trio`_ (optional, to run unit tests)
+  * `pytest_trio <https://github.com/python-trio/pytest-trio>`_ (optional, to run unit tests)
 
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};
