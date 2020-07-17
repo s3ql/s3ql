@@ -77,7 +77,7 @@ class Operations(pyfuse3.Operations):
     :inode_cache: A cache for the attributes of the currently opened inodes.
     :open_inodes: dict of currently opened inodes. This is used to not remove
                   the blocks of unlinked inodes that are still open.
-    :upload_event: If set, triggers a metadata upload
+    :upload_task: Trio task for metadata uploads
     :failsafe: Set when backend problems are encountered. In that case, fs only
                allows read access.
     :broken_blocks: Caches information about corrupted blocks to avoid repeated (pointless)
@@ -100,12 +100,12 @@ class Operations(pyfuse3.Operations):
     enable_writeback_cache = True
 
     def __init__(self, block_cache, db, max_obj_size, inode_cache,
-                 upload_event=None):
+                 upload_task=None):
         super().__init__()
 
         self.inodes = inode_cache
         self.db = db
-        self.upload_event = upload_event
+        self.upload_task = upload_task
         self.open_inodes = collections.defaultdict(lambda: 0)
         self.max_obj_size = max_obj_size
         self.cache = block_cache
@@ -254,9 +254,9 @@ class Operations(pyfuse3.Operations):
                 await self.copy_tree(*tup)
 
             elif name == b'upload-meta':
-                if self.upload_event is not None:
+                if self.upload_task is not None:
                     self.inodes.flush()
-                    self.upload_event.set()
+                    self.upload_task.event.set()
                 else:
                     raise FUSEError(errno.ENOTTY)
 

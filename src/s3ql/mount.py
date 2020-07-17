@@ -205,7 +205,7 @@ async def main_async(options, stdout_log_handler):
     commit_task = CommitTask(block_cache)
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
-                               upload_event=metadata_upload_task.event)
+                               upload_task=metadata_upload_task)
     block_cache.fs = operations
     metadata_upload_task.fs = operations
 

@@ -1,3 +1,9 @@
+UNRELEASED CHANGES
+
+  * `s3qlctrl upload-meta` now works properly again (previously, only the first
+    invocation had an effect).
+
+
 2020-07-15, S3QL 3.5.0
 
   * S3QL now requires version 3.x rather than 1.x of the pyfuse3 module.
