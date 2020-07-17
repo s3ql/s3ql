@@ -3,6 +3,10 @@ UNRELEASED CHANGES
   * `s3qlctrl upload-meta` now works properly again (previously, only the first
     invocation had an effect).
 
+  * The O_TRUNC flag of the open() syscall is no longer silently ignored, but
+    the open() call fails with ENOTSUP. A proper implementation will hopefully
+    follow soon.
+
 
 2020-07-15, S3QL 3.5.0
 

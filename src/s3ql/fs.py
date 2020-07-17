@@ -932,6 +932,10 @@ class Operations(pyfuse3.Operations):
             and (self.failsafe or self.inodes[id_].locked)):
             raise FUSEError(errno.EPERM)
 
+        if flags & os.O_TRUNC:
+            log.warning('open() with O_TRUNC is not yet supported.')
+            raise FUSEError(errno.ENOTSUP)
+
         return pyfuse3.FileInfo(fh=id_, keep_cache=True)
 
     async def access(self, id_, mode, ctx):
