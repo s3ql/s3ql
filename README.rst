@@ -142,13 +142,7 @@ Contributing
 
 The S3QL source code is available on GitHub_.
 
-Professional Support
---------------------
-
-Professional support is offered via `Rath Consulting`_.
-
 .. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
 .. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
 .. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
 .. _GitHub: https://github.com/s3ql/main
-.. _`Rath Consulting`: http://www.rath-consulting.biz/
