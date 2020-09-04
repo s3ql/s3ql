@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2020-09-04, S3QL 3.5.1
 
   * `s3qlctrl upload-meta` now works properly again (previously, only the first
     invocation had an effect).
