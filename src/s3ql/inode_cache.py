@@ -24,12 +24,13 @@ UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
 class _Inode:
     '''An inode with its attributes'''
 
-    __slots__ = ATTRIBUTES + ('dirty', 'generation')
+    __slots__ = ATTRIBUTES + ('dirty', 'generation', 'inode_cache')
 
-    def __init__(self, generation):
+    def __init__(self, generation, inode_cache):
         super().__init__()
         self.dirty = False
         self.generation = generation
+        self.inode_cache = inode_cache
 
     def entry_attributes(self):
         attr = pyfuse3.EntryAttributes()
@@ -68,7 +69,7 @@ class _Inode:
         return self.id
 
     def copy(self):
-        copy = _Inode(self.generation)
+        copy = _Inode(self.generation, self.inode_cache)
 
         for attr in ATTRIBUTES:
             setattr(copy, attr, getattr(self, attr))
@@ -84,14 +85,11 @@ class _Inode:
         if not self.dirty:
             return
 
-        # Force execution of sys.excepthook (exceptions raised
-        # by __del__ are ignored)
-        try:
-            raise RuntimeError('BUG ALERT: Dirty inode was destroyed!')
-        except RuntimeError:
-            exc_info = sys.exc_info()
-
-        sys.excepthook(*exc_info)
+        # Should never happen, but could happen in a race condition
+        # It was seen in version 3.5.0 with an openstack backend
+        # Ensure that we flush the attributes before deleting this inode
+        log.debug('Destroying dirty inode: flushing')
+        self.inode_cache.setattr(self)
 
 class InodeCache(object):
     '''
@@ -178,7 +176,7 @@ class InodeCache(object):
     def getattr(self, id_): #@ReservedAssignment
         attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
                                   (id_,))
-        inode = _Inode(self.generation)
+        inode = _Inode(self.generation, self)
 
         for (i, id_) in enumerate(ATTRIBUTES):
             setattr(inode, id_, attrs[i])
