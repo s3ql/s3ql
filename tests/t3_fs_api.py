@@ -552,7 +552,13 @@ async def test_truncate_0(ctx):
     attr.st_size = 0
     await ctx.server.setattr(inode.st_ino, attr, SetattrFields(update_size=True),
                         fh, some_ctx)
-    await ctx.server.write(fh, 0, random_data(len2))
+    data = random_data(len2)
+    await ctx.server.write(fh, 0, data)
+    await ctx.server.release(fh)
+    ctx.server.inodes.flush()
+    fi = await ctx.server.open(inode.st_ino, os.O_RDONLY, some_ctx)
+    fh = fi.fh
+    assert await ctx.server.read(fh, 0, len2 + 1) == data
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
@@ -814,6 +820,28 @@ async def test_create_open(ctx):
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
 
+    await fsck(ctx)
+
+async def test_open_truncate(ctx):
+    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(),
+                                          os.O_RDWR, some_ctx)
+    fh = fi.fh
+    await ctx.server.write(fh, 0, random_data(int(1.5 * ctx.max_obj_size)))
+    await ctx.server.release(fh)
+    ctx.server.inodes.flush()
+
+    data = b'this data overwrites the previous data'
+    fi = await ctx.server.open(inode.st_ino, os.O_RDWR | os.O_TRUNC, some_ctx)
+    fh = fi.fh
+    await ctx.server.write(fh, 0, data)
+    await ctx.server.release(fh)
+    ctx.server.inodes.flush()
+
+    fi = await ctx.server.open(inode.st_ino, os.O_RDONLY, some_ctx)
+    fh = fi.fh
+    assert await ctx.server.read(fh, 0, len(data) + 1) == data
+    await ctx.server.release(fh)
+    await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
 async def test_edit(ctx):
