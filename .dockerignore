@@ -1,5 +1,8 @@
-.pyc
-__pycache__/
+*.pyc
+__pycache__
+*/__pycache__
+*/*/__pycache__
+*/*/*/__pycache__
 /.project
 /.pydevproject
 /.settings
