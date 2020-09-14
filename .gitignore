@@ -3,6 +3,7 @@ __pycache__/
 /.project
 /.pydevproject
 /.settings
+/.idea
 /build/
 /contrib/expire_backups.1
 /contrib/pcp.1
