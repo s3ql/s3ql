@@ -58,6 +58,20 @@ else:
     ACL_ERRNO = errno.EOPNOTSUPP
 
 
+class _TruncSetattrFields:
+    """A private class used for O_TRUNC.
+
+    This is needed because pyfuse3.SetattrFields fields are read only"""
+    def __getattr__(self, name):
+        """Only return ``True`` for ``update_size`` and ``update_mtime`.
+        Anything else will return ``False``"""
+        return name in ('update_size', 'update_mtime')
+
+
+"""We only need a single instance of this read-only class"""
+_TruncSetattrFields = _TruncSetattrFields()
+
+
 class Operations(pyfuse3.Operations):
     """A full-featured file system for online data storage
 
@@ -814,7 +828,7 @@ class Operations(pyfuse3.Operations):
         inode.ctime_ns = now_ns
 
         # This needs to go last, because the call to cache.remove and cache.get
-        # are asynchorouns and may thus evict the *inode* object from the cache.
+        # are asynchronous and may thus evict the *inode* object from the cache.
         if fields.update_size:
             len_ = attr.st_size
 
@@ -933,8 +947,20 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EPERM)
 
         if flags & os.O_TRUNC:
-            log.warning('open() with O_TRUNC is not yet supported.')
-            raise FUSEError(errno.ENOTSUP)
+            if not (flags & os.O_RDWR or flags & os.O_WRONLY):
+                #  behaviour is not defined in POSIX, we opt for an error
+                raise FUSEError(errno.EINVAL)
+            attr = await self.getattr(id_, ctx)
+            if stat.S_ISREG(attr.st_mode):
+                attr.st_mtime_ns = time_ns()
+                attr.st_size = 0
+                await self.setattr(id_, attr, _TruncSetattrFields, None, ctx)
+            elif stat.S_ISFIFO(attr.st_mode) or stat.S_ISBLK(attr.st_mode):
+                #  silently ignore O_TRUNC when FIFO or terminal block device
+                pass
+            else:
+                #  behaviour is not defined in POSIX, we opt for an error
+                raise FUSEError(errno.EINVAL)
 
         return pyfuse3.FileInfo(fh=id_, keep_cache=True)
 
