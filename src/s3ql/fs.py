@@ -717,10 +717,11 @@ class Operations(pyfuse3.Operations):
                                                name_id_old, id_p_old))
 
         inode_p_old = self.inodes[id_p_old]
-        inode_p_new = self.inodes[id_p_new]
         inode_p_old.mtime_ns = now_ns
-        inode_p_new.mtime_ns = now_ns
         inode_p_old.ctime_ns = now_ns
+
+        inode_p_new = self.inodes[id_p_new]
+        inode_p_new.mtime_ns = now_ns
         inode_p_new.ctime_ns = now_ns
 
     def _replace(self, id_p_old, name_old, id_p_new, name_new,
