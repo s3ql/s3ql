@@ -27,6 +27,7 @@ from s3ql.block_cache import BlockCache
 from s3ql.database import Connection
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
+from s3ql.inode_cache import CACHE_SIZE as INODE_CACHE_SIZE
 from s3ql.metadata import create_tables
 from s3ql.mkfs import init_tables
 from t2_block_cache import DummyQueue
@@ -376,6 +377,40 @@ async def test_rename(ctx):
 
     await ctx.server.forget([(inode.st_ino, 1), (inode_p_new.st_ino, 1)])
     await fsck(ctx)
+
+async def test_rename2(ctx):
+    src_file_name = newname(ctx)
+    src_folder_name = newname(ctx)
+    dst_file_name = newname(ctx)
+    dst_folder_name = newname(ctx)
+
+    inode_dst_folder = await ctx.server.mkdir(ROOT_INODE, dst_folder_name, dir_mode(), some_ctx)
+    inode_src_folder = await ctx.server.mkdir(ROOT_INODE, src_folder_name, dir_mode(), some_ctx)
+    (_, inode_file) = await ctx.server.create(inode_src_folder.st_ino, src_file_name, file_mode(), os.O_RDWR, some_ctx)
+
+    safe_sleep(CLOCK_GRANULARITY)
+
+    # Create files in order to flush the inode cache of the last 3 inodes
+    for _ in range(0, INODE_CACHE_SIZE):
+        await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx)
+
+    # Load the inodes in a specific order
+    fi = await ctx.server.open(ROOT_INODE, os.O_RDWR, some_ctx)
+    await ctx.server.release(fi.fh)
+    fi = await ctx.server.open(inode_dst_folder.st_ino, os.O_RDWR, some_ctx)
+    await ctx.server.release(fi.fh)
+    fi = await ctx.server.open(inode_src_folder.st_ino, os.O_RDWR, some_ctx)
+    await ctx.server.release(fi.fh)
+
+    # Put these inodes on the brink of being flushed in the inode cache
+    for _ in range(0, INODE_CACHE_SIZE - 3):
+        await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx)    
+
+    # Move the file
+    await ctx.server.rename(inode_src_folder.st_ino, src_file_name, inode_dst_folder.st_ino, dst_file_name, 0, some_ctx)
+
+    await fsck(ctx)
+
 
 async def test_replace_file(ctx):
     oldname = newname(ctx)
