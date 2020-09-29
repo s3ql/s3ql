@@ -100,6 +100,8 @@ pre-release testers) we cannot guarantee that every release will run
 on all non-Linux systems. Please report any bugs you find, and we will
 try to fix them.
 
+You can also run S3QL in a Docker container. See <insert docker README link
+in rst format I guess>
 
 Typical Usage
 =============

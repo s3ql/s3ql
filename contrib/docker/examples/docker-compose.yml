@@ -1,0 +1,66 @@
+version: '3.7'
+
+services:
+
+  # s3ql itself
+  s3ql:
+    container_name: s3ql
+    image: 0a845e41b54c
+    # SYS_ADMIN and the /dev/fuse device mount are required to allow mounting fuse devices from within a container
+    cap_add:
+      - SYS_ADMIN
+    devices:
+      - /dev/fuse
+    volumes:
+      - source: s3ql-data
+        target: /s3ql/mount
+        type: volume
+        bind:
+          propagation: shared
+      - source: s3ql-cache
+        target: /s3ql/cache
+        type: volume
+      - source: s3ql-logs
+        target: /s3ql/logs
+        type: volume
+      - source: ~/s3ql_authinfo
+        target: /s3ql/authinfo
+        type: bind
+    stop_grace_period: 15m
+    environment:
+      - STORAGE_URL=s3c://s3.fr-par.scw.cloud/s3ql-dev-test
+      - MOUNT_POINT=/s3ql/mount
+      - AUTH_FILE=/s3ql/authinfo
+      - LOG_FILE=/s3ql/logs/s3ql.log
+      - CACHE_DIR=/s3ql/cache
+      - CACHE_SIZE=1048576 # cache size in kilobytes, this is 1GB
+      - COMPRESS=none # if you store non-textual files, you probably will not benefit from compression
+      - FS_NAME=s3ql-filesystem # shows up in commands like `mount`, `df` etc.
+      - UPLOAD_THREADS=2
+      - KEEP_CACHE=true
+      - ALLOW_OTHER=true
+
+  # a simple nginx container that exposes your bucket as a fancy autoindexed directory
+  nginx-s3:
+    container_name: nginx-s3
+    image: fraoustin/fancyindex
+    ports:
+      - published: 8080
+        target: 80
+    volumes:
+      - source: s3ql-data
+        target: /share
+        type: volume
+        bind:
+          propagation: shared
+    stop_grace_period: 5s
+    environment:
+      - DISABLE_AUTH=true
+
+volumes:
+  s3ql-data:
+    name: s3ql-data
+  s3ql-cache:
+    name: s3ql-cache
+  s3ql-logs:
+    name: s3ql-logs

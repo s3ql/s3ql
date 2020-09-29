@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-s3ql
+spec:
+  replicas: 1 # bear in mind, s3ql can only be executed once per bucket, so you can never have more than 1 replica!
+  strategy:
+    # because you can never have 2 s3ql at the same time, you MUST use Recreate
+    # instead of RollingUpdate, otherwise, k8s will try to start a second instance
+    # before the first one has finished to ensure availability, however the replacement
+    # one will not become healthy since the first one hasn't unmounted cleanly yet
+    type: Recreate
+  selector:
+    matchLabels:
+      app: nginx-s3ql
+  template:
+    metadata:
+      labels:
+        app: nginx-s3ql
+    spec:
+      terminationGracePeriodSeconds: 900 # 15 minutes
+      containers:
+        - name: s3ql
+          image: 3cb0a493cdab
+          securityContext:
+            # privileged in necessary to gain access to /dev/fuse
+            privileged: true
+            # SYS_ADMIN is necessary to be able to mount a storage device
+            capabilities:
+              add:
+                - SYS_ADMIN
+          volumeMounts:
+            - name: devfuse
+              mountPath: /dev/fuse
+            - name: s3ql-data
+              mountPath: /s3ql/mount:shared
+            - name: s3ql-cache
+              mountPath: /s3ql/cache
+            - name: s3ql-logs
+              mountPath: /s3ql/logs
+          env:
+            - name: STORAGE_URL
+              value: s3c://s3.fr-par.scw.cloud/s3ql-dev-test
+            - name: MOUNT_POINT
+              value: /s3ql/mount
+            - name: AUTH_FILE
+              value: /s3ql/authinfo
+            - name: LOG_FILE
+              value: /s3ql/logs/s3ql.log
+            - name: CACHE_DIR
+              value: /s3ql/cache
+            - name: CACHE_SIZE
+              value: "1048576"
+            - name: COMPRESS
+              value: none
+            - name: FS_NAME
+              value: s3ql-filesystem
+            - name: UPLOAD_THREADS
+              value: "2"
+            - name: KEEP_CACHE
+              value: "true"
+            - name: ALLOW_OTHER
+              value: "true"
+        - name: nginx-s3
+          image: fraoustin/fancyindex
+          env:
+            - name: DISABLE_AUTH
+              value: "true"
+          ports:
+            - containerPort: 80
+              hostPort: 8080
+          volumeMounts:
+            - name: s3ql-data
+              mountPath: /share
+      volumes:
+        - name: s3ql-data
+          hostPath:
+            path: /mount/s3-data
+        # local cache used by s3ql, you should absolutely make this a persistent volume
+        # unless you set KEEP_CACHE to false (and even then, you still probably should)
+        - name: s3ql-cache
+          persistentVolumeClaim:
+            claimName: s3ql-cache
+        - name: s3ql-logs
+          persistentVolumeClaim:
+            claimName: s3ql-logs
+        # fuse device to use for mounting the s3ql filesystem
+        - name: devfuse
+          hostPath:
+            path: /dev/fuse
