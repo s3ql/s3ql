@@ -20,6 +20,7 @@ import errno
 import time
 from common import get_remote_test_info, NoTestSection
 from argparse import Namespace
+import signal
 from s3ql.backends import gs
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.common import get_seq_no
@@ -154,3 +155,29 @@ class TestNewerMetadata(t4_fuse.TestFuse):
         assert meta == plain_backend['s3ql_metadata']
 
         plain_backend.close()
+
+
+class TestSigInt(t4_fuse.TestFuse):
+    '''
+    Make sure that we gracefully exit on SIGINT
+    '''
+
+    def test(self):
+        self.mkfs()
+
+        # Mount file system
+        self.mount()
+
+        # wait until pyfuse3 main loop runs
+        time.sleep(2)
+
+        # send SIGINT
+        self.mount_process.send_signal(signal.SIGINT)
+
+        # wait for clean unmount
+        self.mount_process.wait(5)
+
+        # we exited successfully?
+        assert self.mount_process.returncode == 0
+
+        self.fsck()

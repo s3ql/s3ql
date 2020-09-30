@@ -251,8 +251,11 @@ async def main_async(options, stdout_log_handler):
             import systemd.daemon
             systemd.daemon.notify('READY=1')
 
+        ret = None
         try:
             ret = await pyfuse3.main()
+        except KeyboardInterrupt:
+            log.info("Got CTRL-C. Exit gracefully.")
         finally:
             await operations.destroy()
             await block_cache.destroy(options.keep_cache)
