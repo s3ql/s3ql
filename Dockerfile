@@ -36,5 +36,5 @@ WORKDIR /root
 ADD contrib/docker/*.sh /s3ql/bin/
 
 # use dumb-init to make sure signals to the container are proxied to the entrypoint script
-ENTRYPOINT [ "dumb-init", "--" ]
+ENTRYPOINT [ "dumb-init", "--rewrite", "15:2", "--" ]
 CMD [ "/s3ql/bin/entrypoint.sh" ]

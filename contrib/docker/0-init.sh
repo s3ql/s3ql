@@ -12,6 +12,13 @@ function debug_log() {
   fi
 }
 
+function validate_logfile() {
+  if [ "$LOG_FILE" == "syslog" ]; then
+    echo "LOG_FILE: $LOG_FILE <- syslog is not supported!"
+    exit 1
+  fi
+}
+
 # credits to Daniel Jagszent, from: https://github.com/s3ql/s3ql/issues/191#issuecomment-662550891
 function verify_clean_mountpoint() {
   echo "$MOUNT_POINT exists already, verifying that it isn't still mounted."
@@ -19,11 +26,12 @@ function verify_clean_mountpoint() {
   CRASHED_MOUNTPOINT_CHECK="$(ls "$MOUNT_POINT" 2>&1)"
   if echo "$CRASHED_MOUNTPOINT_CHECK" | grep -Fq 'Transport endpoint is not connected'; then
     echo "It seems like $MOUNT_POINT was not cleanly unmounted! Trying to unmount..."
-    if fusermount -u "$MOUNT_POINT"; then
+    if fusermount3 -u "$MOUNT_POINT"; then
       echo "Unmounted crashed filesystem"
     else
-      echo "Failed to unmount crashed filesystem!"
-      exit 1
+      FUSERMOUNT_CRASHED_RETCODE=$?
+      echo "Failed to unmount crashed filesystem with return code $FUSERMOUNT_CRASHED_RETCODE"
+      exit $FUSERMOUNT_CRASHED_RETCODE
     fi
   fi
 }
@@ -86,6 +94,8 @@ function run_fsck() {
     exit $FSCK_RESULT
   fi
 }
+
+validate_logfile
 
 if [ -d "$MOUNT_POINT" ]; then
   verify_clean_mountpoint

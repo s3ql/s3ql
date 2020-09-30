@@ -18,8 +18,7 @@ function shutdown() {
   if /s3ql/bin/2-shutdown.sh; then
     echo "Shutdown successful."
   else
-    echo "Shutdown failed!"
-    exit 1
+    exit $?
   fi
 }
 
@@ -31,12 +30,11 @@ echo "Will use storage-url '$STORAGE_URL' and mountpoint '$MOUNT_POINT'"
 echo ""
 
 echo "*** Init ***"
-trap shutdown TERM INT # set shutdown hook on SIGTERM/SIGINT (`docker stop` and Ctrl+C)
+trap shutdown INT # set shutdown hook on keyboard interrupt, SIGINT (`docker stop`'s SIGTERM is rewritten as SIGINT by dumb-init)
 if /s3ql/bin/0-init.sh; then
   echo "Init done."
 else
-  echo "Init failed."
-  exit 1
+  exit $?
 fi
 echo ""
 
@@ -44,13 +42,10 @@ echo "*** Start ***"
 if /s3ql/bin/1-start.sh; then
   echo "Successfully started."
 else
-  echo "Start failed."
-  exit 1
+  exit $?
 fi
 echo ""
 
-while true; do
-  LOGS="${LOG_FILE:-"~/.s3ql/mount.log"}"
-  tail -f "$LOGS"
-  wait $!
-done
+LOGS="${LOG_FILE:-"~/.s3ql/mount.log"}"
+tail -f "$LOGS"
+wait $!

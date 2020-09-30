@@ -96,6 +96,7 @@ if ! (
     "$STORAGE_URL" \
     "$MOUNT_POINT"
 ); then
-  echo "Failed mount!"
-  exit 1
+  MOUNT_RETCODE=$?
+  echo "Failed mount with code $MOUNT_RETCODE"
+  exit $MOUNT_RETCODE
 fi
