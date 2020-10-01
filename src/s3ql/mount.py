@@ -68,6 +68,9 @@ install_thread_excepthook()
 def main(args=None):
     '''Mount S3QL file system'''
 
+    # disable SIGINT handling as early as possible
+    toggle_int_signal_handling(False)
+
     if args is None:
         args = sys.argv[1:]
 
@@ -251,9 +254,17 @@ async def main_async(options, stdout_log_handler):
             import systemd.daemon
             systemd.daemon.notify('READY=1')
 
+        ret = None
         try:
+            toggle_int_signal_handling(True)
             ret = await pyfuse3.main()
+        except KeyboardInterrupt:
+            # re-block SIGINT before log.info() call to reduce the possibility for a second KeyboardInterrupt
+            toggle_int_signal_handling(False)
+            log.info("Got CTRL-C. Exit gracefully.")
         finally:
+            # For a clean unmount we need to ignore any repeated SIGINTs from here
+            toggle_int_signal_handling(False)
             await operations.destroy()
             await block_cache.destroy(options.keep_cache)
 
@@ -735,6 +746,12 @@ class CommitTask:
 
         log.debug('started')
         self.stop_event.set()
+
+
+def toggle_int_signal_handling(enable):
+    '''enables or disables SIGINT handling (raising KeyboardInterrupt)'''
+    signal.pthread_sigmask(signal.SIG_UNBLOCK if enable else signal.SIG_BLOCK, {signal.SIGINT})
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
