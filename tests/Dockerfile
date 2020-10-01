@@ -21,12 +21,6 @@ RUN /travis-install.sh
 
 ADD . /build
 WORKDIR /build
-RUN python setup.py build_cython \
- && python setup.py build_ext --inplace \
- && python setup.py test \
- && python setup.py build_sphinx \
- && python setup.py install
-
-FROM scratch AS export
-COPY --from=build /build/doc/ /doc/
-COPY --from=build /build/src/s3ql/deltadump.c /src/s3ql/deltadump.c
+RUN ln -sf /usr/local/bin/fusermount3 /bin/fusermount \
+ && python setup.py build_cython \
+ && python setup.py build_ext --inplace
