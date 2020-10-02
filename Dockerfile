@@ -35,6 +35,12 @@ WORKDIR /root
 # add docker entrypoint and scripts
 ADD contrib/docker/*.sh /s3ql/bin/
 
+# default docker-specific overrides
+ENV S3QL_LOG "none"
+ENV S3QL_MOUNT_ALLOW_OTHER "true"
+ENV S3QL_MOUNT_FG "true"
+ENV S3QL_FSCK_BATCH "true"
+
 # use dumb-init to make sure signals to the container are proxied to the entrypoint script
 ENTRYPOINT [ "dumb-init", "--rewrite", "15:2", "--" ]
 CMD [ "/s3ql/bin/entrypoint.sh" ]

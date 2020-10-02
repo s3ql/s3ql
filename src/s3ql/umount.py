@@ -41,7 +41,8 @@ def parse_args(args):
                         type=(lambda x: x.rstrip('/')),
                         help='Mount point to un-mount')
 
-    parser.add_argument('--lazy', "-z", action="store_true", default=False,
+    parser.add_argument('--lazy', "-z", action="store_true",
+                      default=parser.envvar_or_default("S3QL_UMOUNT_LAZY", boolean_value=True, default_value=False),
                       help="Lazy umount. Detaches the file system immediately, even if there "
                       'are still open files. The data will be uploaded in the background '
                       'once all open files have been closed.')

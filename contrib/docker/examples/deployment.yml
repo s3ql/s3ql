@@ -36,30 +36,28 @@ spec:
               mountPath: /s3ql/mount:shared
             - name: s3ql-cache
               mountPath: /s3ql/cache
-            - name: s3ql-logs
-              mountPath: /s3ql/logs
           env:
-            - name: STORAGE_URL
+            - name: S3QL_STORAGE_URL
               value: s3c://s3.fr-par.scw.cloud/s3ql-dev-test
-            - name: MOUNT_POINT
+            - name: S3QL_MOUNTPOINT
               value: /s3ql/mount
-            - name: AUTH_FILE
+            - name: S3QL_AUTHFILE
               value: /s3ql/authinfo
-            - name: LOG_FILE
-              value: /s3ql/logs/s3ql.log
-            - name: CACHE_DIR
+            - name: S3QL_CACHEDIR
               value: /s3ql/cache
-            - name: CACHE_SIZE
+            - name: S3QL_MOUNT_CACHESIZE
               value: "1048576"
-            - name: COMPRESS
+            - name: S3QL_COMPRESS
               value: none
-            - name: FS_NAME
+            - name: S3QL_MOUNT_FS_NAME
               value: s3ql-filesystem
-            - name: UPLOAD_THREADS
+            - name: S3QL_MOUNT_THREADS
               value: "2"
-            - name: KEEP_CACHE
+            - name: S3QL_MOUNT_KEEP_CACHE
               value: "true"
-            - name: ALLOW_OTHER
+            - name: S3QL_FSCK_KEEP_CACHE
+              value: "true"
+            - name: S3QL_MOUNT_ALLOW_OTHER
               value: "true"
         - name: nginx-s3
           image: fraoustin/fancyindex
@@ -81,9 +79,6 @@ spec:
         - name: s3ql-cache
           persistentVolumeClaim:
             claimName: s3ql-cache
-        - name: s3ql-logs
-          persistentVolumeClaim:
-            claimName: s3ql-logs
         # fuse device to use for mounting the s3ql filesystem
         - name: devfuse
           hostPath:

@@ -5,7 +5,7 @@ services:
   # s3ql itself
   s3ql:
     container_name: s3ql
-    image: 9c42d4ae5d36
+    image: 24bf89f18a79
     # SYS_ADMIN and the /dev/fuse device mount are required to allow mounting fuse devices from within a container
     cap_add:
       - SYS_ADMIN
@@ -28,17 +28,20 @@ services:
         type: bind
     stop_grace_period: 15m
     environment:
-      - STORAGE_URL=s3c://s3.fr-par.scw.cloud/s3ql-dev-test
-      - MOUNT_POINT=/s3ql/mount
-      - AUTH_FILE=/s3ql/authinfo
-      - LOG_FILE=/s3ql/logs/s3ql.log
-      - CACHE_DIR=/s3ql/cache
-      - CACHE_SIZE=1048576 # cache size in kilobytes, this is 1GB
-      - COMPRESS=none # if you store non-textual files, you probably will not benefit from compression
-      - FS_NAME=s3ql-filesystem # shows up in commands like `mount`, `df` etc.
-      - UPLOAD_THREADS=2
-      - KEEP_CACHE=true
-      - ALLOW_OTHER=true
+      - S3QL_STORAGE_URL=s3c://s3.fr-par.scw.cloud/s3ql-dev-test
+      - S3QL_MOUNTPOINT=/s3ql/mount
+      # global variables
+      - S3QL_AUTHFILE=/s3ql/authinfo
+      - S3QL_CACHEDIR=/s3ql/cache
+      - S3QL_COMPRESS=none # if you store non-textual files, you probably will not benefit from compression
+      # fsck variables
+      - S3QL_FSCK_KEEP_CACHE=true
+      # mount variables
+      - S3QL_MOUNT_ALLOW_OTHER=true
+      - S3QL_MOUNT_CACHESIZE=1048576 # cache size in kilobytes, this is 1GB
+      - S3QL_MOUNT_FS_NAME=s3ql-filesystem # shows up in commands like `mount`, `df` etc.
+      - S3QL_MOUNT_KEEP_CACHE=true
+      - S3QL_MOUNT_THREADS=2
 
   # a simple nginx container that exposes your bucket as a fancy autoindexed directory
   nginx-s3:

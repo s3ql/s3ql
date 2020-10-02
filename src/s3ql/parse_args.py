@@ -141,11 +141,11 @@ class ArgumentParser(argparse.ArgumentParser):
                           version='S3QL %s' % RELEASE)
 
     def add_quiet(self):
-        self.add_argument("--quiet", action="store_true", default=False,
+        self.add_argument("--quiet", action="store_true", default=self.envvar_or_default("S3QL_QUIET", boolean_value=True, default_value=False),
                           help="be really quiet")
 
     def add_backend_options(self):
-        self.add_argument("--backend-options", default={}, type=suboptions_type,
+        self.add_argument("--backend-options", default=self.envvar_or_default("S3QL_BACKEND_OPTIONS", default_value={}), type=suboptions_type,
                           metavar='<options>',
                           help="Backend specific options (separate by commas). See "
                                "backend documentation for available options.")
@@ -155,35 +155,34 @@ class ArgumentParser(argparse.ArgumentParser):
                     'specified by the ``--log`` option.')
         self.add_argument("--debug-modules", metavar='<modules>',
                           type=lambda s: s.split(','), dest='debug',
+                          default=self.envvar_or_default("S3QL_DEBUG_MODULES"),
                           help="Activate debugging output from specified modules "
                                "(use commas to separate multiple modules). "
                                + destnote)
         self.add_argument("--debug", action='append_const', const='s3ql',
-                          help="Activate debugging output from all S3QL modules. "
-                               + destnote)
+                          help="Activate debugging output from all S3QL modules. " + destnote)
 
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Store cached data in this directory '
-                           '(default: `~/.s3ql)`')
+                          default=self.envvar_or_default("S3QL_CACHEDIR", default_value=os.path.expanduser("~/.s3ql")),
+                          help='Store cached data in this directory (default: `~/.s3ql)`')
 
     def add_log(self, default=None):
-        self.add_argument("--log", type=str_or_None_type, metavar='<target>', default=default,
-                      help='Destination for log messages. Specify ``none`` for standard '
-                          'output or ``syslog`` for the system logging daemon. '
-                          'Anything else will be interpreted as a file name. Log files '
-                          'will be rotated when they reach 1 MiB, and at most 5 old log '
-                          'files will be kept. Default: ``%(default)s``')
+        self.add_argument("--log", type=str_or_None_type, metavar='<target>',
+                          default=self.envvar_or_default("S3QL_LOG", default_value=default),
+                          help='Destination for log messages. Specify ``none`` for standard '
+                               'output or ``syslog`` for the system logging daemon. '
+                               'Anything else will be interpreted as a file name. Log files '
+                               'will be rotated when they reach 1 MiB, and at most 5 old log '
+                               'files will be kept. Default: ``%(default)s``')
 
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',
                           type=storage_url_type,
                           help='Storage URL of the backend that contains the file system')
         self.add_argument("--authfile", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql/authinfo2"),
-                      help='Read authentication credentials from this file '
-                           '(default: `~/.s3ql/authinfo2)`')
+                          default=self.envvar_or_default("S3QL_AUTHFILE", default_value=os.path.expanduser("~/.s3ql/authinfo2")),
+                          help='Read authentication credentials from this file (default: `~/.s3ql/authinfo2)`')
 
     def add_compress(self):
         def compression_type(s):
@@ -201,7 +200,7 @@ class ArgumentParser(argparse.ArgumentParser):
             if alg == 'none':
                 alg = None
             return (alg, lvl)
-        self.add_argument("--compress", action="store", default='lzma-6',
+        self.add_argument("--compress", action="store", default=self.envvar_or_default("S3QL_COMPRESS", default_value='lzma-6'),
                             metavar='<algorithm-lvl>', type=compression_type,
                             help="Compression algorithm and compression level to use when "
                                  "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
@@ -323,6 +322,26 @@ class ArgumentParser(argparse.ArgumentParser):
                 options.backend_password = sys.stdin.readline().rstrip()
 
         options.backend_class = backend_class
+
+    def envvar_or_default(self, environment_variable_name, boolean_value=False, default_value=None):
+        """
+        Parse an argument from the environment, returning `default_value` if undefined
+    
+        If `boolean_value`, then return its conversion to "true" or "false"
+        """
+        if environment_variable_name not in os.environ:
+            return default_value
+
+        value = os.getenv(environment_variable_name)
+        if boolean_value:
+            if value == "true":
+                return True
+            elif value == "false":
+                return False
+            else:
+                raise ArgumentTypeError(f'Invalid value for boolean variable ${environment_variable_name}. Expected "true" or "false", but got: ${value}')
+
+        return value
 
 
 def storage_url_type(s):

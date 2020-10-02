@@ -523,50 +523,54 @@ def parse_args(args):
 
     parser.add_argument("mountpoint", metavar='<mountpoint>', type=os.path.abspath,
                         help='Where to mount the file system')
-    parser.add_argument("--cachesize", type=int, default=None, metavar='<size>',
+    parser.add_argument("--cachesize", type=int, default=parser.envvar_or_default("S3QL_MOUNT_CACHESIZE"), metavar='<size>',
                       help="Cache size in KiB (default: autodetect).")
-    parser.add_argument("--max-cache-entries", type=int, default=None, metavar='<num>',
+    parser.add_argument("--max-cache-entries", type=int, default=parser.envvar_or_default("S3QL_MOUNT_MAX_CACHE_ENTRIES"), metavar='<num>',
                       help="Maximum number of entries in cache (default: autodetect). "
                       'Each cache entry requires one file descriptor, so if you increase '
                       'this number you have to make sure that your process file descriptor '
                       'limit (as set with `ulimit -n`) is high enough (at least the number '
                       'of cache entries + 100).')
-    parser.add_argument("--keep-cache", action="store_true", default=False,
+    parser.add_argument("--keep-cache", action="store_true",
+                      default=parser.envvar_or_default("S3QL_MOUNT_KEEP_CACHE", boolean_value=True, default_value=False),
                       help="Do not purge locally cached files on exit.")
-    parser.add_argument("--allow-other", action="store_true", default=False, help=
+    parser.add_argument("--allow-other", action="store_true",
+                      default=parser.envvar_or_default("S3QL_MOUNT_ALLOW_OTHER", boolean_value=True, default_value=False), help=
                       'Normally, only the user who called `mount.s3ql` can access the mount '
                       'point. This user then also has full access to it, independent of '
                       'individual file permissions. If the `--allow-other` option is '
                       'specified, other users can access the mount point as well and '
                       'individual file permissions are taken into account for all users.')
-    parser.add_argument("--allow-root", action="store_true", default=False,
+    parser.add_argument("--allow-root", action="store_true",
+                      default=parser.envvar_or_default("S3QL_MOUNT_ALLOW_ROOT", boolean_value=True, default_value=False),
                       help='Like `--allow-other`, but restrict access to the mounting '
                            'user and the root user.')
-    parser.add_argument("--fg", action="store_true", default=False,
+    parser.add_argument("--fg", action="store_true", default=parser.envvar_or_default("S3QL_MOUNT_FG", boolean_value=True, default_value=False),
                       help="Do not daemonize, stay in foreground")
-    parser.add_argument("--fs-name", default=None,
+    parser.add_argument("--fs-name", default=parser.envvar_or_default("S3QL_MOUNT_FS_NAME"),
                       help="Mount name passed to fuse, the name will be shown in the first "
                            "column of the system mount command output. If not specified your "
                            "storage url is used.")
-    parser.add_argument("--systemd", action="store_true", default=False,
+    parser.add_argument("--systemd", action="store_true", default=parser.envvar_or_default("S3QL_MOUNT_SYSTEMD", boolean_value=True, default_value=False),
                       help="Run as systemd unit. Consider specifying --log none as well "
                            "to make use of journald.")
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
-                      default=24 * 60 * 60, metavar='<seconds>',
+                      default=parser.envvar_or_default("S3QL_MOUNT_METADATA_UPLOAD_INTERVAL", default_value=24 * 60 * 60),
+                      metavar='<seconds>',
                       help='Interval in seconds between complete metadata uploads. '
                            'Set to 0 to disable. Default: 24h.')
     parser.add_argument("--threads", action="store", type=int,
-                      default=None, metavar='<no>',
+                      default=parser.envvar_or_default("S3QL_MOUNT_THREADS"), metavar='<no>',
                       help='Number of parallel upload threads to use (default: auto).')
-    parser.add_argument("--nfs", action="store_true", default=False,
+    parser.add_argument("--nfs", action="store_true", default=parser.envvar_or_default("S3QL_MOUNT_NFS", boolean_value=True, default_value=False),
                       help='Enable some optimizations for exporting the file system '
                            'over NFS. (default: %(default)s)')
-    parser.add_argument("--profile", action="store_true", default=False,
+    parser.add_argument("--profile", action="store_true", default=parser.envvar_or_default("S3QL_MOUNT_PROFILE", boolean_value=True, default_value=False),
                         help=argparse.SUPPRESS)
 
     # Not yet implemented. When implementing this, don't forget to
     # uncomment check against param['max_obj_size'] in main().
-    #parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
+    # parser.add_argument("--min-obj-size", type=int, default=parser.envvar_or_default("S3QL_MOUNT_MIN_OBJ_SIZE", default_value=512), metavar='<size>',
     #                    help="Minimum size of storage objects in KiB. Files smaller than this "
     #                    "may be combined into groups that are stored as single objects "
     #                    "in the storage backend. Default: %(default)d KB.")
