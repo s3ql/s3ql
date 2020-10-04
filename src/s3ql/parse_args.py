@@ -246,8 +246,8 @@ class ArgumentParser(argparse.ArgumentParser):
         return merged
 
     def add_argument(self, *arg, **kwargs):
-        envkwargs = self.inject_default_from_environment(*arg, **kwargs)
-        super().add_argument(*arg, **envkwargs)
+        env_aware_kwargs = self.inject_default_from_environment(*arg, **kwargs)
+        super().add_argument(*arg, **env_aware_kwargs)
 
     def parse_args(self, *args, **kwargs):
 
@@ -330,20 +330,24 @@ class ArgumentParser(argparse.ArgumentParser):
 
     @staticmethod
     def inject_default_from_environment(*args, **kwargs):
-        flagname = list(args)[-1]
-        envvarname = 'S3QL' + str(flagname).replace("--", "_").replace("-", "_").upper()
-        if envvarname in os.environ:
-            envvalue = os.environ[envvarname]
-            if 'action' in kwargs.keys() and kwargs['action'] == 'store_true':
-                if envvalue == 'true':
-                    envvalue = True
-                elif envvalue == 'false':
-                    envvalue = False
-                else:
-                    raise ArgumentTypeError(f'Expected {envvarname} to be boolean (true/false) but got: {envvalue}')
+        flag_name = list(args)[-1]
 
-            log.debug("From environment: %s = %s", envvarname, envvalue)
-            kwargs['default'] = envvalue
+        # args that don't start with "-" are strictly CLI arguments
+        if not flag_name.startswith("-"):
+            return kwargs
+
+        var_name = 'S3QL' + str(flag_name).replace("--", "_").replace("-", "_").upper()
+        if var_name in os.environ:
+            var_value = os.environ[var_name]
+            if 'action' in kwargs.keys() and kwargs['action'] == 'store_true':
+                if var_value == 'true':
+                    var_value = True
+                elif var_value == 'false':
+                    var_value = False
+                else:
+                    raise ArgumentTypeError(f'Expected {var_name} to be boolean (true/false) but got: {var_value}')
+            kwargs['default'] = var_value
+
         return kwargs
 
 

@@ -6,6 +6,17 @@
 #
 # This work can be distributed under the terms of the GNU GPLv3.
 
+function validate_log_configuration() {
+  if [ "$S3QL_LOG" == "systemd" ]; then
+    echo "S3QL_LOG set to 'systemd' but it isn't supported within docker!"
+    exit 1
+  fi
+  if [ "$S3QL_LOG" != "none" ]; then
+    echo "S3QL_LOG set to '$S3QL_LOG' file. While it is technically supported within docker, it is not recommended."
+    echo "Consider using 'none' and shipping container standard output directly."
+  fi
+}
+
 # credits to Daniel Jagszent, from: https://github.com/s3ql/s3ql/issues/191#issuecomment-662550891
 function verify_clean_mountpoint() {
   echo "$S3QL_MOUNTPOINT exists already, verifying that it isn't still mounted."
@@ -32,8 +43,10 @@ function run_fsck() {
   fi
 }
 
+validate_log_configuration || exit $?
+
 if [ -d "$S3QL_MOUNTPOINT" ]; then
-  verify_clean_mountpoint
+  verify_clean_mountpoint || exit $?
 fi
 
-run_fsck
+run_fsck || exit $?

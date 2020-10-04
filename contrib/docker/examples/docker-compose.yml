@@ -5,7 +5,7 @@ services:
   # s3ql itself
   s3ql:
     container_name: s3ql
-    image: 60be36f45550
+    image: 80e4a6e82b5a
     # SYS_ADMIN and the /dev/fuse device mount are required to allow mounting fuse devices from within a container
     cap_add:
       - SYS_ADMIN
