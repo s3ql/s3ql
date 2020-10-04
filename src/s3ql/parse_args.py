@@ -333,17 +333,17 @@ class ArgumentParser(argparse.ArgumentParser):
         flagname = list(args)[-1]
         envvarname = 'S3QL' + str(flagname).replace("--", "_").replace("-", "_").upper()
         if envvarname in os.environ:
-            sanitized = os.environ[envvarname]
-            if hasattr(kwargs, 'action') and getattr(kwargs, 'action') == 'store_true':
-                if sanitized == 'true':
-                    sanitized = True
-                elif sanitized == 'false':
-                    sanitized = False
+            envvalue = os.environ[envvarname]
+            if 'action' in kwargs.keys() and kwargs['action'] == 'store_true':
+                if envvalue == 'true':
+                    envvalue = True
+                elif envvalue == 'false':
+                    envvalue = False
                 else:
-                    raise ArgumentTypeError(f'Expected {envvarname} to be boolean (true/false) but got: {sanitized}')
+                    raise ArgumentTypeError(f'Expected {envvarname} to be boolean (true/false) but got: {envvalue}')
 
-            print(f'Environment override: {envvarname} = {sanitized}')
-            kwargs['default'] = sanitized
+            log.debug("From environment: %s = %s", envvarname, envvalue)
+            kwargs['default'] = envvalue
         return kwargs
 
 
