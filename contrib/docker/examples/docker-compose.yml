@@ -5,7 +5,7 @@ services:
   # s3ql itself
   s3ql:
     container_name: s3ql
-    image: 80e4a6e82b5a
+    image: 6bdd59483f73
     # SYS_ADMIN and the /dev/fuse device mount are required to allow mounting fuse devices from within a container
     cap_add:
       - SYS_ADMIN
@@ -17,15 +17,8 @@ services:
         type: volume
         bind:
           propagation: shared
-      - source: s3ql-cache
-        target: /s3ql/cache
-        type: volume
-      - source: s3ql-logs
-        target: /s3ql/logs
-        type: volume
-      - source: ~/s3ql_authinfo
-        target: /s3ql/authinfo
-        type: bind
+      - s3ql-cache:/s3ql/cache
+      - ~/s3ql_authinfo:/s3ql/authinfo
     stop_grace_period: 15m
     environment:
       - S3QL_STORAGE_URL=s3c://s3.fr-par.scw.cloud/s3ql-dev-test
@@ -52,7 +45,7 @@ services:
         type: volume
         bind:
           propagation: shared
-    stop_grace_period: 5s
+    stop_grace_period: 1s
     environment:
       - DISABLE_AUTH=true
 
@@ -61,5 +54,3 @@ volumes:
     name: s3ql-data
   s3ql-cache:
     name: s3ql-cache
-  s3ql-logs:
-    name: s3ql-logs
