@@ -141,7 +141,8 @@ class ArgumentParser(argparse.ArgumentParser):
                           version='S3QL %s' % RELEASE)
 
     def add_quiet(self):
-        self.add_argument("--quiet", action="store_true", default=False, help="be really quiet")
+        self.add_argument("--quiet", action="store_true", default=False,
+                          help="be really quiet")
 
     def add_backend_options(self):
         self.add_argument("--backend-options", default={}, type=suboptions_type,
@@ -158,29 +159,31 @@ class ArgumentParser(argparse.ArgumentParser):
                                "(use commas to separate multiple modules). "
                                + destnote)
         self.add_argument("--debug", action='append_const', const='s3ql',
-                          help="Activate debugging output from all S3QL modules. " + destnote)
+                          help="Activate debugging output from all S3QL modules. "
+                               + destnote)
 
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
-                          default=os.path.expanduser("~/.s3ql"),
-                          help='Store cached data in this directory (default: `~/.s3ql)`')
+                      default=os.path.expanduser("~/.s3ql"),
+                      help='Store cached data in this directory '
+                           '(default: `~/.s3ql)`')
 
     def add_log(self, default=None):
-        self.add_argument("--log", type=str_or_None_type, metavar='<target>',
-                          default=default,
-                          help='Destination for log messages. Specify ``none`` for standard '
-                               'output or ``syslog`` for the system logging daemon. '
-                               'Anything else will be interpreted as a file name. Log files '
-                               'will be rotated when they reach 1 MiB, and at most 5 old log '
-                               'files will be kept. Default: ``%(default)s``')
+        self.add_argument("--log", type=str_or_None_type, metavar='<target>', default=default,
+                      help='Destination for log messages. Specify ``none`` for standard '
+                          'output or ``syslog`` for the system logging daemon. '
+                          'Anything else will be interpreted as a file name. Log files '
+                          'will be rotated when they reach 1 MiB, and at most 5 old log '
+                          'files will be kept. Default: ``%(default)s``')
 
     def add_storage_url(self):
         self.add_argument("storage_url", metavar='<storage-url>',
                           type=storage_url_type,
                           help='Storage URL of the backend that contains the file system')
         self.add_argument("--authfile", type=str, metavar='<path>',
-                          default=os.path.expanduser("~/.s3ql/authinfo2"),
-                          help='Read authentication credentials from this file (default: `~/.s3ql/authinfo2)`')
+                      default=os.path.expanduser("~/.s3ql/authinfo2"),
+                      help='Read authentication credentials from this file '
+                           '(default: `~/.s3ql/authinfo2)`')
 
     def add_compress(self):
         def compression_type(s):

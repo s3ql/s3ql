@@ -1112,18 +1112,15 @@ def parse_args(args):
     parser.add_storage_url()
     parser.add_compress()
 
-    parser.add_argument("--keep-cache", action="store_true",
-                        default=False,
-                        help="Do not purge locally cached files on exit.")
-    parser.add_argument("--batch", action="store_true",
-                        default=False,
-                        help="If user input is required, exit without prompting.")
-    parser.add_argument("--force", action="store_true",
-                        default=False,
-                        help="Force checking even if file system is marked clean.")
-    parser.add_argument("--force-remote", action="store_true",
-                        default=False,
-                        help="Force use of remote metadata even when this would likely result in data loss.")
+    parser.add_argument("--keep-cache", action="store_true", default=False,
+                      help="Do not purge locally cached files on exit.")
+    parser.add_argument("--batch", action="store_true", default=False,
+                      help="If user input is required, exit without prompting.")
+    parser.add_argument("--force", action="store_true", default=False,
+                      help="Force checking even if file system is marked clean.")
+    parser.add_argument("--force-remote", action="store_true", default=False,
+                      help="Force use of remote metadata even when this would "
+                        "likely result in data loss.")
     options = parser.parse_args(args)
 
     return options
@@ -1134,7 +1131,6 @@ def main(args=None):
         args = sys.argv[1:]
 
     options = parse_args(args)
-    print(f'options:\n{options}\n')
     setup_logging(options)
 
     # Check if fs is mounted on this computer
