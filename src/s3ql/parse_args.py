@@ -141,11 +141,10 @@ class ArgumentParser(argparse.ArgumentParser):
                           version='S3QL %s' % RELEASE)
 
     def add_quiet(self):
-        self.add_argument("--quiet", action="store_true", default=self.envvar_or_default("S3QL_QUIET", boolean_value=True, default_value=False),
-                          help="be really quiet")
+        self.add_argument("--quiet", action="store_true", default=False, help="be really quiet")
 
     def add_backend_options(self):
-        self.add_argument("--backend-options", default=self.envvar_or_default("S3QL_BACKEND_OPTIONS", default_value={}), type=suboptions_type,
+        self.add_argument("--backend-options", default={}, type=suboptions_type,
                           metavar='<options>',
                           help="Backend specific options (separate by commas). See "
                                "backend documentation for available options.")
@@ -155,7 +154,6 @@ class ArgumentParser(argparse.ArgumentParser):
                     'specified by the ``--log`` option.')
         self.add_argument("--debug-modules", metavar='<modules>',
                           type=lambda s: s.split(','), dest='debug',
-                          default=self.envvar_or_default("S3QL_DEBUG_MODULES"),
                           help="Activate debugging output from specified modules "
                                "(use commas to separate multiple modules). "
                                + destnote)
@@ -164,12 +162,12 @@ class ArgumentParser(argparse.ArgumentParser):
 
     def add_cachedir(self):
         self.add_argument("--cachedir", type=str, metavar='<path>',
-                          default=self.envvar_or_default("S3QL_CACHEDIR", default_value=os.path.expanduser("~/.s3ql")),
+                          default=os.path.expanduser("~/.s3ql"),
                           help='Store cached data in this directory (default: `~/.s3ql)`')
 
     def add_log(self, default=None):
         self.add_argument("--log", type=str_or_None_type, metavar='<target>',
-                          default=self.envvar_or_default("S3QL_LOG", default_value=default),
+                          default=default,
                           help='Destination for log messages. Specify ``none`` for standard '
                                'output or ``syslog`` for the system logging daemon. '
                                'Anything else will be interpreted as a file name. Log files '
@@ -181,7 +179,7 @@ class ArgumentParser(argparse.ArgumentParser):
                           type=storage_url_type,
                           help='Storage URL of the backend that contains the file system')
         self.add_argument("--authfile", type=str, metavar='<path>',
-                          default=self.envvar_or_default("S3QL_AUTHFILE", default_value=os.path.expanduser("~/.s3ql/authinfo2")),
+                          default=os.path.expanduser("~/.s3ql/authinfo2"),
                           help='Read authentication credentials from this file (default: `~/.s3ql/authinfo2)`')
 
     def add_compress(self):
@@ -200,7 +198,7 @@ class ArgumentParser(argparse.ArgumentParser):
             if alg == 'none':
                 alg = None
             return (alg, lvl)
-        self.add_argument("--compress", action="store", default=self.envvar_or_default("S3QL_COMPRESS", default_value='lzma-6'),
+        self.add_argument("--compress", action="store", default='lzma-6',
                             metavar='<algorithm-lvl>', type=compression_type,
                             help="Compression algorithm and compression level to use when "
                                  "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
@@ -243,6 +241,10 @@ class ArgumentParser(argparse.ArgumentParser):
                 if key != 'storage-url':
                     merged[key] = val
         return merged
+
+    def add_argument(self, *arg, **kwargs):
+        envkwargs = self.inject_default_from_environment(*arg, **kwargs)
+        super().add_argument(*arg, **envkwargs)
 
     def parse_args(self, *args, **kwargs):
 
@@ -323,25 +325,23 @@ class ArgumentParser(argparse.ArgumentParser):
 
         options.backend_class = backend_class
 
-    def envvar_or_default(self, environment_variable_name, boolean_value=False, default_value=None):
-        """
-        Parse an argument from the environment, returning `default_value` if undefined
-    
-        If `boolean_value`, then return its conversion to "true" or "false"
-        """
-        if environment_variable_name not in os.environ:
-            return default_value
+    @staticmethod
+    def inject_default_from_environment(*args, **kwargs):
+        flagname = list(args)[-1]
+        envvarname = 'S3QL' + str(flagname).replace("--", "_").replace("-", "_").upper()
+        if envvarname in os.environ:
+            sanitized = os.environ[envvarname]
+            if hasattr(kwargs, 'action') and getattr(kwargs, 'action') == 'store_true':
+                if sanitized == 'true':
+                    sanitized = True
+                elif sanitized == 'false':
+                    sanitized = False
+                else:
+                    raise ArgumentTypeError(f'Expected {envvarname} to be boolean (true/false) but got: {sanitized}')
 
-        value = os.getenv(environment_variable_name)
-        if boolean_value:
-            if value == "true":
-                return True
-            elif value == "false":
-                return False
-            else:
-                raise ArgumentTypeError(f'Invalid value for boolean variable ${environment_variable_name}. Expected "true" or "false", but got: ${value}')
-
-        return value
+            print(f'Environment override: {envvarname} = {sanitized}')
+            kwargs['default'] = sanitized
+        return kwargs
 
 
 def storage_url_type(s):

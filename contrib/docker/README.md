@@ -47,31 +47,31 @@ This docker image is configured mostly through environment variables. They are d
 
 | Variable                            | Docker image default | Documentation
 |---                                  |---                   |---
-| S3QL_MOUNT_ALLOW_OTHER              | `true`               | If set to **`true`**, add `--allow-other`
-| S3QL_MOUNT_ALLOW_ROOT               |                      | If set to **`true`**, add `--allow-root`
-| S3QL_MOUNT_CACHESIZE                |                      | If set, equivalent to `--cachesize`
-| S3QL_MOUNT_FG                       | `true`               | If set to **`true`**, add `--fg`
-| S3QL_MOUNT_FS_NAME                  |                      | If set, equivalent to `--fs-name`
-| S3QL_MOUNT_KEEP_CACHE               |                      | If set to **`true`**, add `--keep-cache`
-| S3QL_MOUNT_MAX_CACHE_ENTRIES        |                      | If set, equivalent to `--max-cache-entries`
-| S3QL_MOUNT_METADATA_UPLOAD_INTERVAL |                      | If set, equivalent to `--metadata-upload-interval`
-| S3QL_MOUNT_MIN_OBJ_SIZE             |                      | If set, equivalent to `--min-obj-size` - **not yet implemented**
-| S3QL_MOUNT_NFS                      |                      | If set to **`true`**, add `--nfs`
-| S3QL_MOUNT_PROFILE                  |                      | If set to **`true`**, add `--profile`
-| S3QL_MOUNT_SYSTEMD                  |                      | If set to **`true`**, add `--systemd`
-| S3QL_MOUNT_THREADS                  |                      | If set, equivalent to `--threads`
+| S3QL_ALLOW_OTHER              | `true`               | If set to **`true`**, add `--allow-other`
+| S3QL_ALLOW_ROOT               |                      | If set to **`true`**, add `--allow-root`
+| S3QL_CACHESIZE                |                      | If set, equivalent to `--cachesize`
+| S3QL_FG                       | `true`               | If set to **`true`**, add `--fg`
+| S3QL_FS_NAME                  |                      | If set, equivalent to `--fs-name`
+| S3QL_KEEP_CACHE               |                      | If set to **`true`**, add `--keep-cache`
+| S3QL_MAX_CACHE_ENTRIES        |                      | If set, equivalent to `--max-cache-entries`
+| S3QL_METADATA_UPLOAD_INTERVAL |                      | If set, equivalent to `--metadata-upload-interval`
+| S3QL_MIN_OBJ_SIZE             |                      | If set, equivalent to `--min-obj-size` - **not yet implemented**
+| S3QL_NFS                      |                      | If set to **`true`**, add `--nfs`
+| S3QL_PROFILE                  |                      | If set to **`true`**, add `--profile`
+| S3QL_SYSTEMD                  |                      | If set to **`true`**, add `--systemd`
+| S3QL_THREADS                  |                      | If set, equivalent to `--threads`
 
 ### `fsck.s3ql`
 
 | Variable               | Docker image default | Documentation
 |---                     |---                   |---
-| S3QL_FSCK_BATCH        | `true`               | If set to **`true`**, add `--batch`
-| S3QL_FSCK_FORCE        |                      | If set to **`true`**, add `--force`
-| S3QL_FSCK_FORCE_REMOTE |                      | If set to **`true`**, add `--force-remote`
-| S3QL_FSCK_KEEP_CACHE   |                      | If set to **`true`**, add `--keep-cache`
+| S3QL_BATCH        | `true`               | If set to **`true`**, add `--batch`
+| S3QL_FORCE        |                      | If set to **`true`**, add `--force`
+| S3QL_FORCE_REMOTE |                      | If set to **`true`**, add `--force-remote`
+| S3QL_KEEP_CACHE   |                      | If set to **`true`**, add `--keep-cache`
 
 ### `umount.s3ql`
 
 | Variable         | Docker image default | Documentation
 |---               |---                   |---
-| S3QL_UMOUNT_LAZY |                      | If set to **`true`**, add `--lazy`
+| S3QL_LAZY |                      | If set to **`true`**, add `--lazy`

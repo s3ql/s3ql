@@ -14,7 +14,9 @@ echo "Will use storage-url '$S3QL_STORAGE_URL' and mountpoint '$S3QL_MOUNTPOINT'
 echo ""
 
 echo "*** Init ***"
-/s3ql/bin/init_fsck.sh
+if ! /s3ql/bin/init_fsck.sh; then
+  exit $?
+fi
 echo ""
 
 echo "*** Start ***"
