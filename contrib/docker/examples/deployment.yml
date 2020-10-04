@@ -45,19 +45,17 @@ spec:
               value: /s3ql/authinfo
             - name: S3QL_CACHEDIR
               value: /s3ql/cache
-            - name: S3QL_MOUNT_CACHESIZE
+            - name: S3QL_CACHESIZE
               value: "1048576"
             - name: S3QL_COMPRESS
               value: none
-            - name: S3QL_MOUNT_FS_NAME
+            - name: S3QL_FS_NAME
               value: s3ql-filesystem
-            - name: S3QL_MOUNT_THREADS
+            - name: S3QL_THREADS
               value: "2"
-            - name: S3QL_MOUNT_KEEP_CACHE
+            - name: S3QL_KEEP_CACHE
               value: "true"
-            - name: S3QL_FSCK_KEEP_CACHE
-              value: "true"
-            - name: S3QL_MOUNT_ALLOW_OTHER
+            - name: S3QL_ALLOW_OTHER
               value: "true"
         - name: nginx-s3
           image: fraoustin/fancyindex
