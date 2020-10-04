@@ -7,8 +7,12 @@
 # This work can be distributed under the terms of the GNU GPLv3.
 
 function validate_log_configuration() {
-  if [ "$S3QL_LOG" == "systemd" ]; then
+  if [ "$S3QL_LOG" == "syslog" ]; then
     echo "S3QL_LOG set to 'systemd' but it isn't supported within docker!"
+    exit 1
+  fi
+  if [ "$S3QL_SYSTEMD" == "true" ]; then
+    echo "S3QL_SYSTEMD set to '$S3QL_SYSTEMD' but it isn't supported within docker!"
     exit 1
   fi
   if [ "$S3QL_LOG" != "none" ]; then
