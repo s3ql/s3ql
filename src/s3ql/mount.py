@@ -182,7 +182,6 @@ async def main_async(options, stdout_log_handler):
     #    raise QuietError('Maximum object size must be bigger than minimum object size.',
     #                     exitcode=2)
 
-
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
     avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
@@ -205,7 +204,7 @@ async def main_async(options, stdout_log_handler):
                                               options.metadata_upload_interval)
     block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
                              options.cachesize * 1024, options.max_cache_entries)
-    commit_task = CommitTask(block_cache)
+    commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
     operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
                                inode_cache=InodeCache(db, param['inode_gen']),
                                upload_task=metadata_upload_task)
@@ -542,6 +541,9 @@ def parse_args(args):
     parser.add_argument("--allow-root", action="store_true", default=False,
                       help='Like `--allow-other`, but restrict access to the mounting '
                            'user and the root user.')
+    parser.add_argument("--dirty-block-upload-delay", action="store", type=int,
+                      default=10, metavar='<seconds>',
+                      help="Upload delay for dirty blocks in seconds (default: 10 seconds).")
     parser.add_argument("--fg", action="store_true", default=False,
                       help="Do not daemonize, stay in foreground")
     parser.add_argument("--fs-name", default=None,
@@ -704,10 +706,11 @@ class CommitTask:
     Periodically upload dirty blocks.
     '''
 
-    def __init__(self, block_cache):
+    def __init__(self, block_cache, dirty_block_upload_delay):
         super().__init__()
         self.block_cache = block_cache
         self.stop_event = trio.Event()
+        self.dirty_block_upload_delay = dirty_block_upload_delay
 
     async def run(self):
         log.debug('started')
@@ -729,7 +732,7 @@ class CommitTask:
             # ... number=500)/500 * 1e3
             # 1.456586996000624
             for el in list(self.block_cache.cache.values()):
-                if self.stop_event.is_set() or stamp - el.last_write < 10:
+                if self.stop_event.is_set() or stamp - el.last_write < self.dirty_block_upload_delay:
                     break
                 if el.dirty and el not in self.block_cache.in_transit:
                     await self.block_cache.upload_if_dirty(el)

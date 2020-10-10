@@ -96,8 +96,9 @@ Cache Flushing and Expiration
 -----------------------------
 
 S3QL flushes changed blocks in the cache to the backend whenever a block
-has not been accessed for at least 10 seconds. Note that when a block is
-flushed, it still remains in the cache.
+has not been accessed for at least 10 seconds by default. This time can
+be influenced using the :cmdopt:`--dirty-block-upload-delay` option. Note
+that when a block is flushed, it still remains in the cache.
 
 Cache expiration (i.e., removal of blocks from the cache) is only done
 when the maximum cache size is reached. S3QL always expires the least
