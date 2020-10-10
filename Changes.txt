@@ -4,6 +4,9 @@ UNRELEASED CHANGES
 
   * `mount.s3ql` now exits gracefully on CTRL-C (INT signal)
 
+  * `mount.s3ql` now supports the `--dirty-block-upload-delay` option to influence the
+    time before dirty blocks are written from the cache to the storage backend. 
+
 2020-09-04, S3QL 3.5.1
 
   * `s3qlctrl upload-meta` now works properly again (previously, only the first
