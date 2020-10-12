@@ -94,7 +94,7 @@ class Backend(swift.Backend):
                             'user': {
                                 'name': user,
                                 'domain': {
-                                    'id': domain
+                                    'name': domain
                                 },
                                 'password': self.password
                             }
@@ -102,9 +102,9 @@ class Backend(swift.Backend):
                     },
                     'scope': {
                         'project': {
-                            'id': tenant,
+                            'name': tenant,
                             'domain': {
-                                'id': project_domain
+                                'name': project_domain
                             }
                         }
                     }
