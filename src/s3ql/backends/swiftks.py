@@ -80,11 +80,11 @@ class Backend(swift.Backend):
             user = self.login
 
         # We can optionally configure with tenant name instead of id.
-        tenant_is_name = self.options.get('tenant-is-name', False)
+        tenant_is_name = 'tenant-is-name' in self.options
 
         # We can configure with domain as id or name.
         domain = self.options.get('domain', None)
-        domain_is_name = self.options.get('domain-is-name', False)
+        domain_is_name = 'domain-is-name' in self.options
         if domain:
             if not tenant:
                 raise ValueError("Tenant is required when Keystone v3 is used")
@@ -94,7 +94,7 @@ class Backend(swift.Backend):
             # allows for them to be different
             # We can configure with project-domain as id or name
             project_domain = self.options.get('project-domain', domain)
-            project_domain_is_name = self.options.get('project-domain-is-name', domain_is_name)
+            project_domain_is_name = ('project-domain-is-name' in self.options) or domain_is_name
 
             auth_body = {
                 'auth': {

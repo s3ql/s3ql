@@ -18,3 +18,4 @@ __pycache__/
 /tests/.pytest_cache/
 /tests/test.log
 /tests/test_crit.log
+/.history
