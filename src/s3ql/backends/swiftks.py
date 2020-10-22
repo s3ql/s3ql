@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 class Backend(swift.Backend):
 
     # Add the options for the v3 keystore swift.
-    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-name', 'domain-name', 'tenant-name'}
+    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-is-name', 'domain-is-name', 'tenant-is-name'}
 
     def __init__(self, options):
         self.region = None
@@ -79,22 +79,22 @@ class Backend(swift.Backend):
             tenant = None
             user = self.login
 
-        # We can optionally configure with tenant-name. If specified, it overrides tenant id from the login
-        tenant_name = self.options.get('tenant-name', None)
+        # We can optionally configure with tenant name instead of id.
+        tenant_is_name = self.options.get('tenant-is-name', False)
 
-        # We can configure with domain id and/or domain name. If both are specified, domain-name takes preference
+        # We can configure with domain as id or name.
         domain = self.options.get('domain', None)
-        domain_name = self.options.get('domain-name', None)
-        if domain or domain_name:
+        domain_is_name = self.options.get('domain-is-name', False)
+        if domain:
             if not tenant:
                 raise ValueError("Tenant is required when Keystone v3 is used")
 
             # In simple cases where there's only one domain, the project domain
             # will be the same as the authentication domain, but this option
             # allows for them to be different
-            # We can configure with project-domain and/or project-domain-name. If both are specified, project-domain-name takes preference
+            # We can configure with project-domain as id or name
             project_domain = self.options.get('project-domain', domain)
-            project_domain_name = self.options.get('project-domain-name', domain_name)
+            project_domain_is_name = self.options.get('project-domain-is-name', domain_is_name)
 
             auth_body = {
                 'auth': {
@@ -104,7 +104,7 @@ class Backend(swift.Backend):
                             'user': {
                                 'name': user,
                                 'domain': {
-                                    'name' if domain_name else 'id': domain_name or domain
+                                    ('name' if domain_is_name else 'id'): domain
                                 },
                                 'password': self.password
                             }
@@ -112,9 +112,9 @@ class Backend(swift.Backend):
                     },
                     'scope': {
                         'project': {
-                            'name' if tenant_name else 'id': tenant_name or tenant,
+                            ('name' if tenant_is_name else 'id'): tenant,
                             'domain': {
-                                'name' if project_domain_name else 'id': project_domain_name or project_domain
+                                ('name' if project_domain_is_name else 'id'): project_domain
                             }
                         }
                     }
