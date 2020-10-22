@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 class Backend(swift.Backend):
 
     # Add the options for the v3 keystore swift.
-    known_options = swift.Backend.known_options | {'domain', 'project_domain', 'project-domain-name', 'domain-name', 'tenant-name'}
+    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-name', 'domain-name', 'tenant-name'}
 
     def __init__(self, options):
         self.region = None
