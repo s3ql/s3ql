@@ -269,6 +269,12 @@ The OpenStack backend accepts the following backend options:
    If your provider did not give you a domain ID, then it is most likely
    :var:`default`.
 
+.. option:: domain-is-name
+
+   If your provider only supplies you with the name of your domain and not the uuid,
+   you need to set this :var:`domain-is-name` option, whereby the :var:`domain` is used as the domain name,
+   not the domain id.
+
 .. option:: project-domain
 
    In simple cases, the project domain will be the same as the auth
@@ -277,6 +283,20 @@ The OpenStack backend accepts the following backend options:
    You need to provide the domain ID not the domain name to this option.
    If your provider did not give you a domain ID, then it is most likely
    :var:`default`.
+
+.. option:: project-domain-is-name
+
+   If your provider only supplies you with the name of your project domain and not the uuid,
+   you need to set this :var:`project-domain-name` option, whereby the :var:`project-domain` is used
+   as the name of the project domain, not the id of the project domain.
+   If project-domain-is-name is not set, it is assumed the same as domain-is-name.
+
+.. option:: tenant-is-name
+
+   Some providers use the tenant name to specify the storage location, and others use the tenant id.
+   If your provider uses the tenant name and not the id, you need to set this :var:`tenant-is-name` option.
+   If :var:`tenant-is-name` is provided, the :var:`<tenant>` component of the login is used as the tenant
+   name, not the tenant id.
 
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/

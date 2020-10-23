@@ -1,4 +1,6 @@
 UNRELEASED CHANGES
+  * Added ability to specify domain-name, project-domain-name and tenant-name as options
+    for the OpenStack Swift (Keystone v3) backend for providers that prefer name to id.
 
   * The open() syscall supports the O_TRUNC flag now.
 

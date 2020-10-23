@@ -21,6 +21,9 @@ log = logging.getLogger(__name__)
 
 class Backend(swift.Backend):
 
+    # Add the options for the v3 keystore swift.
+    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-is-name', 'domain-is-name', 'tenant-is-name'}
+
     def __init__(self, options):
         self.region = None
         super().__init__(options)
@@ -76,7 +79,12 @@ class Backend(swift.Backend):
             tenant = None
             user = self.login
 
+        # We can optionally configure with tenant name instead of id.
+        tenant_is_name = 'tenant-is-name' in self.options
+
+        # We can configure with domain as id or name.
         domain = self.options.get('domain', None)
+        domain_is_name = 'domain-is-name' in self.options
         if domain:
             if not tenant:
                 raise ValueError("Tenant is required when Keystone v3 is used")
@@ -84,7 +92,9 @@ class Backend(swift.Backend):
             # In simple cases where there's only one domain, the project domain
             # will be the same as the authentication domain, but this option
             # allows for them to be different
+            # We can configure with project-domain as id or name
             project_domain = self.options.get('project-domain', domain)
+            project_domain_is_name = ('project-domain-is-name' in self.options) or domain_is_name
 
             auth_body = {
                 'auth': {
@@ -94,7 +104,7 @@ class Backend(swift.Backend):
                             'user': {
                                 'name': user,
                                 'domain': {
-                                    'id': domain
+                                    ('name' if domain_is_name else 'id'): domain
                                 },
                                 'password': self.password
                             }
@@ -102,9 +112,9 @@ class Backend(swift.Backend):
                     },
                     'scope': {
                         'project': {
-                            'id': tenant,
+                            ('name' if tenant_is_name else 'id'): tenant,
                             'domain': {
-                                'id': project_domain
+                                ('name' if project_domain_is_name else 'id'): project_domain
                             }
                         }
                     }
@@ -141,7 +151,7 @@ class Backend(swift.Backend):
 
             cat = json.loads(conn.read().decode('utf-8'))
 
-            if self.options.get('domain', None):
+            if self.options.get('domain', None) or self.options.get('domain-name', None):
                 self.auth_token = resp.headers['X-Subject-Token']
                 service_catalog = cat['token']['catalog']
             else:
