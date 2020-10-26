@@ -1,0 +1,48 @@
+name: CI
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+    strategy:
+      matrix:
+        python-version: [3.6, 3.7, 3.8, 3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        sudo apt-get -yy install libffi-dev pkg-config libsqlite3-dev libssl-dev libfuse3-dev fuse3 rsync
+        python3 -m pip install --upgrade pip
+        pip3 install --ignore-installed \
+          coveralls \
+          defusedxml \
+          cython \
+          sphinx \
+          cryptography \
+          requests \
+          google-auth \
+          google-auth-oauthlib \
+          "attrs >= 19.3.0, < 20.0.0 " \
+          "pyfuse3 >= 3.1, < 4.0" \
+          "dugong >= 3.4, < 4.0" \
+          "pytest >= 4.6.5, < 5.0.0" \
+          "pytest_trio == 0.6.0" \
+          "trio == 0.15" \
+          "setuptools < 47.0" \
+          "apsw>=3.7.0"
+    - name: Coveralls
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python3 setup.py build_cython
+        python3 setup.py build_ext --inplace
+        coverage run -m pytest tests
+        coveralls
