@@ -34,7 +34,8 @@ pip install defusedxml \
             "dugong >= 3.4, < 4.0" \
             "pytest >= 4.6.5, < 5.0.0" \
             "pytest_trio == 0.6.0" \
-            "trio == 0.15"
+            "trio == 0.15" \
+	    coveralls
 
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
 
