@@ -30,6 +30,6 @@ install: tests/travis-install.sh
 script:
   - python setup.py build_cython || travis_terminate 1
   - python setup.py build_ext --inplace || travis_terminate 1
-  - (coverage run -m pytest tests && coveralls ) || travis_terminate 1
+  - (coverage run --source src,tests -m pytest tests && coveralls ) || travis_terminate 1
   - python setup.py build_sphinx || travis_terminate 1
   - python setup.py install
