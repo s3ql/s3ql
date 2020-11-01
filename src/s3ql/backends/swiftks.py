@@ -121,7 +121,10 @@ class Backend(swift.Backend):
                 }
             }
 
-            auth_url_path = ('custom-auth-url' in self.options) or '/v3/auth/tokens'
+            if 'custom-auth-url' in self.options:
+                auth_url_path = self.options['custom-auth-url']
+            else:
+                auth_url_path = '/v3/auth/tokens'
 
         else:
             # If a domain is not specified, assume v2
