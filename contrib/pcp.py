@@ -13,6 +13,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 import sys
 import os
 import subprocess
+from argparse import ArgumentTypeError
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -25,6 +26,16 @@ from s3ql.logging import logging, setup_logging
 from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
+
+pool = ('abcdefghijklmnopqrstuvwxyz',
+        'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+        '0123456789')
+
+def processes_to_int(string):
+    value = int(string)
+    if value < 2 or value > len(pool[0]) + 1:
+        raise ArgumentTypeError("%d needs to be between 2 and %d (inclusive)" % (value, len(pool[0]) + 1))
+    return value
 
 def parse_args(args):
     '''Parse command line'''
@@ -40,7 +51,7 @@ def parse_args(args):
 
     parser.add_argument("-a", action="store_true",
                       help='Pass -aHAX option to rsync.')
-    parser.add_argument("--processes", action="store", type=int, metavar='<no>',
+    parser.add_argument("--processes", action="store", type=processes_to_int, metavar='<no>',
                       default=10,
                       help='Number of rsync processes to use (default: %(default)s).')
 
@@ -61,9 +72,6 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    pool = ('abcdefghijklmnopqrstuvwxyz',
-             'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
-             '0123456789')
     steps = [ len(x) / (options.processes - 1) for x in pool ]
     prefixes = list()
     for i in range(options.processes - 1):
