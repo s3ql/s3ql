@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 class Backend(swift.Backend):
 
     # Add the options for the v3 keystore swift.
-    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-is-name', 'domain-is-name', 'tenant-is-name'}
+    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-is-name', 'domain-is-name', 'tenant-is-name', 'identity-url'}
 
     def __init__(self, options):
         self.region = None
@@ -121,7 +121,10 @@ class Backend(swift.Backend):
                 }
             }
 
-            auth_url_path = '/v3/auth/tokens'
+            if 'identity-url' in self.options:
+                auth_url_path = self.options['identity-url']
+            else:
+                auth_url_path = '/v3/auth/tokens'
 
         else:
             # If a domain is not specified, assume v2
