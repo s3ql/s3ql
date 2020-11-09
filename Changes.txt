@@ -1,4 +1,5 @@
-UNRELEASED CHANGES
+2020-11-09, S3QL 3.6.0
+
   * Added ability to specify domain-name, project-domain-name and tenant-name as options
     for the OpenStack Swift (Keystone v3) backend for providers that prefer name to id.
 
@@ -7,7 +8,7 @@ UNRELEASED CHANGES
   * `mount.s3ql` now exits gracefully on CTRL-C (INT signal)
 
   * `mount.s3ql` now supports the `--dirty-block-upload-delay` option to influence the
-    time before dirty blocks are written from the cache to the storage backend. 
+    time before dirty blocks are written from the cache to the storage backend.
 
 2020-09-04, S3QL 3.5.1
 
