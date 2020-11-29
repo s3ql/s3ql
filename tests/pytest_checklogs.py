@@ -2,7 +2,7 @@
 '''
 pytest_checklogs.py - this file is part of S3QL.
 
-Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
+Copyright (C) 2008 Nikolaus Rath <Nikolaus@rath.org>
 
 This work can be distributed under the terms of the GNU GPLv3.
 
@@ -19,20 +19,7 @@ import functools
 import sys
 import logging
 from contextlib import contextmanager
-from distutils.version import LooseVersion
 
-def pytest_configure(config):
-    # pytest-catchlog was integrated in pytest 3.3.0
-    if (LooseVersion(pytest.__version__) < "3.3.0" and
-        not config.pluginmanager.hasplugin('pytest_catchlog')):
-        raise ImportError('pytest catchlog plugin not found')
-
-# Fail tests if they result in log messages of severity WARNING or more.
-def check_test_log(caplog):
-    for record in caplog.records:
-        if (record.levelno >= logging.WARNING and
-            not getattr(record, 'checklogs_ignore', False)):
-            raise AssertionError('Logger received warning messages')
 
 class CountMessagesHandler(logging.Handler):
     def __init__(self, level=logging.NOTSET):
@@ -75,15 +62,11 @@ def assert_logs(pattern, level=logging.WARNING, count=None):
         logger.removeHandler(handler)
 
         if count is not None and handler.count != count:
-            raise AssertionError('Expected to catch %d %r messages, but got only %d'
-                                 % (count, pattern, handler.count))
+            pytest.fail('Expected to catch %d %r messages, but got only %d'
+                        % (count, pattern, handler.count))
 
 def check_test_output(capfd, item):
     (stdout, stderr) = capfd.readouterr()
-
-    # Write back what we've read (so that it will still be printed)
-    sys.stdout.write(stdout)
-    sys.stderr.write(stderr)
 
     # Strip out false positives
     try:
@@ -96,17 +79,15 @@ def check_test_output(capfd, item):
         if count == 0 or count - cnt > 0:
             stderr = cp.sub('', stderr, count=count - cnt)
 
-    for pattern in (r'exception\b', r'error\b', r'warning\b',
-                    r'\bfatal\b', r'\btraceback\b',
-                    r'(:?seg)?fault\b', r'\bcrash(?:ed)?\b', r'\babort(?:ed)\b',
-                    r'\bfishy\b'):
-        cp = re.compile(pattern, re.IGNORECASE | re.MULTILINE)
+    for pattern in ('exception', 'error', 'warning', 'fatal', 'traceback',
+                    'fault', 'crash(?:ed)?', 'abort(?:ed)', 'fishy'):
+        cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
         hit = cp.search(stderr)
         if hit:
-            raise AssertionError('Suspicious output to stderr (matched "%s")' % hit.group(0))
+            pytest.fail('Suspicious output to stderr (matched "%s")' % hit.group(0))
         hit = cp.search(stdout)
         if hit:
-            raise AssertionError('Suspicious output to stdout (matched "%s")' % hit.group(0))
+            pytest.fail('Suspicious output to stdout (matched "%s")' % hit.group(0))
 
 def register_output(item, pattern, count=1, flags=re.MULTILINE):
     '''Register *pattern* as false positive for output checking
@@ -123,21 +104,14 @@ def reg_output(request):
     request.node.checklogs_fp = []
     return functools.partial(register_output, request.node)
 
-def check_output(item):
-    pm = item.config.pluginmanager
-    cm = pm.getplugin('capturemanager')
-    capmethod = (getattr(cm, '_capturing', None) or
-                 getattr(item, '_capture_fixture', None) or
-                 getattr(cm, '_global_capturing', None))
-    check_test_output(capmethod, item)
-    check_test_log(item.catch_log_handler)
-
-@pytest.hookimpl(trylast=True)
-def pytest_runtest_setup(item):
-    check_output(item)
-@pytest.hookimpl(trylast=True)
-def pytest_runtest_call(item):
-    check_output(item)
-@pytest.hookimpl(trylast=True)
-def pytest_runtest_teardown(item, nextitem):
-    check_output(item)
+# Autouse fixtures are instantiated before explicitly used fixtures, this should also
+# catch log messages emitted when e.g. initializing resources in other fixtures.
+@pytest.fixture(autouse=True)
+def check_output(caplog, capfd, request):
+    yield
+    for when in ("setup", "call", "teardown"):
+        for record in caplog.get_records(when):
+            if (record.levelno >= logging.WARNING and
+                not getattr(record, 'checklogs_ignore', False)):
+                pytest.fail('Logger received warning messages.')
+    check_test_output(capfd, request.node)

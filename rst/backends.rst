@@ -298,6 +298,11 @@ The OpenStack backend accepts the following backend options:
    If :var:`tenant-is-name` is provided, the :var:`<tenant>` component of the login is used as the tenant
    name, not the tenant id.
 
+.. option:: identity-url
+
+   If your provider does not use hostname:port/v3/auth/tokens but instead has another identity URL, you can use this option.
+   It allows to replace /v3/auth/tokens with another path like for example /identity/v3/auth/tokens
+
 .. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
