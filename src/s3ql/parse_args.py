@@ -230,8 +230,8 @@ class ArgumentParser(argparse.ArgumentParser):
         ini_config = configparser.ConfigParser()
         if os.path.isfile(path):
             mode = os.stat(path).st_mode
-            if mode & (stat.S_IRGRP | stat.S_IROTH):
-                self.exit(12, "%s has insecure permissions, aborting." % path)
+            #if mode & (stat.S_IRGRP | stat.S_IROTH):
+            #    self.exit(12, "%s has insecure permissions, aborting." % path)
             ini_config.read(path)
 
         merged = dict()

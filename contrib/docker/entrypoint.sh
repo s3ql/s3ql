@@ -18,4 +18,9 @@ echo "*** Init ***"
 echo ""
 
 echo "*** Start ***"
+if ! [ -d "$S3QL_MOUNTPOINT" ]; then
+  echo "$S3QL_MOUNTPOINT doesn't exist yet. Creating it."
+  mkdir -pv "$S3QL_MOUNTPOINT"
+fi
+
 mount.s3ql "$S3QL_STORAGE_URL" "$S3QL_MOUNTPOINT"
