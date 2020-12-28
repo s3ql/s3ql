@@ -684,6 +684,7 @@ def setup_exchook():
                             "(will not be re-raised)")
             else:
                 log.debug('recording exception %s', exc_inst)
+                log.error("Unhandled exception in thread, terminating", exc_info=True)
                 os.kill(os.getpid(), signal.SIGTERM)
                 exc_info.append(exc_inst)
                 exc_info.append(tb)

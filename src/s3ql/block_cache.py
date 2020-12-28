@@ -340,7 +340,8 @@ class BlockCache(object):
                 self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
             else:
-                log.debug('upload of %d failed', obj_id, exc_info=exc_info)
+                exc = exc_info[1]
+                log.debug('upload of %d failed (%s: %s)', obj_id, type(exc).__name__, exc)
                 # At this point we have to remove references to this storage object
                 # from the objects and blocks table to prevent future cache elements
                 # to be de-duplicated against this (missing) one. However, this may
