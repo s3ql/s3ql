@@ -335,12 +335,13 @@ class BlockCache(object):
             return fh
 
         success = False
-        async def with_event_loop():
+        async def with_event_loop(exc_info):
             if success:
                 self.db.execute('UPDATE objects SET size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
             else:
-                log.debug('upload of %d failed', obj_id, exc_info=True)
+                exc = exc_info[1]
+                log.debug('upload of %d failed (%s: %s)', obj_id, type(exc).__name__, exc)
                 # At this point we have to remove references to this storage object
                 # from the objects and blocks table to prevent future cache elements
                 # to be de-duplicated against this (missing) one. However, this may
@@ -385,7 +386,7 @@ class BlockCache(object):
             success = True
         finally:
             self.in_transit.remove(el)
-            trio.from_thread.run(with_event_loop, trio_token=self.trio_token)
+            trio.from_thread.run(with_event_loop, sys.exc_info(), trio_token=self.trio_token)
 
 
     async def wait(self):
