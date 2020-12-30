@@ -3,7 +3,6 @@
 set -e
 
 # Install fuse
-sudo -H python3 -m pip install meson==0.44 --no-cache-dir
 wget https://github.com/libfuse/libfuse/archive/master.zip
 unzip master.zip
 cd libfuse-master
@@ -30,7 +29,7 @@ pip install defusedxml \
             google-auth \
             google-auth-oauthlib \
             "attrs >= 19.3.0, < 20.0.0 " \
-            "pyfuse3 >= 3.1, < 4.0" \
+            "pyfuse3 >= 3.2.0, < 4.0" \
             "dugong >= 3.4, < 4.0" \
             "pytest >= 4.6.5, < 5.0.0" \
             "pytest_trio == 0.6.0" \
