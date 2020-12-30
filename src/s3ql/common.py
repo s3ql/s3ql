@@ -564,8 +564,6 @@ def save_params(cachepath, param):
     try:
         dirfd = os.open(os.path.dirname(filename), O_DIRECTORY)
         os.fsync(dirfd)
-    # suppress errors. directory open/fsync does not exist on windows
-    # stackoverflow.com/a/27712959
     finally:
         if dirfd is not None:
             os.close(dirfd)
