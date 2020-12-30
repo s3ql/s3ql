@@ -546,14 +546,29 @@ def load_params(cachepath):
         return thaw_basic_mapping(fh.read())
 
 def save_params(cachepath, param):
-    with open(cachepath + '.params', 'wb') as fh:
+    filename = cachepath + '.params'
+    tmpname  = filename + '.tmp'
+    with open(tmpname, 'wb') as fh:
         fh.write(freeze_basic_mapping(param))
-
         # Fsync to make sure that the updated sequence number is committed to
         # disk. Otherwise, a crash immediately after mount could result in both
         # the local and remote metadata appearing to be out of date.
         fh.flush()
         os.fsync(fh.fileno())
+
+    # we need to flush the dirents too.
+    # stackoverflow.com/a/41362774
+    # stackoverflow.com/a/5809073
+    os.rename(tmpname, filename)
+    dirfd = None
+    try:
+        dirfd = os.open(os.path.dirname(filename), O_DIRECTORY)
+        os.fsync(dirfd)
+    # suppress errors. directory open/fsync does not exist on windows
+    # stackoverflow.com/a/27712959
+    finally:
+        if dirfd is not None:
+            os.close(dirfd)
 
 def time_ns():
     return int(time.time() * 1e9)
