@@ -2,6 +2,16 @@ UNRELEASED CHANGES
 
   * S3QL now supports newer AWS S3 regions like eu-south-1.
 
+  * mount.s3ql now again includes debugging information in its log output when
+    encountering an unexpected exception. This was broken in version 3.4.0, resulting in
+    mount.s3ql seemingly terminating at random in such a situation.
+
+  * mount.s3ql now properly handles SIGTERM (instead of crashing). This means it exits as
+    quickly as possible without data corruption. For a proper unmount, always use
+    `umount.s3ql`, `umount`, or `fusermount -u` and wait for the mount.s3ql process to
+    terminate.
+
+
 2020-11-09, S3QL 3.6.0
 
   * Added ability to specify domain-name, project-domain-name and tenant-name as options

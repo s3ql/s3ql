@@ -18,7 +18,7 @@ from .inode_cache import InodeCache
 from .metadata import (download_metadata, upload_metadata, dump_and_upload_metadata,
                        dump_metadata)
 from .parse_args import ArgumentParser
-from contextlib import ExitStack
+from contextlib import AsyncExitStack
 import _thread
 import argparse
 import pyfuse3
@@ -67,9 +67,6 @@ install_thread_excepthook()
 
 def main(args=None):
     '''Mount S3QL file system'''
-
-    # disable SIGINT handling as early as possible
-    toggle_int_signal_handling(False)
 
     if args is None:
         args = sys.argv[1:]
@@ -202,17 +199,21 @@ async def main_async(options, stdout_log_handler):
 
     metadata_upload_task = MetadataUploadTask(backend_pool, param, db,
                                               options.metadata_upload_interval)
-    block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
-                             options.cachesize * 1024, options.max_cache_entries)
-    commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
-    operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
-                               inode_cache=InodeCache(db, param['inode_gen']),
-                               upload_task=metadata_upload_task)
-    block_cache.fs = operations
-    metadata_upload_task.fs = operations
 
     async with trio.open_nursery() as nursery:
-      with ExitStack() as cm:
+      async with AsyncExitStack() as cm:
+        block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
+                                 options.cachesize * 1024, options.max_cache_entries)
+        block_cache.init(options.threads)
+        cm.push_async_callback(block_cache.destroy, options.keep_cache)
+
+        operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
+                                   inode_cache=InodeCache(db, param['inode_gen']),
+                                   upload_task=metadata_upload_task)
+        cm.push_async_callback(operations.destroy)
+        block_cache.fs = operations
+        metadata_upload_task.fs = operations
+
         log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
         try:
             pyfuse3.init(operations, options.mountpoint, get_fuse_opts(options))
@@ -239,36 +240,44 @@ async def main_async(options, stdout_log_handler):
 
         mark_metadata_dirty(backend, cachepath, param)
 
-        block_cache.init(options.threads)
-
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
 
+        commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
         nursery.start_soon(commit_task.run, name='commit-task')
         cm.callback(commit_task.stop)
 
         exc_info = setup_exchook()
 
+        received_signals = []
+        old_handler = None
+        def signal_handler(signum, frame, _main_thread=_thread.get_ident()):
+            log.debug('Signal %d received', signum)
+            if pyfuse3.trio_token is None:
+                log.debug('FUSE loop not running, calling parent handler...')
+                return old_handler(signum, frame)
+            log.debug('Calling pyfuse3.terminate()...')
+            if _thread.get_ident() == _main_thread:
+                pyfuse3.terminate()
+            else:
+                trio.from_thread.run_sync(
+                    pyfuse3.terminate,
+                    trio_token=pyfuse3.trio_token)
+            received_signals.append(signum)
+        signal.signal(signal.SIGTERM, signal_handler)
+        old_handler = signal.signal(signal.SIGINT, signal_handler)
+
         if options.systemd:
             import systemd.daemon
             systemd.daemon.notify('READY=1')
 
-        ret = None
-        try:
-            toggle_int_signal_handling(True)
-            ret = await pyfuse3.main()
-        except KeyboardInterrupt:
-            # re-block SIGINT before log.info() call to reduce the possibility for a second KeyboardInterrupt
-            toggle_int_signal_handling(False)
-            log.info("Got CTRL-C. Exit gracefully.")
-        finally:
-            # For a clean unmount we need to ignore any repeated SIGINTs from here
-            toggle_int_signal_handling(False)
-            await operations.destroy()
-            await block_cache.destroy(options.keep_cache)
+        await pyfuse3.main()
 
-        if ret is not None:
-            raise RuntimeError('Received signal %d, terminating' % (ret,))
+        if received_signals == [signal.SIGINT]:
+            log.info('SIGINT received, exiting normally.')
+        elif received_signals:
+            log.info('Received termination signal, exiting without data upload.')
+            raise RuntimeError('Received signal(s) %s, terminating' % (received_signals,))
 
         # Re-raise if main loop terminated due to exception in other thread
         if exc_info:
@@ -666,10 +675,9 @@ class MetadataUploadTask:
         self.event.set()
 
 def setup_exchook():
-    '''Send SIGTERM if any other thread terminates with an exception
+    '''Terminate FUSE main loop if any thread terminates with an exception
 
-    The exc_info will be saved in the list object returned
-    by this function.
+    The exc_info will be saved in the list object returned by this function.
     '''
 
     main_thread = _thread.get_ident()
@@ -683,11 +691,13 @@ def setup_exchook():
                 log.warning("Unhandled top-level exception during shutdown "
                             "(will not be re-raised)")
             else:
-                log.debug('recording exception %s', exc_inst)
                 log.error("Unhandled exception in thread, terminating", exc_info=True)
-                os.kill(os.getpid(), signal.SIGTERM)
                 exc_info.append(exc_inst)
                 exc_info.append(tb)
+                trio.from_thread.run_sync(
+                    pyfuse3.terminate,
+                    trio_token=pyfuse3.trio_token)
+
             old_exchook(exc_type, exc_inst, tb)
 
         # If the main thread re-raised exception, there is no need to call
@@ -750,11 +760,6 @@ class CommitTask:
 
         log.debug('started')
         self.stop_event.set()
-
-
-def toggle_int_signal_handling(enable):
-    '''enables or disables SIGINT handling (raising KeyboardInterrupt)'''
-    signal.pthread_sigmask(signal.SIG_UNBLOCK if enable else signal.SIG_BLOCK, {signal.SIGINT})
 
 
 if __name__ == '__main__':

@@ -25,7 +25,7 @@ that is not the case.
 * `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
   has to be installed as a *shared library* with development headers.
 
-* `Python <http://www.python.org/>`_ 3.6 or newer. Make sure to also
+* `Python <http://www.python.org/>`_ 3.7 or newer. Make sure to also
   install the development headers.
 
 * The following Python modules:
@@ -37,7 +37,7 @@ that is not the case.
     newer.
   * `trio <https://github.com/python-trio/trio>`_, version 0.9 or newer.
   * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
-    version between 3.0 (inclusive) and 4.0 (exclusive)
+    version between 3.2.0 (inclusive) and 4.0 (exclusive)
   * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)

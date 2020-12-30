@@ -13,6 +13,7 @@ from .multi_lock import MultiLock
 from .logging import logging # Ensure use of custom logger class
 from collections import OrderedDict
 from queue import Queue, Empty as QueueEmpty, Full as QueueFull
+from argparse import Namespace
 import os
 import hashlib
 import shutil
@@ -192,8 +193,9 @@ class BlockCache(object):
         else:
             os.mkdir(self.path)
 
-        # Initialized fromt the outside to prevent cyclic dependency
-        self.fs = None
+        # Initialized fromt the outside to prevent cyclic dependency,
+        # used only to set failsafe attribute
+        self.fs = Namespace()
 
     def load_cache(self):
         '''Initialize cache from disk'''
