@@ -562,7 +562,7 @@ def save_params(cachepath, param):
     os.rename(tmpname, filename)
     dirfd = None
     try:
-        dirfd = os.open(os.path.dirname(filename), O_DIRECTORY)
+        dirfd = os.open(os.path.dirname(filename), os.O_DIRECTORY)
         os.fsync(dirfd)
     finally:
         if dirfd is not None:
