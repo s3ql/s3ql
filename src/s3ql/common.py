@@ -560,13 +560,11 @@ def save_params(cachepath, param):
     # stackoverflow.com/a/41362774
     # stackoverflow.com/a/5809073
     os.rename(tmpname, filename)
-    dirfd = None
+    dirfd = os.open(os.path.dirname(filename), os.O_DIRECTORY)
     try:
-        dirfd = os.open(os.path.dirname(filename), os.O_DIRECTORY)
         os.fsync(dirfd)
     finally:
-        if dirfd is not None:
-            os.close(dirfd)
+        os.close(dirfd)
 
 def time_ns():
     return int(time.time() * 1e9)
