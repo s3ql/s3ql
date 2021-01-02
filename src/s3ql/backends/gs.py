@@ -436,12 +436,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise ValueError('md5 passed to write_fd does not match fd data')
 
         resp = self.conn.read_response()
-        if resp.status != 200:
+        # If we're really unlucky, then the token has expired while we were uploading data.
+        if resp.status == 401:
+            raise AccessTokenExpired()
+        elif resp.status != 200:
             exc = self._parse_error_response(resp)
-            # If we're really unlucky, then the token has expired while we
-            # were uploading data.
-            if exc.message == 'Invalid Credentials':
-                raise AccessTokenExpired()
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
 
