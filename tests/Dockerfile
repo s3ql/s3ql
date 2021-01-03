@@ -1,7 +1,7 @@
 # This is not a general purpose Dockerfile
 # It's tailored for running tests and building documentation.
 
-FROM ubuntu:bionic AS build
+FROM ubuntu:focal AS build
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update \
@@ -11,7 +11,7 @@ RUN apt-get update \
                        zlib1g-dev libsqlite3-dev wget curl llvm libncurses5-dev xz-utils libxml2-dev libxmlsec1-dev liblzma-dev \
                        libsystemd-dev gcc psmisc pkg-config libattr1-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base \
                        texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended python3-pip python3-setuptools \
-                       ninja-build udev libudev1 libudev-dev \
+                       ninja-build udev libudev1 libudev-dev meson \
  && mkdir /build \
  && ln -sf /usr/bin/pip3 /usr/bin/pip && ln -sf /usr/bin/python3 /usr/bin/python \
  && pip install "setuptools >= 40.3.0"
