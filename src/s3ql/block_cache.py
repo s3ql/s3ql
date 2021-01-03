@@ -25,7 +25,7 @@ import sys
 
 try:
     from contextlib import asynccontextmanager
-except ImportError:
+except ModuleNotFoundError:
     from async_generator import asynccontextmanager
 
 # standard logger for this module

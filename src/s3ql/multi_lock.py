@@ -11,7 +11,7 @@ import logging
 
 try:
     from contextlib import asynccontextmanager
-except ImportError:
+except ModuleNotFoundError:
     from async_generator import asynccontextmanager
 
 __all__ = [ "MultiLock" ]

@@ -34,7 +34,7 @@ from typing import Optional, Dict, Any
 
 try:
     import google.auth as g_auth
-except ImportError:
+except ModuleNotFoundError:
     g_auth = None
 
 

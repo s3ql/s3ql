@@ -10,7 +10,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 try:
     import setuptools
-except ImportError:
+except ModuleNotFoundError:
     raise SystemExit('Setuptools package not found. Please install from '
                      'https://pypi.python.org/pypi/setuptools')
 from setuptools import Extension
@@ -54,7 +54,7 @@ class build_docs(setuptools.Command):
         try:
             from sphinx.application import Sphinx
             from docutils.utils import SystemMessage
-        except ImportError:
+        except ModuleNotFoundError:
             raise SystemExit('This command requires Sphinx to be installed.') from None
 
         fix_docutils()

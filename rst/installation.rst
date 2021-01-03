@@ -58,7 +58,7 @@ that is not the case.
   To check if a specific module :var:`<module>` is installed, execute
   :samp:`python3 -c 'import {<module>};
   print({<module>}.__version__)'`. This will result in an
-  `ImportError` if the module is not installed, and will print the
+  `ModuleNotFoundError` if the module is not installed, and will print the
   installed version if the module is installed.
 
 
