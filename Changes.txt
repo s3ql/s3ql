@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2021-01-03, S3Ql 3.7.0
 
   * S3QL now supports newer AWS S3 regions like eu-south-1.
 
