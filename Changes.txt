@@ -11,6 +11,8 @@
     `umount.s3ql`, `umount`, or `fusermount -u` and wait for the mount.s3ql process to
     terminate.
 
+  * More robust expired auth token detection for Google Storage.
+
 
 2020-11-09, S3QL 3.6.0
 
