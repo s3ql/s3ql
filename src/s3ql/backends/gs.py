@@ -444,6 +444,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
 
+    @retry
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
 
