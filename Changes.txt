@@ -1,5 +1,9 @@
 2021-01-03, S3Ql 3.7.0
 
+  * S3QL now requires Python 3.7 or newer.
+
+  * S3QL now requires pyfuse3 of any version between 3.2.0 (inclusive) and 4.0 (exclusive).
+
   * S3QL now supports newer AWS S3 regions like eu-south-1.
 
   * mount.s3ql now again includes debugging information in its log output when
