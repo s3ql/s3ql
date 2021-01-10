@@ -58,17 +58,17 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.b2_application_key_id = options.backend_login
         self.b2_application_key = options.backend_password
 
-        self.tcp_timeout = self.options.get('tcp-timeout', 20)
+        self.tcp_timeout = int(self.options.get('tcp-timeout', 20))
 
         self.account_id = None
 
-        self.disable_versions = self.options.get('disable-versions', False)
-        self.retry_on_cap_exceeded = self.options.get('retry-on-cap-exceeded', False)
+        self.disable_versions = 'disable-versions' in self.options
+        self.retry_on_cap_exceeded = 'retry-on-cap-exceeded' in self.options
 
         # Test modes
-        self.test_mode_fail_some_uploads = self.options.get('test-mode-fail-some-uploads', False)
-        self.test_mode_expire_some_tokens = self.options.get('test-mode-expire-some-tokens', False)
-        self.test_mode_force_cap_exceeded = self.options.get('test-mode-force-cap-exceeded', False)
+        self.test_mode_fail_some_uploads = 'test-mode-fail-some-uploads' in self.options
+        self.test_mode_expire_some_tokens = 'test-mode-expire-some-tokens' in self.options
+        self.test_mode_force_cap_exceeded = 'test-mode-force-cap-exceeded' in self.options
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
