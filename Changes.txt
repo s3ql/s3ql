@@ -1,3 +1,8 @@
+UNRELEASED CHANGES
+
+  * The tcp-timeout backend option of the B2 Backend works now.
+
+
 2021-01-03, S3Ql 3.7.0
 
   * S3QL now requires Python 3.7 or newer.
