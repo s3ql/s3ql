@@ -88,9 +88,13 @@ def main(args=None):
     # Make sure that write cache is flushed
     pyfuse3.syncfs(options.target)
 
-    fstat_t = os.stat(options.target)
-    pyfuse3.setxattr(ctrlfile, 'copy',
-                     ('(%d, %d)' % (fstat_s.st_ino, fstat_t.st_ino)).encode())
+    # Ensure the inode of the target folder stays in the kernel dentry cache
+    # (We invalidate it during the copy)
+    with os.scandir(options.target) as it:
+
+        fstat_t = os.stat(options.target)
+        pyfuse3.setxattr(ctrlfile, 'copy',
+                         ('(%d, %d)' % (fstat_s.st_ino, fstat_t.st_ino)).encode())
 
 if __name__ == '__main__':
     main(sys.argv[1:])
