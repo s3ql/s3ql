@@ -204,7 +204,6 @@ async def main_async(options, stdout_log_handler):
       async with AsyncExitStack() as cm:
         block_cache = BlockCache(backend_pool, db, cachepath + '-cache',
                                  options.cachesize * 1024, options.max_cache_entries)
-        block_cache.init(options.threads)
         cm.push_async_callback(block_cache.destroy, options.keep_cache)
 
         operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
@@ -239,6 +238,8 @@ async def main_async(options, stdout_log_handler):
             daemonize(options.cachedir)
 
         mark_metadata_dirty(backend, cachepath, param)
+
+        block_cache.init(options.threads)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
