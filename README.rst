@@ -23,9 +23,9 @@ readable and serviceable as possible. Solid error detection and error
 handling have been included from the very first line, and S3QL comes
 with extensive automated test cases for all its components.
 
-.. _`Google Storage`: http://code.google.com/apis/storage/
-.. _`Amazon S3`: http://aws.amazon.com/s3
-.. _OpenStack: http://openstack.org/projects/storage/
+.. _`Google Storage`: https://cloud.google.com/storage/docs
+.. _`Amazon S3`: https://aws.amazon.com/s3/
+.. _OpenStack: https://www.openstack.org/software/
 
 
 Features
@@ -130,8 +130,8 @@ Need Help?
 The following resources are available:
 
 * The `S3QL User's Guide`_.
-* The `S3QL Wiki <https://github.com/s3ql/s3ql/wiki>`_
-* The `S3QL Mailing List <http://groups.google.com/group/s3ql>`_. You
+* The `S3QL Wiki`_
+* The `S3QL Mailing List`_. You
   can subscribe by sending a mail to
   `s3ql+subscribe@googlegroups.com <mailto:s3ql+subscribe@googlegroups.com>`_.
 
@@ -142,7 +142,8 @@ Contributing
 
 The S3QL source code is available on GitHub_.
 
-.. _`S3QL User's Guide`: http://www.rath.org/s3ql-docs/index.html
-.. _`S3QL Mailing List`: http://groups.google.com/group/s3ql
+.. _`S3QL User's Guide`: https://www.rath.org/s3ql-docs/
+.. _`S3QL Wiki`: https://github.com/s3ql/s3ql/wiki
+.. _`S3QL Mailing List`: https://groups.google.com/g/s3ql
 .. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
 .. _GitHub: https://github.com/s3ql/main
