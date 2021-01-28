@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
 from common import populate_dir, skip_without_rsync, retry
 import os.path
+import sys
 import shutil
 import subprocess
 from subprocess import check_output, CalledProcessError
@@ -68,37 +69,14 @@ class TestCp(t4_fuse.TestFuse):
         self.passphrase = None
         self.mkfs()
 
-        # Create monkeypatched mount.s3ql
-        # Override pyfuse3.invalidate_inode : Drop kernel dentries and inodes cache
-        # just before calling pyfuse3.invalidate_inode
-        patched_mount = """
-import sys
-import os.path
-
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-sys.path = [os.path.join(basedir, 'src')] + sys.path
-
-import pyfuse3
-from _pytest.monkeypatch import MonkeyPatch
-pyfuse3_invalidate_inode = pyfuse3.invalidate_inode
-def patched_pyfuse3_invalidate_inode(inode):
-    # echo 2 > /proc/sys/vm/drop_caches : Drop kernel dentries and inodes cache
-    drop_caches = open("/proc/sys/vm/drop_caches", "w")
-    drop_caches.write("2")
-    drop_caches.close()
-    pyfuse3_invalidate_inode(inode)
-MonkeyPatch().setattr('pyfuse3.invalidate_inode', patched_pyfuse3_invalidate_inode)
-
-import s3ql.mount
-s3ql.mount.main(sys.argv[1:])
-        """
-        cmd = (["/usr/bin/env", "python3", "-", "--fg", '--cachedir', self.cache_dir, '--log', 'none',
+        # Run monkeypatched mount.s3ql with overriden pyfuse3.invalidate_inode : 
+        # Drop kernel dentries and inodes cache just before calling pyfuse3.invalidate_inode
+        cmd = ([sys.executable, os.path.join(os.path.dirname(__file__), 't5_cp_mount_helper.py'), "--fg", '--cachedir', 
+                self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
                 '--authfile', '/dev/null' ])
-        self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
-                                              universal_newlines=True)
-        print(patched_mount, file=self.mount_process.stdin)
-        self.mount_process.stdin.close()
+        print(cmd)
+        self.mount_process = subprocess.Popen(cmd, universal_newlines=True)
         def poll():
             if os.path.ismount(self.mnt_dir):
                 return True
