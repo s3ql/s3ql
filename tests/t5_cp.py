@@ -71,11 +71,10 @@ class TestCp(t4_fuse.TestFuse):
 
         # Run monkeypatched mount.s3ql with overriden pyfuse3.invalidate_inode : 
         # Drop kernel dentries and inodes cache just before calling pyfuse3.invalidate_inode
-        cmd = ([sys.executable, os.path.join(os.path.dirname(__file__), 't5_cp_mount_helper.py'), "--fg", '--cachedir', 
+        cmd = ([sys.executable, os.path.join(os.path.dirname(__file__), 'mount_helper.py'), "--fg", '--cachedir', 
                 self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
                 '--authfile', '/dev/null' ])
-        print(cmd)
         self.mount_process = subprocess.Popen(cmd, universal_newlines=True)
         def poll():
             if os.path.ismount(self.mnt_dir):
@@ -95,4 +94,3 @@ class TestCp(t4_fuse.TestFuse):
 
         self.umount()
         self.fsck()
-
