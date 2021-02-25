@@ -76,11 +76,14 @@ class TestFuse:
         self.reg_output(r'^WARNING: Maximum object sizes less than '
                         '1 MiB will degrade performance\.$', count=1)
 
-    def mount(self, expect_fail=None, extra_args=[]):
+    def mount(self, expect_fail=None, in_foreground = True, extra_args=[]):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
-               ["--fg", '--cachedir', self.cache_dir, '--log', 'none',
+               ['--cachedir', self.cache_dir, '--log', 'none',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
-                '--authfile', '/dev/null' ] + extra_args)
+                '--authfile', '/dev/null' ])
+        if in_foreground:
+            cmd += ["--fg"]
+        cmd += extra_args
         self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE,
                                               universal_newlines=True)
         if self.backend_login is not None:
