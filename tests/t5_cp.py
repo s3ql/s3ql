@@ -32,6 +32,16 @@ class TestCp(t4_fuse.TestFuse):
         self.umount()
         self.fsck()
 
+    def test_bg(self):
+        skip_without_rsync()
+        self.mkfs()
+        self.logfile = tempfile.NamedTemporaryFile()
+        self.mount(in_foreground=False, extra_args=["--log", self.logfile.name])
+        self.tst_cp()
+        self.umount()
+        self.fsck()
+        self.logfile.close()
+
     def tst_cp(self):
 
         tempdir = tempfile.mkdtemp(prefix='s3ql-cp-')
