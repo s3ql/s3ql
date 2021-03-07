@@ -1,4 +1,4 @@
-2021-03-07, S3Ql 3.7.1
+2021-03-07, S3QL 3.7.1
 
   * The tcp-timeout backend option of the B2 Backend works now.
 
