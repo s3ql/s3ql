@@ -438,6 +438,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         resp = self.conn.read_response()
         # If we're really unlucky, then the token has expired while we were uploading data.
         if resp.status == 401:
+            self.conn.discard()
             raise AccessTokenExpired()
         elif resp.status != 200:
             exc = self._parse_error_response(resp)
