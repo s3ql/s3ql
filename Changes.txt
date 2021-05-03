@@ -3,6 +3,8 @@ Unreleased Changes
   * Fixed a crash with `dugong.StateError` in the Google Storage backend when the
     authentication token expires in the middle of an upload.
 
+  * S3QL is compatible with newer setuptools (>=47)
+
 
 2021-03-07, S3QL 3.7.1
 
