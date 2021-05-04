@@ -151,7 +151,7 @@ def main():
 
     setuptools.setup(
           name='s3ql',
-          zip_safe=True,
+          zip_safe=False,
           version=s3ql.VERSION,
           description='a full-featured file system for online data storage',
           long_description=long_desc,
