@@ -75,11 +75,12 @@ class fsck_tests(unittest.TestCase):
         self._link(b'test-entry', inode)
 
         # Create new block
-        fh = open(self.cachedir + '/%d-0' % inode, 'wb')
-        fh.write(b'somedata')
-        fh.close()
+        with open(self.cachedir + '/%d-0' % inode, 'wb') as fh:
+            fh.write(b'somedata')
+        size = os.stat(fh.name).st_size
         self.assert_fsck(self.fsck.check_cache)
         self.assertEqual(self.backend['s3ql_data_1'], b'somedata')
+        assert self.db.get_val('SELECT size FROM inodes WHERE id=?', (inode,)) == size
 
         # Existing block
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',

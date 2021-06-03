@@ -1,3 +1,23 @@
+UNRELEASED CHANGES
+
+  * Fixed a DATA CORRUPTION bug in fsck.s3ql that caused the recorded size of uploaded
+    dirty blocks to be rounded up to the next multiple of 512 bytes, effectively appending
+    up to 512 zero-bytes to the end of affected files.
+
+    This problem was introduced in version 3.4.1 (released 2020-05-08) as part of a
+    seemingly very minor improvement to cache usage calculation.
+
+    You can tell that a file has (likely) been affected from fsck.s3ql messages of the
+    form:
+
+    WARNING: Writing dirty block <X> of inode <Y>
+
+    followed later by:
+
+    WARNING: Size of inode <Y> (<path_to_file>) does not agree with number of blocks, \
+    setting from <reasonable_size> to <size rounded to next multiple of 512)
+
+
 2021-05-04, S3QL 3.7.2
 
   * Fixed a crash with `dugong.StateError` in the Google Storage backend when the
