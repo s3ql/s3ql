@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2021-06-03, S3QL 3.7.3
 
   * Fixed a DATA CORRUPTION bug in fsck.s3ql that caused the recorded size of uploaded
     dirty blocks to be rounded up to the next multiple of 512 bytes, effectively appending
