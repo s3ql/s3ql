@@ -220,31 +220,55 @@ class fsck_tests(unittest.TestCase):
                              0, 0, time_ns(), time_ns(), time_ns(), 1, 128))
         self._link(b'test-entry', id_)
 
+        block_size = self.max_obj_size // 3
         obj_id = self.db.rowid('INSERT INTO objects (refcount,size) VALUES(?,?)', (1, 36))
         block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
-                                 'VALUES(?,?,?,?)', (1, obj_id, 512, sha256(b'foo')))
+                                 'VALUES(?,?,?,?)', (1, obj_id, block_size, sha256(b'foo')))
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
 
-        # Case 1
-        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + 120, id_))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
-                        (id_, 1, block_id))
-        self.assert_fsck(self.fsck.check_inodes_size)
-
-        # Case 2
-        self.db.execute('DELETE FROM inode_blocks WHERE inode=?', (id_,))
+        # One block, no holes, size plausible
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (block_size, id_))
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 0, block_id))
-        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (129, id_))
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert not self.fsck.found_errors
+
+        # One block, size not plausible
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (block_size-1, id_))
         self.assert_fsck(self.fsck.check_inodes_size)
 
-        # Case 3
+        # Two blocks, hole at the beginning, size plausible
+        self.db.execute('DELETE FROM inode_blocks WHERE inode=?', (id_,))
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + block_size, id_))
         self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
                         (id_, 1, block_id))
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert not self.fsck.found_errors
+
+        # Two blocks, no holes, size plausible
+        self.db.execute('UPDATE blocks SET refcount = 2 WHERE id = ?', (block_id,))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
+                        (id_, 0, block_id))
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert not self.fsck.found_errors
+
+        # Two blocks, size not plausible
         self.db.execute('UPDATE inodes SET size=? WHERE id=?',
-                        (self.max_obj_size + 120, id_))
-        self.db.execute('UPDATE blocks SET refcount = refcount + 1 WHERE id = ?',
-                        (block_id,))
+                        (self.max_obj_size + block_size-1, id_))
+        self.assert_fsck(self.fsck.check_inodes_size)
+
+        # Two blocks, hole at the end, size plausible
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?',
+                        (self.max_obj_size + block_size + 1, id_))
+        self.fsck.found_errors = False
+        self.fsck.check()
+        assert not self.fsck.found_errors
+
+        # Two blocks, size not plausible
+        self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size, id_))
         self.assert_fsck(self.fsck.check_inodes_size)
 
 
