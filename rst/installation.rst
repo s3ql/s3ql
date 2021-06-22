@@ -117,7 +117,7 @@ behave as it does for a regular release.
 
 The HTML and PDF documentation can be generated with ::
 
-  python3 setup.py build_sphinx
+  ./build_docs.sh
 
 and S3QL can be installed as usual with ::
 

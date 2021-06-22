@@ -32,5 +32,5 @@ script:
   - python setup.py build_cython || travis_terminate 1
   - python setup.py build_ext --inplace || travis_terminate 1
   - python setup.py test || travis_terminate 1
-  - python setup.py build_sphinx || travis_terminate 1
+  - bash build_docs.sh || travis_terminate 1
   - python setup.py install
