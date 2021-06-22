@@ -409,6 +409,8 @@ The S3 compatible backend accepts the following backend options:
 Backblaze B2
 ============
 
+.. program:: b2_backend
+
 Backblaze B2 is a cloud storage with its own API.
 
 The storage URL for backblaze b2 storage is ::
