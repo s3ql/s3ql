@@ -54,7 +54,7 @@ log
   Change the amount of information that is logged into
   :file:`~/.s3ql/mount.log` file. The complete syntax is::
 
-    s3qlctrl [options] log <mountpoint> <level> [<module> [<module> ...]]
+    s3qlctrl [options] log <mountpoint> <level> [<module> ...]
 
   here :var:`level` is the desired new log level and may be either of
   *debug*, *info* or *warn*. One or more :var:`module` may only be
