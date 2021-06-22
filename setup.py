@@ -201,7 +201,6 @@ def main():
                     'build_cython': build_cython,
                     'build_sphinx': build_docs,
                     'pytest': pytest },
-          command_options={ 'sdist': { 'formats': ('setup.py', 'bztar') } },
          )
 
 class build_cython(setuptools.Command):
