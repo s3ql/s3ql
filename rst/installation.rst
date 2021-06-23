@@ -118,6 +118,7 @@ behave as it does for a regular release.
 The HTML and PDF documentation can be generated with ::
 
   ./build_docs.sh
+  (cd doc/pdf && make)
 
 and S3QL can be installed as usual with ::
 

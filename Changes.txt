@@ -1,3 +1,9 @@
+UNRELEASED CHANGES
+
+  * The way to build the documentation has changed. Instead of running
+    `setup.py build_sphinx`, run `./build_docs.sh`. To generate PDF
+    documentation, follow this with `cd doc/pdf && make`.
+
 2021-06-03, S3QL 3.7.3
 
   * Fixed a DATA CORRUPTION bug in fsck.s3ql that caused the recorded size of uploaded

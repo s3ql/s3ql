@@ -3,9 +3,7 @@
 * Bump version in `src/s3ql/__init__.py`
 * Add release date to `Changes.txt`
 * Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHORS`
-* `./setup.py build_cython build_ext --inplace`
-* `./build_docs.sh`
-* `./setup.py sdist`
+* `./make_release.sh`
 * Test tarball:
   * `./setup.py build_ext --inplace`
   * `./build_docs.sh'

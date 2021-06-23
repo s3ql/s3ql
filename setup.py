@@ -112,8 +112,8 @@ def main():
                                  extra_compile_args=compile_args,
                                  extra_link_args=[ '-lsqlite3'])],
           data_files=[ ('share/man/man1',
-                          [ os.path.join('doc/man/', x) for x
-                            in glob(os.path.join(basedir, 'doc', 'man', '*.1')) ]) ],
+                          [ os.path.join('doc/manpages/', x) for x
+                            in glob(os.path.join(basedir, 'doc', 'manpages', '*.1')) ]) ],
           entry_points={ 'console_scripts':
                         [
                          'mkfs.s3ql = s3ql.mkfs:main',
