@@ -19,6 +19,7 @@ from ast import literal_eval
 from itertools import count
 import os
 from shutil import copyfileobj
+import time
 
 from ..common import (AbstractBackend, get_ssl_context, retry, checksum_basic_mapping,
                       CorruptedObjectError, NoSuchObject, DanglingStorageURLError)
@@ -286,6 +287,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             headers['X-Bz-Test-Mode'] = 'fail_some_uploads'
 
         upload_url_info['isUploading'] = True
+        self._expire_upload_url_info(upload_url_info)
 
         try:
             response, response_body = self._do_request(upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body)
@@ -310,6 +312,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 upload_url_info['isUploading'] = False
             raise
 
+        upload_url_info['lastUsed'] = time.monotonic()
         upload_url_info['isUploading'] = False
 
         json_response = json.loads(response_body.decode('utf-8'))
@@ -617,7 +620,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     return item
 
         upload_url_info = find(lambda info: info['isUploading'] == False, self.available_upload_url_infos)
-
         if upload_url_info is None:
             upload_url_info = self._request_upload_url_info()
             self.available_upload_url_infos.append(upload_url_info)
@@ -642,7 +644,8 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             'connection': upload_connection,
             'path': new_upload_url.path,
             'authorizationToken': new_authorization_token,
-            'isUploading': False
+            'isUploading': False,
+            'lastUsed': 0
         }
 
     def _invalidate_upload_url(self, upload_url_info):
@@ -661,6 +664,16 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             pass
 
         log.debug('upload urls left: %d', len(self.available_upload_url_infos))
+
+    # TODO: schedule to disconnect connections as we use them, don't leave lingering connections until next request comes
+    def _expire_upload_url_info(self, upload_url_info):
+        '''Disconnects an active connection that has been unused for too long.'''
+        if (upload_url_info['connection'] is not None
+                and upload_url_info['lastUsed'] != 0
+                and time.monotonic() > upload_url_info['lastUsed'] + 10):
+            log.debug('disconnecting upload connection: %s %s', upload_url_info['hostname'],
+                      upload_url_info['path'])
+            upload_url_info['connection'].reset()
 
     @staticmethod
     def _b2_url_encode(s):
