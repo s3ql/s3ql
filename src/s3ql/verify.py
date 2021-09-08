@@ -127,11 +127,13 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
     size_acc = 0
 
-    sql = 'SELECT id, size FROM objects ORDER BY id'
+    sql = ('SELECT obj_id, objects.size, blocks.size '
+           'FROM blocks LEFT JOIN objects ON obj_id = objects.id '
+           'ORDER BY obj_id')
     i = 0 # Make sure this is set if there are zero objects
     stamp1 = 0
     try:
-        for (i, (obj_id, size)) in enumerate(db.query(sql)):
+        for (i, (obj_id, obj_size, block_size)) in enumerate(db.query(sql)):
             i += 1 # start at 1
             stamp2 = time.time()
             if stamp2 - stamp1 > 1 or i == total_count:
@@ -148,14 +150,14 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
                     if not t.is_alive():
                         t.join_and_raise()
 
-            size_acc += size
+            size_acc += obj_size
             if i < offset:
                 continue
 
             # Avoid blocking if all threads terminated
             while True:
                 try:
-                    queue.put(obj_id, timeout=1)
+                    queue.put((obj_id, block_size), timeout=1)
                 except QueueFull:
                     pass
                 else:
@@ -189,18 +191,22 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
     '''
 
     with backend_factory() as backend:
+        size = None
+        def do_read(fh):
+            nonlocal size
+            size = 0
+            while True:
+                buf = fh.read(BUFSIZE)
+                size += len(buf)
+                if not buf:
+                    break
         while True:
-            obj_id = queue.get()
-            if obj_id is None:
+            el = queue.get()
+            if el is None:
                 break
+            (obj_id, exp_size) = el
 
             log.debug('reading object %s', obj_id)
-            def do_read(fh):
-                while True:
-                    buf = fh.read(BUFSIZE)
-                    if not buf:
-                        break
-
             key = 's3ql_data_%d' % obj_id
             try:
                 if full:
@@ -210,9 +216,18 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
             except NoSuchObject:
                 log.warning('Backend seems to have lost object %d', obj_id)
                 print(key, file=missing_fh)
+                continue
             except CorruptedObjectError:
                 log.warning('Object %d is corrupted', obj_id)
                 print(key, file=corrupted_fh)
+                continue
+
+            if full and exp_size != size:
+                log.warning('Object %d is corrupted (expected size %d, '
+                            'actual size %d)', obj_id, exp_size, size)
+                print(key, file=corrupted_fh)
+                continue
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

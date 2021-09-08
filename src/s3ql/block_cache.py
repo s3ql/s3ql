@@ -702,7 +702,8 @@ class BlockCache(object):
                 return el
 
             # Need to download corresponding object
-            obj_id = self.db.get_val('SELECT obj_id FROM blocks WHERE id=?', (block_id,))
+            (obj_id, size) = self.db.get_row('SELECT obj_id, size FROM blocks WHERE id=?',
+                                             (block_id,))
             log.debug('downloading object %d..', obj_id)
             tmpfh = open(filename + '.tmp', 'wb')
             try:
@@ -725,6 +726,13 @@ class BlockCache(object):
                 await trio.to_thread.run_sync(with_lock_released)
 
                 tmpfh.flush()
+
+                file_size = os.fstat(tmpfh.fileno()).st_size
+                if file_size  != size:
+                    raise RuntimeError(
+                        f'Size mismatch for object {obj_id} (inode {inode}, blockno {blockno}): '
+                        f'expected {size} bytes, downloaded {file_size} bytes')
+
                 os.fsync(tmpfh.fileno())
                 os.rename(tmpfh.name, filename)
             except:
