@@ -7,6 +7,9 @@ UNRELEASED CHANGES
   * The `s3ql_verify` tool is now able to detect the kind of corruption that
     was introduced by the fsck.s3ql data corruption bug described below.
 
+  * The new contrib/fixup_block_sizes.py tool is now available to fix most of
+    the issues caused by the fsck.s3ql bug described below.
+
 2021-06-03, S3QL 3.7.3
 
   * Fixed a DATA CORRUPTION bug in fsck.s3ql that caused the recorded size of uploaded
