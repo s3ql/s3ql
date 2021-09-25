@@ -35,7 +35,7 @@ that is not the case.
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
   * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
     newer.
-  * `trio <https://github.com/python-trio/trio>`_, version 0.9 or newer.
+  * `trio <https://github.com/python-trio/trio>`_, version 0.15 or newer.
   * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
     version between 3.2.0 (inclusive) and 4.0 (exclusive)
   * `dugong <https://pypi.org/project/dugong/>`_, any
