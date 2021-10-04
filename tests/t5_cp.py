@@ -76,8 +76,7 @@ class TestCp(t4_fuse.TestFuse):
         # check if we can write to drop_caches
         try:
             with open("/proc/sys/vm/drop_caches", "w") as drop_caches:
-                if not drop_caches.writeable():
-                    raise OsError.PermissionError('drop_caches not writable')
+                pass
         except OSError:
             pytest.skip('test_cp_inode_invalidate requires drop_caches to be writable, skipping.')
 
