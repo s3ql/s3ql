@@ -73,8 +73,12 @@ class TestCp(t4_fuse.TestFuse):
 
 
     def test_cp_inode_invalidate(self):
-        if os.getuid() != 0:
-            pytest.skip('test_cp_inode_invalidate requires root, skipping.')
+        # check if we can write to drop_caches
+        try:
+            with open("/proc/sys/vm/drop_caches", "w") as drop_caches:
+                pass
+        except OSError:
+            pytest.skip('test_cp_inode_invalidate requires drop_caches to be writable, skipping.')
 
         self.passphrase = None
         self.mkfs()
