@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2021-11-07, S3QL 3.8.0
 
   * The way to build the documentation has changed. Instead of running
     `setup.py build_sphinx`, run `./build_docs.sh`. To generate PDF
