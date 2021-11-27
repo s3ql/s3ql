@@ -188,7 +188,10 @@ def yield_local_backend(bi):
         yield backend
     finally:
         backend.close()
-        shutil.rmtree(backend_dir)
+        try:
+            shutil.rmtree(backend_dir)
+        except OSError:
+            pass
 
 def yield_mock_backend(bi):
     backend_class = backends.prefix_map[bi.classname]
