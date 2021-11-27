@@ -6,6 +6,10 @@ UNRELEASED CHANGES
     -S (sparse) option and VirtualBox do this for example. No data corruption,
     but contrib/fixup_block_sizes.py should be run to fix this.
 
+  * contrib/fix_block_sizes.py updated to check all block sizes, not just
+    ones with size multiple of 512, so it detects blocks affected by the above
+    bug.
+
 2021-11-07, S3QL 3.8.0
 
   * The way to build the documentation has changed. Instead of running
