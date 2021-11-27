@@ -15,6 +15,7 @@ if __name__ == '__main__':
 from s3ql.backends import local
 from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.common import CorruptedObjectError
+from s3ql.backends.common import DanglingStorageURLError
 from argparse import Namespace
 import shutil
 import re
