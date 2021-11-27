@@ -101,7 +101,7 @@ class AdmTests(unittest.TestCase):
             plain_backend = local.Backend(Namespace(
                 storage_url=self.storage_url))
             assert list(plain_backend.list()) == []
-        except DanglingStorageError:
+        except DanglingStorageURLError:
             pass
 
 
