@@ -92,10 +92,17 @@ class AdmTests(unittest.TestCase):
         print('yes', file=proc.stdin)
         proc.stdin.close()
         self.assertEqual(proc.wait(), 0)
-
-        plain_backend = local.Backend(Namespace(
-            storage_url=self.storage_url))
-        assert list(plain_backend.list()) == []
+        
+        #With directory removal patch, the storage directory is removed
+        #when s3qladm clears the FS.  Having the backend fail here with
+        #DanglingStorageError still indicates the FS was cleared as it
+        #should be.
+        try:
+            plain_backend = local.Backend(Namespace(
+                storage_url=self.storage_url))
+            assert list(plain_backend.list()) == []
+        except s3ql.backends.common.DanglingStorageError:
+            pass
 
 
     def test_key_recovery(self):
