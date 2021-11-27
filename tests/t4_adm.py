@@ -34,8 +34,11 @@ class AdmTests(unittest.TestCase):
         self.passphrase = 'oeut3d'
 
     def tearDown(self):
-        shutil.rmtree(self.cache_dir)
-        shutil.rmtree(self.backend_dir)
+        try:
+            shutil.rmtree(self.cache_dir)
+            shutil.rmtree(self.backend_dir)
+        except OSError:
+            pass
 
     def mkfs(self):
         proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
