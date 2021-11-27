@@ -1,3 +1,11 @@
+UNRELEASED CHANGES
+
+  * Fix bug that would cause incorrect size to be recorded for a block
+    if the file had zero-bytes added to the end by using truncate followed
+    by close.  (The recorded size does not count the zero bytes.)  Both rsync's
+    -S (sparse) option and VirtualBox do this for example. No data corruption,
+    but contrib/fixup_block_sizes.py should be run to fix this.
+
 2021-11-07, S3QL 3.8.0
 
   * The way to build the documentation has changed. Instead of running
