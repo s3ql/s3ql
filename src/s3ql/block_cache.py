@@ -93,9 +93,9 @@ class CacheEntry(object):
         self.dirty = True
         self.fh.truncate(size)
         if size is None:
-            if self.pos < self.size:
+            if self.pos != self.size:
                 self.size = self.pos
-        elif size < self.size:
+        elif size != self.size:
             self.size = size
 
     def write(self, buf):
