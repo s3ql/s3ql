@@ -57,7 +57,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def is_temp_failure(self, exc): #IGNORE:W0613
         #Possible race if os.rmdir in delete runs in between
         #ObjectW os.makedirs and open(), retry if this happens.
-        if isinstance(exc, FileNotFoundError)
+        if isinstance(exc, FileNotFoundError):
             return True
         return False
 
