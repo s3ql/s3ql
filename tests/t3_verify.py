@@ -36,7 +36,10 @@ def backend():
         yield backend
     finally:
         backend.close()
-        shutil.rmtree(backend_dir)
+        try:
+            shutil.rmtree(backend_dir)
+        except OSError:
+            pass
 
 @pytest.yield_fixture()
 def db():
