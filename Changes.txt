@@ -1,5 +1,7 @@
 UNRELEASED CHANGES
 
+  * Fix for fsck.s3ql removing .tmp files in cache directory.
+
   * Fix bug that would cause incorrect size to be recorded for a block
     if the file had zero-bytes added to the end by using truncate followed
     by close.  (The recorded size does not count the zero bytes.)  Both rsync's
