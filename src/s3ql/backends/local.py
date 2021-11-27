@@ -55,6 +55,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def is_temp_failure(self, exc): #IGNORE:W0613
+        #Possible race if os.rmdir in delete runs in between
+        #ObjectW os.makedirs and open(), retry if this happens.
+        if isinstance(exc, FileNotFoundError)
+            return True
         return False
 
     @copy_ancestor_docstring
@@ -140,6 +144,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 pass
             else:
                 raise NoSuchObject(key)
+        try:
+            os.rmdir(os.path.dirname(path))
+        except OSError:
+            pass
 
     @copy_ancestor_docstring
     def list(self, prefix=''):
