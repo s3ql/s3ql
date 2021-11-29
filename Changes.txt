@@ -1,3 +1,10 @@
+  * Update fsck.s3ql to remove empty direcrtories from local backend's storage
+    directory.  As blocks are added subdirectories are created
+    on demand so there are not too many blocks in each directory, but as blocks
+    are removed from storage empty directories are not automatically removed.  
+    The number of empty directories can become quite large over 
+    time, slowing down mount.s3ql a little and fsck.s3ql considerably.
+
 2021-11-07, S3QL 3.8.0
 
   * The way to build the documentation has changed. Instead of running
