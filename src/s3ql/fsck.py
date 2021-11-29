@@ -932,7 +932,7 @@ class Fsck(object):
         empty_dirs=0
         for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=False):
             for name in filenames:
-                if not re.search('^\\#(\\d+)-(\\d+)\\.tmp$', name):
+                if not re.search(r'^[^#]+#[0-9]+--?[0-9]+\.tmp$', name):
                     continue
 
                 self.found_errors = True
