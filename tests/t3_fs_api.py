@@ -108,7 +108,10 @@ async def ctx():
     ctx.server.inodes.destroy()
     await ctx.cache.destroy()
     shutil.rmtree(ctx.cachedir)
-    shutil.rmtree(ctx.backend_dir)
+    try:
+        shutil.rmtree(ctx.backend_dir)
+    except OSError:
+        pass
     os.unlink(ctx.dbfile.name)
     ctx.dbfile.close()
 
