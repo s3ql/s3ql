@@ -927,16 +927,23 @@ class Fsck(object):
         if not isinstance(plain_backend, LocalBackend):
             return
 
-        log.info('Checking for temporary objects (backend)...')
+        log.info('Checking for temporary objects and empty directories (backend)...')
 
-        for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=True):
+        empty_dirs=0
+        for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=False):
             for name in filenames:
-                if not re.search(r'^[^#]+#[0-9]+--?[0-9]+\.tmp$', name):
+                if not re.match('^\\#(\\d+)-(\\d+)\\.tmp$', name):
                     continue
 
                 self.found_errors = True
                 self.log_error("removing temporary file %s", name)
                 os.unlink(os.path.join(path, name))
+            try:
+                empty_dirs+=1
+                os.rmdir(path)
+            except OSError:
+                empty_dirs-=1
+        log.info('Removed %d empty directories', empty_dirs)
 
     def check_objects_id(self):
         """Check objects.id"""
