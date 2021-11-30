@@ -52,10 +52,7 @@ class fsck_tests(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.cachedir)
-        try:
-            shutil.rmtree(self.backend_dir)
-        except OSError:
-            pass
+        shutil.rmtree(self.backend_dir)
         self.dbfile.close()
 
     def assert_fsck(self, fn):
