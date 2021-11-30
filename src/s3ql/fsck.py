@@ -941,10 +941,10 @@ class Fsck(object):
                 
             if path != plain_backend.prefix:
                 try:
-                    empty_dirs += 1
                     os.rmdir(path)
+                    empty_dirs += 1
                 except OSError:
-                    empty_dirs -= 1
+                    pass
                     
         log.info('Removed %d empty directories', empty_dirs)
 
