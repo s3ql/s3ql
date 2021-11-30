@@ -1,4 +1,4 @@
-2021-11-30
+UNRELEASED CHANGES
 
   * Update fsck.s3ql to remove empty direcrtories from local backend's storage
     directory.  As blocks are added subdirectories are created
@@ -6,17 +6,17 @@
     are removed from storage empty directories are not automatically removed.  
     The number of empty directories can become quite large over 
     time, slowing down mount.s3ql a little and fsck.s3ql considerably.
-
+    
   * Fix for fsck.s3ql removing .tmp files in cache directory.
-  
+
   * Fix bug that would cause incorrect size to be recorded for a block
     if the file had zero-bytes added to the end by using truncate followed
     by close.  (The recorded size does not count the zero bytes.)  Both rsync's
     -S (sparse) option and VirtualBox do this for example. No data corruption,
     but contrib/fixup_block_sizes.py should be run to fix this.
-    
+
   * contrib/fix_block_sizes.py updated to check all block sizes, not just
-    ones with size multiple of 512, so it detects blocks affected by this
+    ones with size multiple of 512, so it detects blocks affected by the above
     bug.
 
 2021-11-07, S3QL 3.8.0
