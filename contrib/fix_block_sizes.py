@@ -132,9 +132,6 @@ def fix_block(obj_id, block_id, cur_size, db, backend):
      when this happens and correct the block size instead of the file size.
     '''
 
-    if cur_size % 512 != 0:
-        return False
-
     act_size = None
     def do_read(fh):
         nonlocal act_size

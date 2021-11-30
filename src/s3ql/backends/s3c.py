@@ -143,7 +143,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
                             RequestTimeoutError, OperationAbortedError,
-                            SlowDownError, ServiceUnavailableError)):
+                            SlowDownError, ServiceUnavailableError,
+                            TemporarilyUnavailableError)):
             return True
 
         elif is_temp_network_error(exc):
@@ -1034,5 +1035,6 @@ class OperationAbortedError(S3Error): pass
 class RequestTimeoutError(S3Error): pass
 class SlowDownError(S3Error): pass
 class ServiceUnavailableError(S3Error): pass
+class TemporarilyUnavailableError(S3Error): pass
 class RequestTimeTooSkewedError(S3Error): pass
 class NoSuchBucketError(S3Error, DanglingStorageURLError): pass

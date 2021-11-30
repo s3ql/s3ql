@@ -198,11 +198,12 @@ class Fsck(object):
             if match:
                 inode = int(match.group(1))
                 blockno = int(match.group(2))
-            elif re.match(r'^(\\d+)-(\\d+)\.tmp$', filename):
+            elif re.match('^(\\d+)-(\\d+)\\.tmp$', filename):
                 # Temporary file created when downloading object
                 self.found_errors = True
                 self.log_error("Removing leftover temporary file: " + filename)
                 os.unlink(os.path.join(self.cachedir, filename))
+                continue
             else:
                 raise RuntimeError('Strange file in cache directory: %s' % filename)
 
