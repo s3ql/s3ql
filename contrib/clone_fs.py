@@ -67,20 +67,14 @@ def parse_args(args):
     # Print message so that the user has some idea what credentials are
     # wanted (if not specified in authfile).
     log.info('Connecting to source backend...')
-    options.storage_url = options.src_storage_url
-    parser._init_backend_factory(options)
-    src_options = argparse.Namespace()
-    src_options.__dict__.update(options.__dict__)
+    parser.set_defaults(storage_url=options.src_storage_url)
+    src_options = parser.parse_args(args)
     options.src_backend_factory = lambda: src_options.backend_class(src_options)
 
     log.info('Connecting to destination backend...')
-    options.storage_url = options.dst_storage_url
-    parser._init_backend_factory(options)
-    dst_options = argparse.Namespace()
-    dst_options.__dict__.update(options.__dict__)
+    parser.set_defaults(storage_url=options.dst_storage_url)
+    dst_options = parser.parse_args(args)
     options.dst_backend_factory = lambda: dst_options.backend_class(dst_options)
-    del options.storage_url
-    del options.backend_class
 
     return options
 
