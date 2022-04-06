@@ -56,10 +56,8 @@ def test_missing(backend, db, full):
     obj_ids = (22, 25)
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
-        db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                   (id_, 1, 27 * id_))
-        db.execute('INSERT INTO blocks (id, obj_id, size) VALUES(?,?,?)',
-                   (id_, id_, len(data)))
+        db.execute('INSERT INTO objects (id, refcount, phys_size, length) '
+                   'VALUES(?, ?, ?, ?)', (id_, 1, 27 * id_, len(data)))
     key = 's3ql_data_%d' % obj_ids[0]
     backend[key] = data
 
@@ -79,10 +77,8 @@ def test_corrupted_head(backend, db, full):
     obj_ids = (30, 31)
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
-        db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                   (id_, 1, 27 * id_))
-        db.execute('INSERT INTO blocks (id, obj_id, size) VALUES(?,?,?)',
-                   (id_, id_, len(data)))
+        db.execute('INSERT INTO objects (id, refcount, phys_size, length) '
+                   'VALUES(?, ?, ?, ?)', (id_, 1, 27 * id_, len(data)))
 
     # Object one will be fine
     key = 's3ql_data_%d' % obj_ids[0]
@@ -116,10 +112,8 @@ def test_corrupted_body(backend, db, full):
     obj_ids = (35, 40)
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
-        db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                   (id_, 1, 27 * id_))
-        db.execute('INSERT INTO blocks (id, obj_id, size) VALUES(?,?,?)',
-                   (id_, id_, len(data)))
+        db.execute('INSERT INTO objects (id, refcount, phys_size, length) '
+                   'VALUES(?, ?, ?, ?)', (id_, 1, 27 * id_, len(data)))
         backend['s3ql_data_%d' % id_] = data
 
     # Introduce checksum error
@@ -154,11 +148,8 @@ def test_corrupted_body(backend, db, full):
 def test_truncated_body(backend, db, full):
     id_ = 35
     data = b'just some data that no-one really cares about'
-    db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-               (id_, 1, 27 * id_))
-    db.execute('INSERT INTO blocks (id, obj_id, size) VALUES(?,?,?)',
-               (id_, id_, len(data)+1))
-
+    db.execute('INSERT INTO objects (id, refcount, phys_size, length) '
+                'VALUES(?, ?, ?, ?)', (id_, 1, 27 * id_, len(data)+1))
     key = 's3ql_data_%d' % id_
     backend[key] = data
 

@@ -9,6 +9,12 @@ UNRELEASED CHANGES
     To update an existing file system, use the `s3qladm upgrade` command. This upgrade
     process updates only the metadata tables and should not take more than a few minutes.
 
+  * Smaller database size and improved performance on metadata operations.
+
+    S3QL was designed to be able to store multiple blocks in the same backend
+    object. However, this feature was never implemented. The necessary abstraction layer
+    has now been removed, which should increase performance and reduce database size.
+
 
 2022-01-10, S3QL 3.8.1
 

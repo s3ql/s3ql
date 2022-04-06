@@ -456,41 +456,6 @@ async def test_remove_db(ctx):
         fh.seek(0)
         assert fh.read(42) ==  b''
 
-# Disabled, still needs to be ported to trio.
-async def XXtest_issue_241(ctx):
-
-    inode = ctx.inode
-
-    # Create block
-    async with ctx.cache.get(inode, 0) as fh:
-        fh.write(random_data(500))
-
-    # "Fill" cache
-    ctx.cache.cache.max_entries = 0
-
-    # Mock locking to reproduce race condition
-    mlock = MockMultiLock(ctx.cache.mlock)
-    async with trio.open_nursery() as nursery:
-        async with trio.open_nursery() as nursery2:
-            with patch.object(ctx.cache, 'mlock', mlock):
-                # Start expiration, will block on lock
-                await nursery.start(ctx.cache.expire)
-
-                # Remove the object while the expiration thread waits
-                # for it to become available.
-                await nursery2.start(ctx.cache.remove, inode, 0, 1)
-
-                mlock.yield_to(thread2)
-
-        # Create a new object for the same block
-        async with ctx.cache.get(inode, 0) as fh:
-            fh.write(random_data(500))
-
-        # Continue first expiration run
-        mlock.yield_to(thread1, block=False)
-        thread1.join_and_raise(timeout=10)
-        assert not thread1.is_alive()
-
 
 class MockMultiLock:
     def __init__(self, real_mlock):

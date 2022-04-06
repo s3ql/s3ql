@@ -48,22 +48,26 @@ class fsck_tests(unittest.TestCase):
 
         self.fsck = Fsck(self.cachedir, self.backend,
                   { 'max_obj_size': self.max_obj_size }, self.db)
-        self.fsck.expect_errors = True
 
     def tearDown(self):
         shutil.rmtree(self.cachedir)
         shutil.rmtree(self.backend_dir)
         self.dbfile.close()
 
-    def assert_fsck(self, fn):
-        '''Check that fn detects and corrects an error'''
+    def assert_fsck(self, *fns, can_fix=True):
+        '''Check that fns detects and corrects errors'''
 
+        self.fsck.expect_errors = True
+        for fn in fns:
+            self.fsck.found_errors = False        
+            fn()
+            assert self.fsck.found_errors
+        if not can_fix:
+            return
         self.fsck.found_errors = False
-        fn()
-        self.assertTrue(self.fsck.found_errors)
-        self.fsck.found_errors = False
+        self.fsck.expect_errors = False
         self.fsck.check()
-        self.assertFalse(self.fsck.found_errors)
+        assert not self.fsck.found_errors
 
     def test_cache(self):
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
@@ -222,15 +226,14 @@ class fsck_tests(unittest.TestCase):
         self._link(b'test-entry', id_)
 
         block_size = self.max_obj_size // 3
-        obj_id = self.db.rowid('INSERT INTO objects (refcount,size) VALUES(?,?)', (1, 36))
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
-                                 'VALUES(?,?,?,?)', (1, obj_id, block_size, sha256(b'foo')))
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length, hash) '
+                               'VALUES(?, ?, ?, ?)', (1, 36, block_size, sha256(b'foo')))
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
 
         # One block, no holes, size plausible
         self.db.execute('UPDATE inodes SET size=? WHERE id=?', (block_size, id_))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
-                        (id_, 0, block_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                        (id_, 0, obj_id))
         self.fsck.found_errors = False
         self.fsck.check()
         assert not self.fsck.found_errors
@@ -242,16 +245,16 @@ class fsck_tests(unittest.TestCase):
         # Two blocks, hole at the beginning, size plausible
         self.db.execute('DELETE FROM inode_blocks WHERE inode=?', (id_,))
         self.db.execute('UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + block_size, id_))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
-                        (id_, 1, block_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                        (id_, 1, obj_id))
         self.fsck.found_errors = False
         self.fsck.check()
         assert not self.fsck.found_errors
 
         # Two blocks, no holes, size plausible
-        self.db.execute('UPDATE blocks SET refcount = 2 WHERE id = ?', (block_id,))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
-                        (id_, 0, block_id))
+        self.db.execute('UPDATE objects SET refcount = 2 WHERE id = ?', (obj_id,))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                        (id_, 0, obj_id))
         self.fsck.found_errors = False
         self.fsck.check()
         assert not self.fsck.found_errors
@@ -279,10 +282,11 @@ class fsck_tests(unittest.TestCase):
         self.assert_fsck(self.fsck.check_objects_id)
 
         # Create an object that does not exist in the backend
-        self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)', (34, 1, 27))
+        self.db.execute('INSERT INTO objects (id, refcount, phys_size, length) '
+                        'VALUES(?, ?, ?, ?)', (34, 1, 27, 50))
         self.assert_fsck(self.fsck.check_objects_id)
 
-    def test_blocks_checksum(self):
+    def test_objects_hash(self):
         id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
                             "VALUES (?,?,?,?,?,?,?,?)",
                             (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
@@ -291,95 +295,63 @@ class fsck_tests(unittest.TestCase):
 
         # Assume that due to a crash we did not write the hash for the block
         self.backend['s3ql_data_4364'] = b'Testdata'
-        self.db.execute('INSERT INTO objects (id, refcount, size) VALUES(?, ?, ?)',
-                        (4364, 1, 8))
-        block_id = self.db.execute('INSERT INTO blocks (obj_id, refcount, size) VALUES(?, ?, ?)',
-                                   (4364, 1, 8))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?, ?, ?)',
-                        (id_, 0, block_id))
+        self.db.execute('INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+                        (4364, 1, 8, 8))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)',
+                        (id_, 0, 4364))
 
 
         # Should pick up wrong hash and delete objects
-        self.fsck.found_errors = False
-        self.fsck.check_blocks_checksum()
-        assert self.fsck.found_errors
-        self.fsck.found_errors = False
-        self.fsck.check_blocks_checksum()
-        assert not self.fsck.found_errors
+        self.assert_fsck(self.fsck.check_objects_hash,
+                         self.fsck.check_objects_id,
+                         self.fsck.check_inode_blocks_obj_id)
 
-        # Should save files in lost+found
-        self.fsck.found_errors = False
-        self.fsck.check()
-        assert self.fsck.found_errors
-
-        # Now everything should be good
-        self.fsck.found_errors = False
-        self.fsck.check()
-        assert not self.fsck.found_errors
-
-        assert not self.db.has_val('SELECT block_id FROM inode_blocks WHERE inode=?',
-                                   (id_,))
+        assert not self.db.has_val('SELECT obj_id FROM inode_blocks WHERE inode=?', (id_,))
         inode_p = self.db.get_val('SELECT parent_inode FROM contents_v WHERE inode=?', (id_,))
         lof_id = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                                  (b"lost+found", ROOT_INODE))
         assert inode_p == lof_id
 
-    def test_blocks_obj_id(self):
-
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, 48, 128))
-
-        id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
-                            "VALUES (?,?,?,?,?,?,?,?)",
-                            (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
-                             0, 0, time_ns(), time_ns(), time_ns(), 1, 128))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (id_, 0, block_id))
-
-        self._link(b'test-entry', id_)
-        self.assert_fsck(self.fsck.check_blocks_obj_id)
 
     def test_missing_obj(self):
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 32)')
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 128))
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length) '
+                               'VALUES(1, 32, 128)')
 
         id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
                             "VALUES (?,?,?,?,?,?,?,?)",
                             (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                              0, 0, time_ns(), time_ns(), time_ns(), 1, 128))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (id_, 0, block_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
+                        (id_, 0, obj_id))
 
         self._link(b'test-entry', id_)
-        self.assert_fsck(self.fsck.check_objects_id)
+        self.assert_fsck(self.fsck.check_objects_id,
+                         self.fsck.check_inode_blocks_obj_id)
 
 
     def test_inode_blocks_inode(self):
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 42)')
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length, hash) '
+                               'VALUES(1, 42, 34, ?)', (sha256(b'foo'),))
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
 
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 34))
-
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (27, 0, block_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
+                        (27, 0, obj_id))
 
         self.assert_fsck(self.fsck.check_inode_blocks_inode)
 
-    def test_inode_blocks_block_id(self):
+    def test_inode_blocks_obj_id(self):
 
         id_ = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
                             "VALUES (?,?,?,?,?,?,?,?)",
                             (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                              0, 0, time_ns(), time_ns(), time_ns(), 1, 128))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
                         (id_, 0, 35))
 
         self._link(b'test-entry', id_)
-        self.assert_fsck(self.fsck.check_inode_blocks_block_id)
+        self.assert_fsck(self.fsck.check_inode_blocks_obj_id)
 
     def test_symlinks_inode(self):
 
@@ -445,12 +417,9 @@ class fsck_tests(unittest.TestCase):
 
     def test_obj_refcounts(self):
 
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 42)')
-        block_id_1 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
-                                   'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'foo')))
-        block_id_2 = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
-                                   'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'bar')))
-        self.backend['s3ql_data_%d' % obj_id] = b'foo and bar'
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length, hash) '
+                               'VALUES(1, 42, 0, ?)', (sha256(b'foo'),))
+        self.backend['s3ql_data_%d' % obj_id] = b'foo'
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
                               "VALUES (?,?,?,?,?,?,?,?)",
@@ -458,45 +427,20 @@ class fsck_tests(unittest.TestCase):
                                os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(),
                                1, 2048))
         self._link(b'test-entry', inode)
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 1, block_id_1))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 2, block_id_2))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
+                        (inode, 1, obj_id))
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
+                        (inode, 2, obj_id))
 
         self.assert_fsck(self.fsck.check_objects_refcount)
+
 
     def test_orphaned_obj(self):
 
-        self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 33)')
+        self.db.rowid('INSERT INTO objects (refcount, phys_size, length, hash) '
+                      'VALUES(1, 33, 50, ?)', (sha256(b'foobar'),))
         self.assert_fsck(self.fsck.check_objects_refcount)
 
-    def test_wrong_block_refcount(self):
-
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 23)')
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) '
-                                 'VALUES(?,?,?,?)', (1, obj_id, 0, sha256(b'')))
-
-        inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
-                              "VALUES (?,?,?,?,?,?,?,?)",
-                              (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, os.getuid(), os.getgid(),
-                               time_ns(), time_ns(), time_ns(), 1, self.max_obj_size))
-        self._link(b'test-entry', inode)
-
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 0, block_id))
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 1, block_id))
-
-        self.assert_fsck(self.fsck.check_blocks_refcount)
-
-    def test_orphaned_block(self):
-
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 24)')
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
-        self.db.rowid('INSERT INTO blocks (refcount, obj_id, size, hash) VALUES(?,?,?,?)',
-                      (1, obj_id, 3, sha256(b'xyz')))
-        self.assert_fsck(self.fsck.check_blocks_refcount)
 
     def test_unix_size(self):
 
@@ -506,14 +450,8 @@ class fsck_tests(unittest.TestCase):
                         (inode, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                          os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1, 0))
         self._link(b'test-entry', inode)
-
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
-
         self.db.execute('UPDATE inodes SET size = 1 WHERE id=?', (inode,))
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
 
     def test_unix_size_symlink(self):
@@ -527,14 +465,8 @@ class fsck_tests(unittest.TestCase):
                          len(target)))
         self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)', (inode, target))
         self._link(b'test-entry', inode)
-
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
-
         self.db.execute('UPDATE inodes SET size = 0 WHERE id=?', (inode,))
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
     def test_unix_target(self):
 
@@ -544,14 +476,8 @@ class fsck_tests(unittest.TestCase):
                      (inode, stat.S_IFCHR | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1))
         self._link(b'test-entry', inode)
-
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
-
         self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)', (inode, 'foo'))
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
     def test_unix_nomode_reg(self):
 
@@ -597,8 +523,7 @@ class fsck_tests(unittest.TestCase):
                               (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR,
                                os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1))
         self._link(b'test-entry', inode)
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
     def test_unix_rdev(self):
 
@@ -608,14 +533,8 @@ class fsck_tests(unittest.TestCase):
                      (inode, stat.S_IFIFO | stat.S_IRUSR | stat.S_IWUSR,
                       os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1))
         self._link(b'test-entry', inode)
-
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
-
         self.db.execute('UPDATE inodes SET rdev=? WHERE id=?', (42, inode))
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
     def test_unix_child(self):
 
@@ -624,33 +543,21 @@ class fsck_tests(unittest.TestCase):
                    (stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
                     os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1))
         self._link(b'test-entry', inode)
-
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
         self.db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)',
                         (self._add_name(b'foo'), ROOT_INODE, inode))
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)
 
     def test_unix_blocks(self):
 
+        # Socket with data blocks
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount) "
                               "VALUES (?,?,?,?,?,?,?)",
                               (stat.S_IFSOCK | stat.S_IRUSR | stat.S_IWUSR,
                                os.getuid(), os.getgid(), time_ns(), time_ns(), time_ns(), 1))
         self._link(b'test-entry', inode)
+        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length) '
+                               'VALUES(1, 32, 0)')
+        self.db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)',
+                        (inode, 1, obj_id))
 
-        self.fsck.found_errors = False
-        self.fsck.check_unix()
-        self.assertFalse(self.fsck.found_errors)
-
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, size) VALUES(1, 32)')
-        block_id = self.db.rowid('INSERT INTO blocks (refcount, obj_id, size) VALUES(?,?,?)',
-                                 (1, obj_id, 0))
-
-        self.db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) VALUES(?,?,?)',
-                        (inode, 1, block_id))
-
-        self.fsck.check_unix()
-        self.assertTrue(self.fsck.found_errors)
+        self.assert_fsck(self.fsck.check_unix, can_fix=False)

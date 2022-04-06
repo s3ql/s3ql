@@ -503,12 +503,12 @@ class Operations(pyfuse3.Operations):
                                    'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
                                    (id_,))
 
-                        processed += db.execute('INSERT INTO inode_blocks (inode, blockno, block_id) '
-                                                'SELECT ?, blockno, block_id FROM inode_blocks '
+                        processed += db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) '
+                                                'SELECT ?, blockno, obj_id FROM inode_blocks '
                                                 'WHERE inode=?', (id_new, id_))
-                        db.execute('REPLACE INTO blocks (id, hash, refcount, size, obj_id) '
-                                   'SELECT id, hash, refcount+COUNT(id), size, obj_id '
-                                   'FROM inode_blocks JOIN blocks ON block_id = id '
+                        db.execute('REPLACE INTO objects (id, hash, refcount, phys_size, length) '
+                                   'SELECT id, hash, refcount+COUNT(id), phys_size, length '
+                                   'FROM inode_blocks JOIN objects ON obj_id = id '
                                    'WHERE inode = ? GROUP BY id', (id_new,))
 
                         if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
@@ -889,16 +889,16 @@ class Operations(pyfuse3.Operations):
         self.inodes.flush()
 
         entries = self.db.get_val("SELECT COUNT(rowid) FROM contents")
-        blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
+        objects = self.db.get_val("SELECT COUNT(id) FROM objects")
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
         fs_size = self.db.get_val('SELECT SUM(size) FROM inodes') or 0
-        dedup_size = self.db.get_val('SELECT SUM(size) FROM blocks') or 0
+        dedup_size = self.db.get_val('SELECT SUM(length) FROM objects') or 0
 
         # Objects that are currently being uploaded/compressed have size == -1
-        compr_size = self.db.get_val('SELECT SUM(size) FROM objects '
-                                     'WHERE size > 0') or 0
+        compr_size = self.db.get_val('SELECT SUM(phys_size) FROM objects '
+                                     'WHERE phys_size > 0') or 0
 
-        return struct.pack('QQQQQQQQQQQQ', entries, blocks, inodes, fs_size, dedup_size,
+        return struct.pack('QQQQQQQQQQQQ', entries, objects, inodes, fs_size, dedup_size,
                            compr_size, self.db.get_size(), *self.cache.get_usage())
 
     async def statfs(self, ctx):
@@ -906,10 +906,9 @@ class Operations(pyfuse3.Operations):
 
         stat_ = pyfuse3.StatvfsData()
 
-        # Get number of blocks & inodes
-        blocks = self.db.get_val("SELECT COUNT(id) FROM objects")
+        objects = self.db.get_val("SELECT COUNT(id) FROM objects")
         inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-        size = self.db.get_val('SELECT SUM(size) FROM blocks')
+        size = self.db.get_val('SELECT SUM(length) FROM objects')
 
         if size is None:
             size = 0
@@ -917,7 +916,7 @@ class Operations(pyfuse3.Operations):
         # file system block size, i.e. the minimum amount of space that can
         # be allocated. This doesn't make much sense for S3QL, so we just
         # return the average size of stored blocks.
-        stat_.f_frsize = max(4096, size // blocks) if blocks != 0 else 4096
+        stat_.f_frsize = max(4096, size // objects) if objects != 0 else 4096
 
         # This should actually be the "preferred block size for doing IO.  However, `df` incorrectly
         # interprets f_blocks, f_bfree and f_bavail in terms of f_bsize rather than f_frsize as it
