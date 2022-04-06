@@ -123,13 +123,11 @@ def retrieve_objects(db, backend_factory, corrupted_fh, missing_fh,
         t.start()
         threads.append(t)
 
-    total_size = db.get_val('SELECT SUM(size) FROM objects')
+    total_size = db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0')
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
     size_acc = 0
 
-    sql = ('SELECT obj_id, objects.size, blocks.size '
-           'FROM blocks LEFT JOIN objects ON obj_id = objects.id '
-           'ORDER BY obj_id')
+    sql = 'SELECT id, phys_size, length FROM objects ORDER BY id'
     i = 0 # Make sure this is set if there are zero objects
     stamp1 = 0
     try:

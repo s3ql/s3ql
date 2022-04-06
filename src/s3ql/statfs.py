@@ -56,7 +56,7 @@ def main(args=None):
     # three times.
     buf = pyfuse3.getxattr(ctrlfile, 's3qlstat', size_guess=256)
 
-    (entries, blocks, inodes, fs_size, dedup_size,
+    (entries, objects, inodes, fs_size, dedup_size,
      compr_size, db_size, cache_cnt, cache_size, dirty_cnt,
      dirty_size, removal_cnt) = struct.unpack('QQQQQQQQQQQQ', buf)
     p_dedup = dedup_size * 100 / fs_size if fs_size else 0
@@ -64,7 +64,7 @@ def main(args=None):
     p_compr_2 = compr_size * 100 / dedup_size if dedup_size else 0
     print ('Directory entries:    %d' % entries,
            'Inodes:               %d' % inodes,
-           'Data blocks:          %d' % blocks,
+           'Data objects:         %d' % objects,
            'Total data size:      %s' % pprint(fs_size),
            'After de-duplication: %s (%.2f%% of total)'
              % (pprint(dedup_size), p_dedup),

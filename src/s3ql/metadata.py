@@ -22,14 +22,10 @@ log = logging.getLogger(__name__)
 # Has to be kept in sync with create_tables()!
 DUMP_SPEC = [
              ('objects', 'id', (('id', INTEGER, 1),
-                                ('size', INTEGER),
-                                ('refcount', INTEGER))),
-
-             ('blocks', 'id', (('id', INTEGER, 1),
-                             ('hash', BLOB, 32),
-                             ('size', INTEGER),
-                             ('obj_id', INTEGER, 1),
-                             ('refcount', INTEGER))),
+                                ('hash', BLOB, 32),
+                                ('refcount', INTEGER),
+                                ('phys_size', INTEGER),
+                                ('length', INTEGER))),
 
              ('inodes', 'id', (('id', INTEGER, 1),
                                ('uid', INTEGER),
@@ -46,7 +42,7 @@ DUMP_SPEC = [
              ('inode_blocks', 'inode, blockno',
               (('inode', INTEGER),
                ('blockno', INTEGER, 1),
-               ('block_id', INTEGER, 1))),
+               ('obj_id', INTEGER, 1))),
 
              ('symlink_targets', 'inode', (('inode', INTEGER, 1),
                                            ('target', BLOB))),
@@ -164,23 +160,16 @@ def dump_metadata(db, fh):
 def create_tables(conn):
     # Table of storage objects
     # Refcount is included for performance reasons
-    # size == -1 indicates block has not been uploaded yet
+    # phys_size is the number of bytes stored in the backend (i.e., after compression).
+    # length is the logical size in the filesystem.
+    # phys_size == -1 indicates block has not been uploaded yet
     conn.execute("""
     CREATE TABLE objects (
-        id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        refcount  INT NOT NULL,
-        size      INT NOT NULL
-    )""")
-
-    # Table of known data blocks
-    # Refcount is included for performance reasons
-    conn.execute("""
-    CREATE TABLE blocks (
-        id        INTEGER PRIMARY KEY,
-        hash      BLOB(32) UNIQUE,
-        refcount  INT,
-        size      INT NOT NULL,
-        obj_id    INTEGER NOT NULL REFERENCES objects(id)
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash        BLOB(32) UNIQUE,
+        refcount    INT NOT NULL,
+        phys_size   INT NOT NULL,
+        length      INT NOT NULL
     )""")
 
     # Table with filesystem metadata
@@ -210,7 +199,7 @@ def create_tables(conn):
     CREATE TABLE inode_blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL,
-        block_id    INTEGER NOT NULL REFERENCES blocks(id),
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
         PRIMARY KEY (inode, blockno)
     )""")
 

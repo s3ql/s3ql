@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, QuietError, setup_logging
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
+from .deltadump import INTEGER, BLOB
 from .database import Connection
 from base64 import b64decode
 from .common import (get_seq_no, is_mounted, get_backend, load_params,
@@ -23,6 +24,7 @@ import os
 import re
 import shutil
 import sys
+from unittest import mock
 import textwrap
 import time
 
@@ -300,6 +302,128 @@ def get_old_rev_msg(rev, prog):
         ''' % { 'version': REV_VER_MAP[rev],
                 'prog': prog })
 
+
+def create_old_tables(conn):
+    conn.execute("""
+    CREATE TABLE objects (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL
+    )""")
+    conn.execute("""
+    CREATE TABLE blocks (
+        id        INTEGER PRIMARY KEY,
+        hash      BLOB(32) UNIQUE,
+        refcount  INT,
+        size      INT NOT NULL,
+        obj_id    INTEGER NOT NULL REFERENCES objects(id)
+    )""")
+    conn.execute("""
+    CREATE TABLE inodes (
+        -- id has to specified *exactly* as follows to become
+        -- an alias for the rowid.
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime_ns  INT NOT NULL,
+        atime_ns  INT NOT NULL,
+        ctime_ns  INT NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )""")
+    conn.execute("""
+    CREATE TABLE inode_blocks (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL,
+        block_id    INTEGER NOT NULL REFERENCES blocks(id),
+        PRIMARY KEY (inode, blockno)
+    )""")
+    conn.execute("""
+    CREATE TABLE symlink_targets (
+        inode     INTEGER PRIMARY KEY REFERENCES inodes(id),
+        target    BLOB NOT NULL
+    )""")
+    conn.execute("""
+    CREATE TABLE names (
+        id     INTEGER PRIMARY KEY,
+        name   BLOB NOT NULL,
+        refcount  INT NOT NULL,
+        UNIQUE (name)
+    )""")
+    conn.execute("""
+    CREATE TABLE contents (
+        rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
+        name_id   INT NOT NULL REFERENCES names(id),
+        inode     INT NOT NULL REFERENCES inodes(id),
+        parent_inode INT NOT NULL REFERENCES inodes(id),
+
+        UNIQUE (parent_inode, name_id)
+    )""")
+    conn.execute("""
+    CREATE TABLE ext_attributes (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        name_id   INTEGER NOT NULL REFERENCES names(id),
+        value     BLOB NOT NULL,
+
+        PRIMARY KEY (inode, name_id)
+    )""")
+    conn.execute("""
+    CREATE VIEW contents_v AS
+    SELECT * FROM contents JOIN names ON names.id = name_id
+    """)
+    conn.execute("""
+    CREATE VIEW ext_attributes_v AS
+    SELECT * FROM ext_attributes JOIN names ON names.id = name_id
+    """)
+
+OLD_DUMP_SPEC = [
+             ('objects', 'id', (('id', INTEGER, 1),
+                                ('size', INTEGER),
+                                ('refcount', INTEGER))),
+
+             ('blocks', 'id', (('id', INTEGER, 1),
+                             ('hash', BLOB, 32),
+                             ('size', INTEGER),
+                             ('obj_id', INTEGER, 1),
+                             ('refcount', INTEGER))),
+
+             ('inodes', 'id', (('id', INTEGER, 1),
+                               ('uid', INTEGER),
+                               ('gid', INTEGER),
+                               ('mode', INTEGER),
+                               ('mtime_ns', INTEGER),
+                               ('atime_ns', INTEGER),
+                               ('ctime_ns', INTEGER),
+                               ('size', INTEGER),
+                               ('rdev', INTEGER),
+                               ('locked', INTEGER),
+                               ('refcount', INTEGER))),
+
+             ('inode_blocks', 'inode, blockno',
+              (('inode', INTEGER),
+               ('blockno', INTEGER, 1),
+               ('block_id', INTEGER, 1))),
+
+             ('symlink_targets', 'inode', (('inode', INTEGER, 1),
+                                           ('target', BLOB))),
+
+             ('names', 'id', (('id', INTEGER, 1),
+                              ('name', BLOB),
+                              ('refcount', INTEGER))),
+
+             ('contents', 'parent_inode, name_id',
+              (('name_id', INTEGER, 1),
+               ('inode', INTEGER, 1),
+               ('parent_inode', INTEGER))),
+
+             ('ext_attributes', 'inode', (('inode', INTEGER),
+                                          ('name_id', INTEGER),
+                                          ('value', BLOB))),
+]
+    
 @handle_on_return
 def upgrade(options, on_return):
     '''Upgrade file system to newest revision'''
@@ -363,8 +487,6 @@ def upgrade(options, on_return):
         print('File system already at most-recent revision')
         return
 
-    raise RuntimeError('Upgrade procedure not yet implemented.')
-
     print(textwrap.dedent('''
         I am about to update the file system to the newest revision.
         You will not be able to access the file system with any older version
@@ -384,13 +506,62 @@ def upgrade(options, on_return):
         raise QuietError()
 
     if not db:
-        db = download_metadata(backend, cachepath + '.db')
+        with mock.patch.object(metadata, 'create_tables', create_old_tables), \
+             mock.patch.object(metadata, 'DUMP_SPEC', OLD_DUMP_SPEC):
+            db = metadata.download_metadata(backend, cachepath + '.db')
 
     log.info('Upgrading from revision %d to %d...', param['revision'], CURRENT_FS_REV)
 
     param['revision'] = CURRENT_FS_REV
     param['last-modified'] = time.time()
     param['seq_no'] += 1
+
+    # Altering table per https://sqlite.org/lang_altertable.html, section 7
+    # foreign_keys pragma should be off already.
+    db.execute("""
+    CREATE TABLE objects_new (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        hash        BLOB(32) UNIQUE,
+        refcount    INT NOT NULL,
+        phys_size   INT NOT NULL,
+        length      INT NOT NULL
+    )""")
+    db.execute("""
+    CREATE TABLE inode_blocks_new (
+        inode     INTEGER NOT NULL REFERENCES inodes(id),
+        blockno   INT NOT NULL,
+        obj_id    INTEGER NOT NULL REFERENCES objects(id),
+        PRIMARY KEY (inode, blockno)
+    )""")
+                
+    object_refcounts = db.get_val('SELECT COUNT(id) FROM objects WHERE refcount != 1')
+    if object_refcounts:
+        raise RuntimeError(
+            f'`objects` table has refcount != 1 in {object_refcounts} rows!')
+    
+    db.execute('INSERT INTO objects_new (id, hash, refcount, phys_size, length) '
+               'SELECT objects.id, blocks.hash, blocks.refcount, objects.size, blocks.size '
+               'FROM blocks LEFT JOIN objects ON blocks.obj_id = objects.id')
+    
+    db.execute('INSERT INTO inode_blocks_new (inode, blockno, obj_id) '
+               'SELECT inode, blockno, obj_id '
+               'FROM inode_blocks LEFT JOIN blocks ON (block_id = blocks.id)')
+    null_rows = db.get_val('SELECT COUNT(*) FROM inode_blocks_new '
+                           'WHERE obj_id IS NULL')
+    if null_rows:
+        raise RuntimeError(f'`inode_blocks_new` table has {null_rows} NULL values')
+    
+    db.execute('DROP TABLE inode_blocks')
+    db.execute('DROP TABLE blocks')
+    db.execute('DROP TABLE objects')
+    db.execute('ALTER TABLE inode_blocks_new RENAME TO inode_blocks')
+    db.execute('ALTER TABLE objects_new RENAME TO objects')
+
+    log.info('Cleaning up local metadata...')
+    db.execute('ANALYZE')
+    db.execute('VACUUM')
+    
+    metadata.dump_and_upload_metadata(backend, db, param)
 
     backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
 
