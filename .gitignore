@@ -19,3 +19,4 @@ __pycache__/
 /tests/test.log
 /tests/test_crit.log
 /.history
+/*.code-workspace
