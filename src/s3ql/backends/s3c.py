@@ -38,8 +38,6 @@ C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep',
 
 XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
-# Used only by adm.py
-UPGRADE_MODE=False
 
 log = logging.getLogger(__name__)
 
@@ -736,17 +734,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             except binascii.Error:
                 # This should trigger a MD5 mismatch below
                 meta[k] = None
-
-        # TODO: Remove on next file system revision bump
-        if UPGRADE_MODE:
-            md5 = resp.headers.get('%smeta-md5' % self.hdr_prefix, None)
-            if md5 == b64encode(checksum_basic_mapping(meta)).decode('ascii'):
-                meta['needs_reupload'] = False
-            elif md5 == b64encode(UPGRADE_MODE(meta)).decode('ascii'):
-                meta['needs_reupload'] = True
-            else:
-                raise BadDigestError('BadDigest', 'Meta MD5 for %s does not match' % obj_key)
-            return meta
 
         # Check MD5. There is a case to be made for treating a mismatch as a
         # `CorruptedObjectError` rather than a `BadDigestError`, because the MD5

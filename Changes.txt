@@ -1,3 +1,15 @@
+UNRELEASED CHANGES
+
+  * The internal file system revision has changed. File systems created with this version
+    of S3QL are NOT COMPATIBLE with prior S3QL versions.
+
+    Existing file systems must be upgraded before they can be used with current
+    S3QL versions. This procedure is NOT REVERSIBLE.
+
+    To update an existing file system, use the `s3qladm upgrade` command. This upgrade
+    process updates only the metadata tables and should not take more than a few minutes.
+
+
 2022-01-10, S3QL 3.8.1
 
   * Update fsck.s3ql to remove empty direcrtories from local backend's storage

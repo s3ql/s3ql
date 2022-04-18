@@ -38,12 +38,9 @@ assert logging.LOG_ONCE  # prevent warnings about unused module
 
 from pyfuse3 import ROOT_INODE
 
-VERSION = '3.8.1'
+VERSION = '4.0.0'
 RELEASE = '%s' % VERSION
-
-# TODO: On next revision bump, remove upgrade code from backend/comprenc.py and
-# backends/s3c.py (activated by UPGRADE_MODE variable).
-CURRENT_FS_REV = 24
+CURRENT_FS_REV = 25
 
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
