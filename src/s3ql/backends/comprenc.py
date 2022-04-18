@@ -27,9 +27,6 @@ log = logging.getLogger(__name__)
 
 HMAC_SIZE = 32
 
-# Used only by adm.py
-UPGRADE_MODE=False
-
 crypto_backend = crypto_backends.default_backend()
 
 def sha256(s):
@@ -138,9 +135,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 meta = thaw_basic_mapping(meta_buf)
             except ThawError:
                 raise CorruptedObjectError('Invalid metadata')
-            # TODO: Remove on next file system revision bump
-            if UPGRADE_MODE:
-                meta['needs_reupload'] = metadata.get('needs_reupload', False)
             return (None, meta)
 
         # Encrypted
@@ -151,24 +145,9 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         nonce = metadata['nonce']
         stored_key = metadata['object_id']
         meta_key = sha256(self.passphrase + nonce + b'meta')
-
-        # TODO: Remove on next file system revision bump
-        if UPGRADE_MODE:
-            if 'needs_reupload' in metadata:
-                update_required = metadata['needs_reupload']
-                del metadata['needs_reupload']
-            else:
-                update_required = False
-            if metadata['signature'] == checksum_basic_mapping(metadata,meta_key):
-                pass
-            elif metadata['signature'] == UPGRADE_MODE(metadata, meta_key):
-                update_required |= True
-            else:
-                raise CorruptedObjectError('HMAC mismatch')
-        else:
-            meta_sig = checksum_basic_mapping(metadata, meta_key)
-            if not hmac.compare_digest(metadata['signature'], meta_sig):
-                raise CorruptedObjectError('HMAC mismatch')
+        meta_sig = checksum_basic_mapping(metadata, meta_key)
+        if not hmac.compare_digest(metadata['signature'], meta_sig):
+            raise CorruptedObjectError('HMAC mismatch')
 
         if stored_key != key:
             raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
@@ -177,8 +156,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         decryptor = aes_decryptor(meta_key)
         buf = decryptor.update(meta_buf) + decryptor.finalize()
         meta = thaw_basic_mapping(buf)
-        if UPGRADE_MODE:
-            meta['needs_reupload'] = update_required
         try:
             return (nonce, meta)
         except ThawError:
