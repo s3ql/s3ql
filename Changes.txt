@@ -15,6 +15,11 @@ UNRELEASED CHANGES
     object. However, this feature was never implemented. The necessary abstraction layer
     has now been removed, which should increase performance and reduce database size.
 
+  * Workarounds for bugs in sqlite 3.38.0 – 3.38.4.
+
+    Sqlite 3.38 introduced bloom filter optimizations. The first patch releases of sqlite 3.38
+    had some bugs that prevented fsck.s3ql from running properly and made it corrupt the database.
+
 
 2022-01-10, S3QL 3.8.1
 
