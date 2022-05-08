@@ -131,6 +131,14 @@ class fsck_tests(unittest.TestCase):
 
         self.assert_fsck(self.fsck.check_lof)
 
+    def test_lof_issue_273(self):
+        name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (b'lost+found',))
+        inode = self.db.get_val('SELECT inode FROM contents WHERE name_id=? AND '
+                                'parent_inode=?', (name_id, ROOT_INODE))
+        self.db.execute('UPDATE contents SET parent_inode = ? WHERE inode = ?', (inode, inode))
+
+        self.assert_fsck(self.fsck.check_lof)
+
     def test_wrong_inode_refcount(self):
 
         inode = self.db.rowid("INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "

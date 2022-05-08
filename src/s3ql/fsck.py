@@ -128,15 +128,16 @@ class Fsck(object):
 
         for (table,) in self.conn.query("SELECT name FROM sqlite_master WHERE type='table'"):
             for row in self.conn.query('PRAGMA foreign_key_list(%s)' % table):
-                sql_objs = { 'src_table': table,
+                sql_objs = {'src_table': table,
                             'dst_table': row[2],
                             'src_col': row[3],
-                            'dst_col': row[4] }
+                            'dst_col': row[4],
+                            'dbf': self.conn.fixes['dbf']}
 
                 for (val,) in self.conn.query('SELECT %(src_table)s.%(src_col)s '
                                               'FROM %(src_table)s LEFT JOIN %(dst_table)s '
-                                              'ON %(src_table)s.%(src_col)s = %(dst_table)s.%(dst_col)s '
-                                              'WHERE %(dst_table)s.%(dst_col)s IS NULL '
+                                              'ON %(dbf)s%(src_table)s.%(src_col)s = %(dbf)s%(dst_table)s.%(dst_col)s '
+                                              'WHERE %(dbf)s%(dst_table)s.%(dst_col)s IS NULL '
                                               'AND %(src_table)s.%(src_col)s IS NOT NULL'
                                               % sql_objs):
                     self.found_errors = True
@@ -255,12 +256,21 @@ class Fsck(object):
 
         except NoSuchRowError:
             self.found_errors = True
-            self.log_error("Recreating missing lost+found directory")
-            inode_l = self.create_inode(mode=stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
-                                        atime_ns=now_ns, ctime_ns=now_ns, mtime_ns=now_ns,
-                                        refcount=1)
-            self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
-                              (self._add_name(b"lost+found"), inode_l, ROOT_INODE))
+            try:
+                # A bug in sqlite made fsck.s3ql move lost+found into lost+found. We just move it back to the root.
+                (inode_l, name_id) = self.conn.get_row("SELECT inode, name_id FROM contents_v "
+                                                       "WHERE name=? AND parent_inode=inode",
+                                                       (b"lost+found",))
+                self.log_error("Moving lost+found directory to root")
+                self.conn.execute("UPDATE contents SET parent_inode = ? WHERE inode = ?",
+                                  (ROOT_INODE, inode_l))
+            except NoSuchRowError:
+                self.log_error("Recreating missing lost+found directory")
+                inode_l = self.create_inode(mode=stat.S_IFDIR | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR,
+                                            atime_ns=now_ns, ctime_ns=now_ns, mtime_ns=now_ns,
+                                            refcount=1)
+                self.conn.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
+                                  (self._add_name(b"lost+found"), inode_l, ROOT_INODE))
 
 
         mode = self.conn.get_val('SELECT mode FROM inodes WHERE id=?', (inode_l,))
@@ -283,8 +293,8 @@ class Fsck(object):
 
         for (rowid, name_id, inode_p,
              inode) in self.conn.query('SELECT contents.rowid, name_id, parent_inode, inode '
-                                       'FROM contents LEFT JOIN names '
-                                       'ON name_id = names.id WHERE names.id IS NULL'):
+                                       'FROM contents LEFT JOIN names ON %(dbf)sname_id = %(dbf)snames.id '
+                                       'WHERE %(dbf)snames.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             try:
                 path = get_path(inode_p, self.conn)[1:]
@@ -309,7 +319,8 @@ class Fsck(object):
         for (rowid, inode_p,
              name_id) in self.conn.query('SELECT contents.rowid, parent_inode, name_id '
                                          'FROM contents LEFT JOIN inodes '
-                                         'ON parent_inode = inodes.id WHERE inodes.id IS NULL'):
+                                         'ON %(dbf)sparent_inode = %(dbf)sinodes.id '
+                                         'WHERE %(dbf)sinodes.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             name = self.conn.get_val('SELECT name FROM names WHERE id = ?', (name_id,))
             (id_p_new, newname) = self.resolve_free(b"/lost+found",
@@ -330,7 +341,8 @@ class Fsck(object):
         to_delete = list()
         for (rowid, inode_p, inode, name_id) in self.conn.query('SELECT contents.rowid, parent_inode, inode, '
                                                                 'name_id FROM contents LEFT JOIN inodes '
-                                                                'ON inode = inodes.id WHERE inodes.id IS NULL'):
+                                                                'ON %(dbf)sinode = %(dbf)sinodes.id '
+                                                                'WHERE %(dbf)sinodes.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             try:
                 path = get_path(inode, self.conn)[1:]
@@ -351,7 +363,8 @@ class Fsck(object):
 
         for (rowid, name_id, inode) in self.conn.query('SELECT ext_attributes.rowid, name_id, inode '
                                                        'FROM ext_attributes LEFT JOIN names '
-                                                       'ON name_id = names.id WHERE names.id IS NULL'):
+                                                       'ON %(dbf)sname_id = %(dbf)snames.id '
+                                                       'WHERE %(dbf)snames.id IS NULL' % self.conn.fixes):
 
             self.found_errors = True
             for (name, id_p) in self.conn.query('SELECT name, parent_inode '
@@ -378,7 +391,8 @@ class Fsck(object):
         to_delete = list()
         for (rowid, inode, name_id) in self.conn.query('SELECT ext_attributes.rowid, inode, name_id '
                                                        'FROM ext_attributes LEFT JOIN inodes '
-                                                       'ON inode = inodes.id WHERE inodes.id IS NULL'):
+                                                       'ON %(dbf)sinode = %(dbf)sinodes.id '
+                                                       'WHERE %(dbf)sinodes.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             self.log_error('Extended attribute %d refers to non-existing inode %d, deleting',
                            rowid, inode)
@@ -489,10 +503,10 @@ class Fsck(object):
 
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS
-               SELECT id, refcounts.refcount, inodes.refcount
-                 FROM inodes LEFT JOIN refcounts USING (id)
+               SELECT inodes.id, refcounts.refcount, inodes.refcount
+                 FROM inodes LEFT JOIN refcounts ON %(dbf)sinodes.id = %(dbf)srefcounts.id
                 WHERE inodes.refcount != refcounts.refcount
-                   OR refcounts.refcount IS NULL''')
+                   OR %(dbf)srefcounts.refcount IS NULL''' % self.conn.fixes)
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
                 # No checks for root and control
@@ -524,7 +538,8 @@ class Fsck(object):
         to_delete = list()
         for (rowid, inode, obj_id) in self.conn.query('SELECT inode_blocks.rowid, inode, obj_id '
                                                       'FROM inode_blocks LEFT JOIN inodes '
-                                                      'ON inode = inodes.id WHERE inodes.id IS NULL'):
+                                                      'ON %(dbf)sinode = %(dbf)sinodes.id '
+                                                      'WHERE %(dbf)sinodes.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             self.log_error('Inode-block mapping %d refers to non-existing inode %d, deleting',
                            rowid, inode)
@@ -547,7 +562,8 @@ class Fsck(object):
         to_delete = list()
         for (rowid, obj_id, inode) in self.conn.query(
                 'SELECT inode_blocks.rowid, obj_id, inode FROM inode_blocks '
-                'LEFT JOIN objects ON obj_id = objects.id WHERE objects.id IS NULL'):
+                'LEFT JOIN objects ON %(dbf)sobj_id = %(dbf)sobjects.id '
+                'WHERE %(dbf)sobjects.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             self.log_error('Inode-block mapping for inode %d refers to non-existing object %d',
                            inode, obj_id)
@@ -575,7 +591,8 @@ class Fsck(object):
 
         to_delete = list()
         for (rowid, inode) in self.conn.query('SELECT symlink_targets.rowid, inode FROM symlink_targets '
-                                              'LEFT JOIN inodes ON inode = inodes.id WHERE inodes.id IS NULL'):
+                                              'LEFT JOIN inodes ON %(dbf)sinode = %(dbf)sinodes.id '
+                                              'WHERE %(dbf)sinodes.id IS NULL' % self.conn.fixes):
             self.found_errors = True
             self.log_error('Symlink %d refers to non-existing inode %d, deleting',
                            rowid, inode)
@@ -633,10 +650,10 @@ class Fsck(object):
 
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS
-               SELECT id, refcounts.refcount, names.refcount
-                 FROM names LEFT JOIN refcounts USING (id)
+               SELECT names.id, refcounts.refcount, names.refcount
+                 FROM names LEFT JOIN refcounts ON %(dbf)snames.id = %(dbf)srefcounts.id
                 WHERE names.refcount != refcounts.refcount
-                   OR refcounts.refcount IS NULL''')
+                   OR %(dbf)srefcounts.refcount IS NULL''' % self.conn.fixes)
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
                 self.found_errors = True
@@ -760,10 +777,10 @@ class Fsck(object):
 
             self.conn.execute('''
                CREATE TEMPORARY TABLE wrong_refcounts AS
-               SELECT id, refcounts.refcount, objects.refcount
-                 FROM objects LEFT JOIN refcounts USING (id)
+               SELECT objects.id, refcounts.refcount, objects.refcount
+                 FROM objects LEFT JOIN refcounts ON %(dbf)sobjects.id = %(dbf)srefcounts.id
                 WHERE objects.refcount != refcounts.refcount
-                   OR refcounts.refcount IS NULL''')
+                   OR %(dbf)srefcounts.refcount IS NULL''' % self.conn.fixes)
 
             for (id_, cnt, cnt_old) in self.conn.query('SELECT * FROM wrong_refcounts'):
                 if cnt is None and id_ in self.unlinked_objects and cnt_old == 0:

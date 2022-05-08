@@ -70,6 +70,18 @@ class Connection(object):
         for s in initsql:
             cur.execute(s)
 
+        # Disable bloom filter optimization when we detect that sqlite is a buggy version
+        # https://sqlite.org/forum/forumpost/031e262a89b6a9d2
+        if (3, 38, 0) <= sqlite_ver < (3, 38, 4):
+            log.warning('Your sqlite version has bugs in its bloom filter optimization. '
+                        'We disable the usage of some indexes (in fsck.s3ql). '
+                        'Consider updating sqlite to 3.38.5+.')
+            self.fixes = {'dbf': '+'}
+            # https://sqlite.org/forum/forumpost/0d3200f4f3bcd3a3
+            cur.execute('PRAGMA automatic_index = off')
+        else:
+            self.fixes = {'dbf': ''}
+
     def close(self):
         self.conn.close()
 
