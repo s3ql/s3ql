@@ -20,6 +20,12 @@ UNRELEASED CHANGES
     Sqlite 3.38 introduced bloom filter optimizations. The first patch releases of sqlite 3.38
     had some bugs that prevented fsck.s3ql from running properly and made it corrupt the database.
 
+  * Fix handling of rate-limits and responses without Content-Type header
+
+    Some Non-Amazon S3 providers return HTTP 429 when rate-limiting.
+    Additionally, error responses may occasionally come without a Content-Type header.
+    These are now handled, no longer causing file system crashes.
+
 
 2022-01-10, S3QL 3.8.1
 

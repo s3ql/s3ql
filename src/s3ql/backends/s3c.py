@@ -152,11 +152,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # codes where retry is definitely not desired. For 4xx (client error) we
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
-        # modifications.
+        # modifications. We also retry on 429 (Too Many Requests).
         elif (isinstance(exc, HTTPError) and
               ((500 <= exc.status <= 599
                 and exc.status not in (501,505,508,510,511,523))
-               or exc.status == 408)):
+               or exc.status in (408,429))):
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
@@ -547,7 +547,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # If not XML, do the best we can
-        if not XML_CONTENT_RE.match(content_type) or resp.length == 0:
+        if content_type is None or resp.length == 0 or not XML_CONTENT_RE.match(content_type):
             self.conn.discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
