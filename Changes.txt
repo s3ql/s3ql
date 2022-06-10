@@ -1,4 +1,4 @@
-UNRELEASED CHANGES
+2022-06-10, S3QL 4.0.0
 
   * The internal file system revision has changed. File systems created with this version
     of S3QL are NOT COMPATIBLE with prior S3QL versions.
@@ -25,6 +25,16 @@ UNRELEASED CHANGES
     Some Non-Amazon S3 providers return HTTP 429 when rate-limiting.
     Additionally, error responses may occasionally come without a Content-Type header.
     These are now handled, no longer causing file system crashes.
+
+
+  * This is the last release from the current maintainer. S3QL is now no longer maintained
+    or developed. Github issue tracking and pull reuests have therefore been disabled. The
+    mailing list continuens to be available for use.
+
+    If you would like to take over this project, you are welcome to do so. Please fork it
+    and develop the fork for a while. Once there has been 6 months of reasonable activity,
+    please contact Nikolaus@rath.org and I'll be happy to give you ownership of this
+    repository or replace with a pointer to the fork.
 
 
 2022-01-10, S3QL 3.8.1
