@@ -523,7 +523,7 @@ def get_ssl_context(path):
     '''Construct SSLContext object'''
 
     # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
-    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.options |= ssl.OP_NO_SSLv2
     context.verify_mode = ssl.CERT_REQUIRED
 
