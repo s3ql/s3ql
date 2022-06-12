@@ -142,7 +142,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
                             RequestTimeoutError, OperationAbortedError,
                             SlowDownError, ServiceUnavailableError,
-                            TemporarilyUnavailableError)):
+                            TemporarilyUnavailableError, NoSuchKeyOnUploadError)):
             return True
 
         elif is_temp_network_error(exc):
@@ -897,8 +897,13 @@ class ObjectW(object):
 
         self.fh.seek(0)
         self.headers['Content-Type'] = 'application/octet-stream'
-        resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
-                                        headers=self.headers, body=self.fh)
+
+        try:
+            resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
+                                            headers=self.headers, body=self.fh)
+        except NoSuchKeyError:
+            raise NoSuchKeyOnUploadError('NoSuchKey','Object upload failed with NoSuchKey error')
+
         etag = resp.headers['ETag'].strip('"')
         self.backend._assert_empty_response(resp)
 
@@ -1011,6 +1016,7 @@ class S3Error(Exception):
         return '%s: %s' % (self.code, self.msg)
 
 class NoSuchKeyError(S3Error): pass
+class NoSuchKeyOnUploadError(S3Error): pass
 class AccessDeniedError(S3Error, AuthorizationError): pass
 class BadDigestError(S3Error): pass
 class IncompleteBodyError(S3Error): pass
