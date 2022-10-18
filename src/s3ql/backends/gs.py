@@ -160,8 +160,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.port = 443
 
         self.conn = self._get_conn()
+        self._check_bucket()
 
-        # Check if bucket exists and/or credentials are correct
+    @retry
+    def _check_bucket(self):
+        '''Check if bucket exists and/or credentials are correct.'''
+
         path = '/storage/v1/b/' + urllib.parse.quote(self.bucket_name, safe='')
         try:
             resp = self._do_request('GET', path)
