@@ -1,3 +1,9 @@
+UNRELEASED CHANGES
+
+  * The Google Storage backend now retries on network errors when doing the
+    initial validation of the bucket.
+
+
 2022-06-10, S3QL 4.0.0
 
   * The internal file system revision has changed. File systems created with this version
