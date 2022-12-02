@@ -20,20 +20,14 @@ from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
 
-from s3ql.database import (
-    Connection,
-    FsAttributes,
-    download_metadata,
-    get_available_seq_nos,
-    read_remote_params,
-    upload_metadata,
-    upload_params,
-    write_params,
-)
+from s3ql.database import (Connection, FsAttributes, download_metadata,
+                           get_available_seq_nos, read_remote_params,
+                           upload_metadata, upload_params, write_params)
 
 from . import BUFSIZE, CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
+from .common import (AsyncFn, get_backend, handle_on_return, is_mounted,
+                     thaw_basic_mapping)
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -379,6 +373,35 @@ def upgrade(backend, options):
 
     params.last_modified = time.time()
     params.seq_no += 1
+    db.execute("""
+    CREATE TABLE inodes_new (
+        -- id has to specified *exactly* as follows to become
+        -- an alias for the rowid.
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        uid       INT NOT NULL,
+        gid       INT NOT NULL,
+        mode      INT NOT NULL,
+        mtime_ns  INT NOT NULL,
+        atime_ns  INT NOT NULL,
+        ctime_ns  INT NOT NULL,
+        refcount  INT NOT NULL,
+        size      INT NOT NULL DEFAULT 0,
+        rdev      INT NOT NULL DEFAULT 0,
+        locked    BOOLEAN NOT NULL DEFAULT 0
+    )""")
+
+    db.execute('INSERT INTO inodes_new SELECT * from inodes')
+
+    # since in sqlite, operands convert to signed int (see
+    # https://www.sqlite.org/datatype3.html#operators), 2<<62 overflows/wraps
+    # and is equal to -((2<<61)*2) without loss of precision (to REAL) that
+    # the latter is affected by
+    db.execute('UPDATE inodes_new SET mtime_ns = (mtime_ns + (2<<62))')
+    db.execute('UPDATE inodes_new SET atime_ns = (atime_ns + (2<<62))')
+    db.execute('UPDATE inodes_new SET ctime_ns = (ctime_ns + (2<<62))')
+
+    db.execute('DROP TABLE inodes')
+    db.execute('ALTER TABLE inodes_new RENAME TO inodes')
 
     upload_metadata(backend, db, params, incremental=False)
     write_params(options.cachepath, params)

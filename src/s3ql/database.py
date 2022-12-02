@@ -94,6 +94,14 @@ class FsAttributes:
         return freeze_basic_mapping(dataclasses.asdict(self))
 
 
+# convert unsigned time_ns (64-bit int) to signed (for db insert/update)
+def u2s_ns(us_time_ns):
+    return us_time_ns-(2**63)
+
+# convert signed time_ns to unsigned (for db read)
+def s2u_ns(s_time_ns):
+    return s_time_ns+(2**63)
+
 class Connection:
     '''
     This class wraps an APSW connection object. It should be used instead of any
