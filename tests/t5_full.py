@@ -39,7 +39,9 @@ class TestFull(t4_fuse.TestFuse):
             # Copy source data
             self.mkfs()
 
-            # Force 64bit inodes
+            # Force 64bit inodes. This brings the local database out of sync with what's stored in
+            # the backend, but the next mount will most likely result in modifications to the same
+            # block and thus bring things back in sync.
             cachepath = os.path.join(self.cache_dir, _escape(self.storage_url))
             db = Connection(cachepath + '.db')
             db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?',

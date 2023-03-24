@@ -97,7 +97,7 @@ def context():
 def test_passphrase(context, reg_output, s3ql_cmd_argv):
     passphrase = 'out3d'
     proc = subprocess.Popen(s3ql_cmd_argv('mkfs.s3ql') +
-                            ['-L', 'test fs', '--max-obj-size', '500',
+                            ['-L', 'test fs', '--data-block-size', '500',
                              '--authfile', '/dev/null', '--cachedir', context.cache_dir,
                              '--quiet', context.storage_url ],
                             stdin=subprocess.PIPE, universal_newlines=True)

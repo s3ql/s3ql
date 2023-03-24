@@ -56,7 +56,7 @@ class TestFuse:
 
     def mkfs(self, max_obj_size=500):
         argv = (self.s3ql_cmd_argv('mkfs.s3ql') +
-                [ '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                [ '-L', 'test fs', '--data-block-size', str(max_obj_size),
                   '--cachedir', self.cache_dir, '--quiet',
                   '--authfile', '/dev/null', self.storage_url ])
         if self.passphrase is None:

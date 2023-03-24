@@ -14,8 +14,7 @@ from .common import (get_backend_factory, is_mounted)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
-from .metadata import (download_metadata, upload_metadata, dump_and_upload_metadata,
-                       dump_metadata, read_params, store_and_upload_params)
+from .metadata import (download_metadata, upload_metadata, read_params, store_and_upload_params)
 from .parse_args import ArgumentParser
 from contextlib import AsyncExitStack
 import _thread
@@ -170,16 +169,11 @@ async def main_async(options, stdout_log_handler):
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
 
-    # Retrieve metadata
     with backend_pool() as backend:
         (param, db) = get_metadata(backend, cachepath)
 
-    #if param['max_obj_size'] < options.min_obj_size:
-    #    raise QuietError('Maximum object size must be bigger than minimum object size.',
-    #                     exitcode=2)
-
     # Handle --cachesize
-    rec_cachesize = options.max_cache_entries * param['max_obj_size'] / 2
+    rec_cachesize = options.max_cache_entries * param['data-block-size'] / 2
     avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
     if options.cachesize is None:
         options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
@@ -196,7 +190,7 @@ async def main_async(options, stdout_log_handler):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_task = MetadataUploadTask(backend_pool, param, db,
+    metadata_upload_task = MetadataUploadTask(backend_pool, db,
                                               options.metadata_upload_interval)
 
     async with trio.open_nursery() as nursery:
@@ -205,7 +199,7 @@ async def main_async(options, stdout_log_handler):
                                  options.cachesize * 1024, options.max_cache_entries)
         cm.push_async_callback(block_cache.destroy, options.keep_cache)
 
-        operations = fs.Operations(block_cache, db, max_obj_size=param['max_obj_size'],
+        operations = fs.Operations(block_cache, db, max_obj_size=param['data-block-size'],
                                    inode_cache=InodeCache(db, param['inode_gen']),
                                    upload_task=metadata_upload_task)
         cm.push_async_callback(operations.destroy)
@@ -292,6 +286,7 @@ async def main_async(options, stdout_log_handler):
 
     # At this point, there should be no other threads left
     param['is_mounted'] = False
+    db.close()
 
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
@@ -300,17 +295,9 @@ async def main_async(options, stdout_log_handler):
         param['needs_fsck'] = True
 
     with backend_pool() as backend:
-        if metadata_upload_task.db_mtime == os.stat(cachepath + '.db').st_mtime:
-            log.info('File system unchanged, not uploading metadata.')
-        else:
-            param['last-modified'] = time.time()
-            dump_and_upload_metadata(backend, db)
+        param['last-modified'] = time.time()
+        upload_metadata(backend, db, param)
         store_and_upload_params(backend, cachepath, param)
-
-    log.info('Cleaning up local metadata...')
-    db.execute('ANALYZE')
-    db.execute('VACUUM')
-    db.close()
 
     log.info('All done.')
 
@@ -404,7 +391,7 @@ def get_metadata(backend, cachepath):
                              exitcode=30)
         else:
             log.info('Using cached metadata.')
-            db = Connection(cachepath + '.db')
+            db = Connection(cachepath + '.db', param['metadata-block-size'])
 
     if param['is_mounted']:
         raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.',
@@ -426,7 +413,7 @@ def get_metadata(backend, cachepath):
 
     # Download metadata
     if not db:
-        db = download_metadata(backend, cachepath + '.db')
+        db = download_metadata(backend, cachepath + '.db', param)
 
         # Drop cache
         if os.path.exists(cachepath + '-cache'):
@@ -528,9 +515,8 @@ def parse_args(args):
                       help="Run as systemd unit. Consider specifying --log none as well "
                            "to make use of journald.")
     parser.add_argument("--metadata-upload-interval", action="store", type=int,
-                      default=24 * 60 * 60, metavar='<seconds>',
-                      help='Interval in seconds between complete metadata uploads. '
-                           'Set to 0 to disable. Default: 24h.')
+                      default=10 * 60, metavar='<seconds>',
+                      help='Interval between metadata uploads in seconds. Default: 10 min ')
     parser.add_argument("--threads", action="store", type=int,
                       default=None, metavar='<no>',
                       help='Number of parallel upload threads to use (default: auto).')
@@ -539,13 +525,6 @@ def parse_args(args):
                            'over NFS. (default: %(default)s)')
     parser.add_argument("--profile", action="store_true", default=False,
                         help=argparse.SUPPRESS)
-
-    # Not yet implemented. When implementing this, don't forget to
-    # uncomment check against param['max_obj_size'] in main().
-    #parser.add_argument("--min-obj-size", type=int, default=512, metavar='<size>',
-    #                    help="Minimum size of storage objects in KiB. Files smaller than this "
-    #                    "may be combined into groups that are stored as single objects "
-    #                    "in the storage backend. Default: %(default)d KB.")
 
     options = parser.parse_args(args)
 
@@ -567,24 +546,17 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    def __init__(self, backend_pool, param, db, interval):
+    def __init__(self, backend_pool, db, interval):
         super().__init__()
         self.backend_pool = backend_pool
-        self.param = param
         self.db = db
         self.interval = interval
-        self.db_mtime = os.stat(db.file).st_mtime
         self.event = trio.Event()
         self.quit = False
 
-        # Can't assign in constructor, because Operations instance needs
-        # access to self.event as well.
-        self.fs = None
 
     async def run(self):
         log.debug('started')
-
-        assert self.fs is not None
 
         while not self.quit:
             if self.interval is None:
@@ -596,25 +568,9 @@ class MetadataUploadTask:
             if self.quit:
                 break
 
-            new_mtime = os.stat(self.db.file).st_mtime
-            if self.db_mtime == new_mtime:
-                log.info('File system unchanged, not uploading metadata.')
-                continue
-
-            log.info('Dumping metadata...')
-            fh = tempfile.TemporaryFile()
-            dump_metadata(self.db, fh)
-
             with self.backend_pool() as backend:
-                fh.seek(0)
-                self.param['last-modified'] = time.time()
-                await trio.to_thread.run_sync(upload_metadata, backend, fh)
-
-                fh.close()
-                self.db_mtime = new_mtime
-
-        # Break reference loop
-        self.fs = None
+                await trio.to_thread.run_sync(
+                    upload_metadata, backend, self.db, None)
 
         log.debug('finished')
 

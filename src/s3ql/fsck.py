@@ -14,7 +14,7 @@ from .backends.local import Backend as LocalBackend
 from .common import (inode_for_path, sha256_fh, get_path, is_mounted,
                      get_backend, time_ns)
 from .database import NoSuchRowError, Connection
-from .metadata import (dump_and_upload_metadata, download_metadata,
+from .metadata import (upload_metadata, download_metadata,
                        store_and_upload_params, read_params)
 from .parse_args import ArgumentParser
 from os.path import basename
@@ -43,7 +43,7 @@ class Fsck(object):
         self.expect_errors = False
         self.found_errors = False
         self.uncorrectable_errors = False
-        self.max_obj_size = param['max_obj_size']
+        self.max_obj_size = param['data-block-size']
         self.conn = conn
 
         # Set of objects that have been unlinked by check_cache.
@@ -1031,12 +1031,11 @@ def main(args=None):
         assert os.path.exists(cachepath + '.db')
         if local_param['seq_no'] >= param['seq_no']:
             log.info('Using cached metadata.')
-            db = Connection(cachepath + '.db')
             param = local_param
+            db = Connection(cachepath + '.db', param['metadata-block-size'])
             if param['is_mounted']:
                 log.info('File system was not unmounted cleanly')
                 param['needs_fsck'] = True
-                param['is_mounted'] = False
             if local_param['seq_no'] > param['seq_no']:
                 log.info('Remote metadata is outdated.')
                 param['needs_fsck'] = True
@@ -1051,7 +1050,7 @@ def main(args=None):
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.', exitcode=33)
 
-    if param['is_mounted']:
+    if param['is_mounted'] and local_param is not param:
         print(textwrap.fill(textwrap.dedent('''\
               Backend reports that file system is still mounted elsewhere. If this is not
               true,  run fsck on the computer where the file system has been mounted most
@@ -1107,33 +1106,37 @@ def main(args=None):
         log.info("Flushing outdated local cache...")
         shutil.rmtree(cachepath + '-cache')
 
-    # If using local metadata, check consistency
-    if db:
-        log.info('Checking DB integrity...')
-        try:
-            # get_list may raise CorruptError itself
-            res = db.get_list('PRAGMA integrity_check(20)')
-            if res[0][0] != 'ok':
-                log.error('\n'.join(x[0] for x in res))
-                raise apsw.CorruptError()
-        except apsw.CorruptError:
-            raise QuietError('Local metadata is corrupted. Remove or repair the following '
-                             'files manually and re-run fsck:\n'
-                             + cachepath + '.db (corrupted)\n'
-                             + cachepath + '.param (intact)', exitcode=43)
+    # We only read cache files if the filesystem was not unmounted cleanly. On a clean unmount, the
+    # cache files can not be dirty.
+    if db and param['is_mounted']:
+        if options.keep_cache:
+            check_cache = 'keep'
+        else:
+            check_cache = True
     else:
-        db = download_metadata(backend, cachepath + '.db')
+        check_cache = False
+
+    if not db:
+        # When file system was not unmounted cleanly, the checksum may not have been updated.
+        db = download_metadata(backend, cachepath + '.db', param,
+                               failsafe=param['is_mounted'])
+
+    log.info('Checking DB integrity...')
+    try:
+        # get_list may raise CorruptError itself
+        res = db.get_list('PRAGMA integrity_check(20)')
+        if res[0][0] != 'ok':
+            log.error('\n'.join(x[0] for x in res))
+            raise apsw.CorruptError()
+    except apsw.CorruptError:
+        raise QuietError('Metadata is corrupted. Remove or repair the following '
+                         'files manually and re-run fsck:\n'
+                         f'{cachepath}.db (corrupted)\n'
+                         f'{cachepath }.param (intact)', exitcode=43)
 
     param['is_mounted'] = True
     param['seq_no'] += 1
     store_and_upload_params(backend, cachepath, param)
-
-    # We only read cache files if the filesystem was not
-    # unmounted cleanly. On a clean unmount, the cache files can
-    # not be dirty.
-    check_cache = param['needs_fsck']
-    if check_cache and options.keep_cache:
-        check_cache = 'keep'
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check(check_cache)
@@ -1150,13 +1153,13 @@ def main(args=None):
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
-    dump_and_upload_metadata(backend, db)
-    store_and_upload_params(backend, cachepath, param)
-
-    log.info('Cleaning up local metadata...')
-    db.execute('ANALYZE')
-    db.execute('VACUUM')
     db.close()
+
+    # If the filesystem was not unmounted cleanly, the database may have changes
+    # that have not been uploaded yet are not tracked through the VFS. Therefore,
+    # always upload the full metadata in fsck.
+    upload_metadata(backend, db, param, incremental=False)
+    store_and_upload_params(backend, cachepath, param)
 
     log.info('Completed fsck of %s', options.storage_url)
 

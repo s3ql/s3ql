@@ -85,6 +85,7 @@ async def ctx():
         # the file immediately because apsw refers to it by name.
         # Therefore, we unlink the file manually in tearDown()
         ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)
+
         ctx.db = Connection(ctx.dbfile.name)
         create_tables(ctx.db)
         init_tables(ctx.db)

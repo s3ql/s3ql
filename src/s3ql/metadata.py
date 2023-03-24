@@ -9,152 +9,13 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging # Ensure use of custom logger class
 from .database import Connection
 from . import BUFSIZE
-from .common import pretty_print_size, freeze_basic_mapping, thaw_basic_mapping
-from .deltadump import INTEGER, BLOB, dump_table, load_table
-from .backends.common import NoSuchObject, CorruptedObjectError
+from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
+from .backends.common import AbstractBackend
 import os
-import tempfile
-import bz2
-import stat
+import re
+from typing import Optional
 
 log = logging.getLogger(__name__)
-
-# Has to be kept in sync with create_tables()!
-DUMP_SPEC = [
-             ('objects', 'id', (('id', INTEGER, 1),
-                                ('hash', BLOB, 32),
-                                ('refcount', INTEGER),
-                                ('phys_size', INTEGER),
-                                ('length', INTEGER))),
-
-             ('inodes', 'id', (('id', INTEGER, 1),
-                               ('uid', INTEGER),
-                               ('gid', INTEGER),
-                               ('mode', INTEGER),
-                               ('mtime_ns', INTEGER),
-                               ('atime_ns', INTEGER),
-                               ('ctime_ns', INTEGER),
-                               ('size', INTEGER),
-                               ('rdev', INTEGER),
-                               ('locked', INTEGER),
-                               ('refcount', INTEGER))),
-
-             ('inode_blocks', 'inode, blockno',
-              (('inode', INTEGER),
-               ('blockno', INTEGER, 1),
-               ('obj_id', INTEGER, 1))),
-
-             ('symlink_targets', 'inode', (('inode', INTEGER, 1),
-                                           ('target', BLOB))),
-
-             ('names', 'id', (('id', INTEGER, 1),
-                              ('name', BLOB),
-                              ('refcount', INTEGER))),
-
-             ('contents', 'parent_inode, name_id',
-              (('name_id', INTEGER, 1),
-               ('inode', INTEGER, 1),
-               ('parent_inode', INTEGER))),
-
-             ('ext_attributes', 'inode', (('inode', INTEGER),
-                                          ('name_id', INTEGER),
-                                          ('value', BLOB))),
-]
-
-
-
-def restore_metadata(fh, dbfile):
-    '''Read metadata from *fh* and write into *dbfile*
-
-    Return database connection to *dbfile*.
-
-    *fh* must be able to return an actual file descriptor from
-    its `fileno` method.
-
-    *dbfile* will be created with 0600 permissions. Data is
-    first written into a temporary file *dbfile* + '.tmp', and
-    the file is renamed once all data has been loaded.
-    '''
-
-    tmpfile = dbfile + '.tmp'
-    fd = os.open(tmpfile, os.O_RDWR | os.O_CREAT | os.O_TRUNC,
-                 stat.S_IRUSR | stat.S_IWUSR)
-    try:
-        os.close(fd)
-
-        db = Connection(tmpfile)
-        db.execute('PRAGMA locking_mode = NORMAL')
-        db.execute('PRAGMA synchronous = OFF')
-        db.execute('PRAGMA journal_mode = OFF')
-        create_tables(db)
-
-        for (table, _, columns) in DUMP_SPEC:
-            log.info('..%s..', table)
-            load_table(table, columns, db=db, fh=fh)
-        db.execute('ANALYZE')
-
-        # We must close the database to rename it
-        db.close()
-    except:
-        os.unlink(tmpfile)
-        raise
-
-    os.rename(tmpfile, dbfile)
-
-    return Connection(dbfile)
-
-def cycle_metadata(backend, keep=10):
-    '''Rotate metadata backups'''
-
-    # Since we always overwrite the source afterwards, we can
-    # use either copy or rename - so we pick whatever is faster.
-    if backend.has_native_rename:
-        cycle_fn = backend.rename
-    else:
-        cycle_fn = backend.copy
-
-    log.info('Backing up old metadata...')
-    for i in range(keep)[::-1]:
-        try:
-            cycle_fn("s3ql_metadata_bak_%d" % i, "s3ql_metadata_bak_%d" % (i + 1))
-        except NoSuchObject:
-            pass
-
-    # If we use backend.rename() and crash right after this instruction,
-    # we will end up without an s3ql_metadata object. However, fsck.s3ql
-    # is smart enough to use s3ql_metadata_new in this case.
-    try:
-        cycle_fn("s3ql_metadata", "s3ql_metadata_bak_0")
-    except NoSuchObject:
-        # In case of mkfs, there may be no metadata object yet
-        pass
-    cycle_fn("s3ql_metadata_new", "s3ql_metadata")
-
-    # Note that we can't compare with "is" (maybe because the bound-method
-    # is re-created on the fly on access?)
-    if cycle_fn == backend.copy:
-        backend.delete('s3ql_metadata_new')
-
-def dump_metadata(db, fh):
-    '''Dump metadata into fh
-
-    *fh* must be able to return an actual file descriptor from
-    its `fileno` method.
-    '''
-
-    locking_mode = db.get_val('PRAGMA locking_mode')
-    try:
-        # Ensure that we don't hold a lock on the db
-        # (need to access DB to actually release locks)
-        db.execute('PRAGMA locking_mode = NORMAL')
-        db.has_val('SELECT rowid FROM %s LIMIT 1' % DUMP_SPEC[0][0])
-
-        for (table, order, columns) in DUMP_SPEC:
-            log.info('..%s..', table)
-            dump_table(table, order, columns, db=db, fh=fh)
-
-    finally:
-        db.execute('PRAGMA locking_mode = %s' % locking_mode)
 
 
 def create_tables(conn):
@@ -251,61 +112,106 @@ def create_tables(conn):
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
     """)
 
-def stream_write_bz2(ifh, ofh):
-    '''Compress *ifh* into *ofh* using bz2 compression'''
 
-    compr = bz2.BZ2Compressor(9)
-    while True:
-        buf = ifh.read(BUFSIZE)
-        if not buf:
-            break
-        buf = compr.compress(buf)
-        if buf:
-            ofh.write(buf)
-    buf = compr.flush()
-    if buf:
-        ofh.write(buf)
+class DatabaseChecksumError(RuntimeError):
+    '''Raised when the downloaded database does not have the expected checksum'''
 
-def stream_read_bz2(ifh, ofh):
-    '''Uncompress bz2 compressed *ifh* into *ofh*'''
+    def __init__(self, name: str, expected: str, actual: str):
+        super().__init__()
+        self.name = name
+        self.expected = expected
+        self.actual = actual
 
-    decompressor = bz2.BZ2Decompressor()
-    while True:
-        buf = ifh.read(BUFSIZE)
-        if not buf:
-            break
-        buf = decompressor.decompress(buf)
-        if buf:
-            ofh.write(buf)
+    def __str__(self):
+        return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
-    if decompressor.unused_data or ifh.read(1) != b'':
-        raise CorruptedObjectError('Data after end of bz2 stream')
 
-def download_metadata(backend, db_file):
-    # When there was a crash during metadata rotation, we may end up
-    # without an s3ql_metadata object.
-    meta_obj_name = 's3ql_metadata'
-    if meta_obj_name not in backend:
-        meta_obj_name += '_new'
+def download_metadata(backend: AbstractBackend, db_file: str,
+                      params: dict, failsafe=False):
+    '''Download metadata from backend into *db_file*
 
-    with tempfile.TemporaryFile() as tmpfh:
-        def do_read(fh):
-            tmpfh.seek(0)
-            tmpfh.truncate()
-            stream_read_bz2(fh, tmpfh)
+    If *failsafe* is True, do not truncate file and do not verify
+    checksum.
+    '''
 
-        log.info('Downloading and decompressing metadata...')
-        backend.perform_read(do_read, meta_obj_name)
+    blocksize = params['metadata-block-size']
+    file_size = params['db-size']
 
-        log.info("Reading metadata...")
-        tmpfh.seek(0)
-        return restore_metadata(tmpfh, db_file)
+    to_remove = []
+    with open(db_file, 'w+b', buffering=0) as fh:
+        log.info('Downloading metadata...')
+        for obj in backend.list('s3ql_metadata_'):
+            hit = re.match('^s3ql_metadata_([0-9a-f]+)$', obj)
+            if not hit:
+                log.warning('Unexpected object in backend: %s, ignoring', obj)
+                continue
+            blockno = int(hit.group(1), base=16)
+            off = blockno * blocksize
+            if off > file_size:
+                to_remove.append(obj)
+                continue
+            log.debug('download_metadata: storing %s at pos %d', obj, off)
+            fh.seek(off)
+            backend.readinto(obj, fh)
 
-def dump_and_upload_metadata(backend, db):
-    with tempfile.TemporaryFile() as fh:
-        log.info('Dumping metadata...')
-        dump_metadata(db, fh)
-        upload_metadata(backend, fh)
+        log.debug('Deleting obsolete objects...')
+        backend.delete_multi(to_remove)
+
+        if not failsafe:
+            log.debug('download_metadata: truncating file to %d bytes', file_size)
+            fh.truncate(file_size)
+
+            log.info('Calculating metadata checksum...')
+            digest = sha256_fh(fh).hexdigest()
+            log.debug('download_metadata: digest is %s', digest)
+            if params['db-md5'] != digest:
+                raise DatabaseChecksumError(db_file, params['db-md5'], digest)
+
+    return Connection(db_file, blocksize)
+
+
+def upload_metadata(
+    backend: AbstractBackend, db: Connection, params: Optional[dict], incremental: bool = True
+) -> None:
+    '''Upload metadata to backend
+
+    If *params* is given, calculate checksum and update *params*
+    in place.
+    '''
+
+    blocksize = db.blocksize
+    with open(db.file, 'rb', buffering=0) as fh:
+        db_size = fh.seek(0, os.SEEK_END)
+        if incremental:
+            next_dirty_block = db.dirty_blocks.pop
+        else:
+            all_blocks = iter(range(0, db_size // blocksize + 1))
+
+            def next_dirty_block():
+                try:
+                    return next(all_blocks)
+                except StopIteration:
+                    raise KeyError()
+
+        while True:
+            try:
+                blockno = next_dirty_block()
+            except KeyError:
+                break
+
+            log.debug('upload_metadata: uploading block %d', blockno)
+            fh.seek(blockno * blocksize)
+            backend.store('s3ql_metadata_%012x' % blockno, fh.read(blocksize))
+
+        if params is None:
+            return
+
+        log.info('Calculating metadata checksum...')
+        params['db-size'] = db_size
+        digest = sha256_fh(fh).hexdigest()
+        log.debug('upload_metadata: digest is %s', digest)
+        params['db-md5'] = digest
+
 
 def store_and_upload_params(backend, cachepath: str, params: dict):
     buf = freeze_basic_mapping(params)
@@ -342,18 +248,3 @@ def read_params(backend, cachepath: str):
             local_params = thaw_basic_mapping(fh.read())
 
     return (local_params, params)
-
-
-def upload_metadata(backend, fh):
-    log.info("Compressing and uploading metadata...")
-    def do_write(obj_fh):
-        fh.seek(0)
-        stream_write_bz2(fh, obj_fh)
-        return obj_fh
-    obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
-                                   is_compressed=True)
-    log.info('Wrote %s of compressed metadata.',
-             pretty_print_size(obj_fh.get_obj_size()))
-
-    log.info('Cycling metadata backups...')
-    cycle_metadata(backend)
