@@ -47,7 +47,7 @@ class fsck_tests(unittest.TestCase):
         init_tables(self.db)
 
         self.fsck = Fsck(self.cachedir, self.backend,
-                  { 'max_obj_size': self.max_obj_size }, self.db)
+                  { 'data-block-size': self.max_obj_size }, self.db)
 
     def tearDown(self):
         shutil.rmtree(self.cachedir)

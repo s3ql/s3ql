@@ -134,14 +134,13 @@ integrated into S3QL to allow simultaneous mounting using
 *mount.s3ql* directly. However, consensus among the S3QL developers
 is that this is not worth the increased complexity.
 
-What maximum object size should I use?
-======================================
+What block size should I use?
+=============================
 
-The :cmdopt:`--max-obj-size` option of the :program:`mkfs.s3ql`
-command determines the maximum size of the data chunks that S3QL
-exchanges with the backend server.
+The :cmdopt:`--data-block-size` option of the :program:`mkfs.s3ql` command determines the maximum
+size of the data chunks that S3QL exchanges with the backend server.
 
-For files smaller than the maximum object size, this option has no
+For files smaller than the block size, this option has no
 effect. Files larger than the maximum object size are split into
 multiple chunks. Whenever you upload or download data from the
 backend, this is done in complete chunks. So if you have configured a
@@ -150,7 +149,7 @@ maximum object size of 10 MB, and want to read (or write) 5 bytes in a
 decreased the maximum object size to 5 MB, you'd download/upload 5 MB.
 
 On the other hand, if you want to read the whole 100 MB, and have
-configured an object size of 10 MB, S3QL will have to send 10 separate
+configured a block size of 10 MB, S3QL will have to send 10 separate
 requests to the backend. With a maximum object size of 1 MB, there'd
 be 100 separate requests. The larger the number of requests, the more
 inefficient this becomes, because there is a fixed time associated
@@ -159,19 +158,19 @@ charge a fixed amount for each request, so downloading 100 MB in one
 request of 100 MB is cheaper than downloading it with 100 requests of
 1 MB.
 
-When choosing a maximum object size, you have to find a balance
+When choosing a block size, you have to find a balance
 between these two effects. The bigger the size, the less requests will
 be used, but the more data is transfered uselessly. The smaller the
 size, the more requests will be used, but less traffic will be wasted.
 
 Generally you should go with the default unless you have a good reason
 to change it. When adjusting the value, keep in mind that it only
-affects files larger than the maximum object size. So if most of your
-files are less than 1 MB, decreasing the maximum object size from the
+affects files larger than the block size. For example, if most of your
+files are less than 1 MB, decreasing the block size from the
 default 10 MB to 1 MB will have almost no effect.
 
-Is there a way to make the cache persistent / access the file system offline?
-=============================================================================
+Is there a way to access the file system offline?
+=================================================
 
 No, there is no way to do this. However, for most use-cases this
 feature is actually not required. If you want to ensure that all data
@@ -207,48 +206,3 @@ I would like to use S3QL with Hubic, but...
 effectively no customer service, and the servers are unreliable and
 produce sporadic weird errors. Don't expect any help if you encounter
 problems with S3QL and hubiC.
-
-What's a reasonable metadata upload interval?
-=============================================
-
-The metadata upload interval can be specified using the
-:cmdopt:`--metadata-upload-interval` option of :program:`mount.s3ql`
-and a reasonable value to use is (surprise!) the default of 24 hours.
-
-To understand why intervals smaller than a few hours do not make
-sense, consider what happens during a metadata upload:
-
-#. The file system is frozen (all requests will block)
-#. The entire SQLite database holding the metadata is dumped into a
-   more space efficient format.
-#. The file system is unfrozen
-#. The dumped database is uploaded
-#. The previous metadata is backed up, and backups are rotated
-
-In other words, uploading metadata is a very expensive operation that
-typically takes several seconds to several minutes.
-
-On the other hand, consider the situation that the periodic upload is
-intended to prevent:
-
-#. Your computer crashes, and the SQLite database in your S3QL cache
-   directory is **irreparably** corrupted or lost.
-
-This is a *very* unlikely situation. When :program:`mount.s3ql` crashes
-(but your computer keeps running), the local metadata will not get
-corrupted. If your entire computer crashes (e.g. because of a power
-outage), :program:`fsck.s3ql` is almost always still able to recover the
-local metadata. You have to be exceedingly unlucky to depend on the
-periodically uploaded metadata.
-
-In other words, if you set the metadata upload interval to *x*
-hours, what you are saying is that you consider your system so
-unstable that there is a good chance that your local hard disk will be
-irreparably corrupted sometime in the next *x* hours. In such a
-situation, you should thus be **backing up your entire system every
-*x* hours** (not just the S3QL metadata). If the metadata upload
-interval coincides with the interval at which you're doing full system
-backups (not necessarily using S3QL), you are using the right
-value. If the metadata upload interval is smaller (or if you're not
-doing full system backups at all), you are probably uploading metadata
-too often.

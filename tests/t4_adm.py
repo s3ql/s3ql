@@ -39,7 +39,7 @@ class AdmTests(unittest.TestCase):
 
     def mkfs(self):
         proc = subprocess.Popen(self.s3ql_cmd_argv('mkfs.s3ql') +
-                                ['-L', 'test fs', '--max-obj-size', '500',
+                                ['-L', 'test fs', '--data-block-size', '500',
                                  '--authfile', '/dev/null', '--cachedir', self.cache_dir,
                                  '--quiet', self.storage_url ],
                                 stdin=subprocess.PIPE, universal_newlines=True,
@@ -110,7 +110,7 @@ class AdmTests(unittest.TestCase):
 
         backend = ComprencBackend(self.passphrase.encode(), ('zlib', 6), plain_backend)
         with pytest.raises(CorruptedObjectError):
-            backend.fetch('s3ql_metadata')
+            backend.fetch('s3ql_params')
 
         passphrase_new = 'sd982jhd'
 

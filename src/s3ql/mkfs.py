@@ -12,7 +12,7 @@ from .backends.comprenc import ComprencBackend
 from .backends import s3
 from .common import (get_backend, split_by_n, time_ns)
 from .database import Connection
-from .metadata import dump_and_upload_metadata, create_tables, store_and_upload_params
+from .metadata import upload_metadata, create_tables, store_and_upload_params
 from .parse_args import ArgumentParser
 from getpass import getpass
 from base64 import b64encode
@@ -40,9 +40,14 @@ def parse_args(args):
 
     parser.add_argument("-L", default='', help="Filesystem label",
                       dest="label", metavar='<name>',)
-    parser.add_argument("--max-obj-size", type=int, default=10240, metavar='<size>',
-                      help="Maximum size of storage objects in KiB. Files bigger than this "
-                           "will be spread over multiple objects in the storage backend. "
+    parser.add_argument("--data-block-size", type=int, default=1024, metavar='<size>',
+                      help="Block size (in KiB) to use for storing file contents. Files "
+                           "larger than this size will be stored in multiple backend objects. "
+                           "Backend object size may be smaller than this due to compression. "
+                           "Default: %(default)d KiB.")
+    parser.add_argument("--metadata-block-size", type=int, default=64, metavar='<size>',
+                      help="Block size (in KiB) to use for storing filesystem metadata. "
+                           "Backend object size may be smaller than this due to compression. "
                            "Default: %(default)d KiB.")
     parser.add_argument("--plain", action="store_true", default=False,
                       help="Create unencrypted file system.")
@@ -134,24 +139,26 @@ def main(args=None):
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 
-    log.info('Creating metadata tables...')
-    db = Connection(cachepath + '.db')
-    create_tables(db)
-    init_tables(db)
-
     param = dict()
     param['revision'] = CURRENT_FS_REV
     param['seq_no'] = int(time.time())
     param['label'] = options.label
-    param['max_obj_size'] = options.max_obj_size * 1024
+    param['data-block-size'] = options.data_block_size * 1024
+    param['metadata-block-size'] = options.metadata_block_size * 1024
     param['needs_fsck'] = False
     param['is_mounted'] = False
     param['inode_gen'] = 0
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
-    log.info('Dumping metadata...')
-    dump_and_upload_metadata(backend, db)
+    log.info('Creating metadata tables...')
+    db = Connection(cachepath + '.db', param['metadata-block-size'])
+    create_tables(db)
+    init_tables(db)
+
+    log.info('Uploading metadata...')
+    db.close()
+    upload_metadata(backend, db, param)
     store_and_upload_params(backend, cachepath, param)
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')

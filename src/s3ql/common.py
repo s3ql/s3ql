@@ -130,20 +130,15 @@ def _escape(s):
 
     return s
 
-def sha256_fh(fh):
-    fh.seek(0)
-
-    # Bogus error about hashlib not having a sha256 member
-    #pylint: disable=E1101
+def sha256_fh(fh) -> hashlib.sha256:
     sha = hashlib.sha256()
-
+    fh.seek(0)
     while True:
         buf = fh.read(BUFSIZE)
         if not buf:
             break
         sha.update(buf)
-
-    return sha.digest()
+    return sha
 
 
 def assert_s3ql_fs(path):

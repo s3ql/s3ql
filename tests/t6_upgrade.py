@@ -47,7 +47,7 @@ class TestUpgrade(t4_fuse.TestFuse):
 
     def mkfs_old(self, force=False, max_obj_size=500):
         argv = [ os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
-                 '-L', 'test fs', '--max-obj-size', str(max_obj_size),
+                 '-L', 'test fs', '--data-block-size', str(max_obj_size),
                  '--cachedir', self.cache_dir, '--quiet',
                   '--authfile', '/dev/null', self.storage_url ]
         if force:
