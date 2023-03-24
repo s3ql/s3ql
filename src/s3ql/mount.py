@@ -10,13 +10,12 @@ from .logging import logging, setup_logging, QuietError
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
-from .common import (get_seq_no, get_backend_factory, load_params, save_params,
-                     is_mounted)
+from .common import (get_backend_factory, is_mounted)
 from .daemonize import daemonize
 from .database import Connection
 from .inode_cache import InodeCache
 from .metadata import (download_metadata, upload_metadata, dump_and_upload_metadata,
-                       dump_metadata)
+                       dump_metadata, read_params, store_and_upload_params)
 from .parse_args import ArgumentParser
 from contextlib import AsyncExitStack
 import _thread
@@ -237,7 +236,9 @@ async def main_async(options, stdout_log_handler):
             faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
             daemonize(options.cachedir)
 
-        mark_metadata_dirty(backend, cachepath, param)
+        param['seq_no'] += 1
+        param['is_mounted'] = True
+        store_and_upload_params(backend, cachepath, param)
 
         block_cache.init(options.threads)
 
@@ -290,33 +291,21 @@ async def main_async(options, stdout_log_handler):
         unmount_clean = True
 
     # At this point, there should be no other threads left
+    param['is_mounted'] = False
 
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
     if operations.failsafe:
         log.warning('File system errors encountered, marking for fsck.')
         param['needs_fsck'] = True
+
     with backend_pool() as backend:
-        seq_no = get_seq_no(backend)
         if metadata_upload_task.db_mtime == os.stat(cachepath + '.db').st_mtime:
             log.info('File system unchanged, not uploading metadata.')
-            del backend['s3ql_seq_no_%d' % param['seq_no']]
-            param['seq_no'] -= 1
-            save_params(cachepath, param)
-        elif seq_no == param['seq_no']:
-            param['last-modified'] = time.time()
-            dump_and_upload_metadata(backend, db, param)
-            save_params(cachepath, param)
         else:
-            log.error('Remote metadata is newer than local (%d vs %d), '
-                      'refusing to overwrite!', seq_no, param['seq_no'])
-            log.error('The locally cached metadata will be *lost* the next time the file system '
-                      'is mounted or checked and has therefore been backed up.')
-            for name in (cachepath + '.params', cachepath + '.db'):
-                for i in range(4)[::-1]:
-                    if os.path.exists(name + '.%d' % i):
-                        os.rename(name + '.%d' % i, name + '.%d' % (i + 1))
-                os.rename(name, name + '.0')
+            param['last-modified'] = time.time()
+            dump_and_upload_metadata(backend, db)
+        store_and_upload_params(backend, cachepath, param)
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')
@@ -405,36 +394,22 @@ def determine_threads(options):
 def get_metadata(backend, cachepath):
     '''Retrieve metadata'''
 
-    seq_no = get_seq_no(backend)
-
-    # When there was a crash during metadata rotation, we may end up
-    # without an s3ql_metadata object.
-    meta_obj_name = 's3ql_metadata'
-    if meta_obj_name not in backend:
-        meta_obj_name += '_new'
-
-    # Check for cached metadata
     db = None
-    if os.path.exists(cachepath + '.params'):
-        param = load_params(cachepath)
-        if param['seq_no'] < seq_no:
+    (local_param, param) = read_params(backend, cachepath)
+    if local_param is not None:
+        if local_param['seq_no'] < param['seq_no']:
             log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup(meta_obj_name)
-        elif param['seq_no'] > seq_no:
+        elif local_param['seq_no'] > param['seq_no']:
             raise QuietError("File system not unmounted cleanly, run fsck!",
                              exitcode=30)
         else:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
-    else:
-        param = backend.lookup(meta_obj_name)
 
-    # Check for unclean shutdown
-    if param['seq_no'] < seq_no:
+    if param['is_mounted']:
         raise QuietError('Backend reports that fs is still mounted elsewhere, aborting.',
                          exitcode=31)
 
-    # Check revision
     if param['revision'] < CURRENT_FS_REV:
         raise QuietError('File system revision too old, please run `s3qladm upgrade` first.',
                          exitcode=32)
@@ -442,7 +417,6 @@ def get_metadata(backend, cachepath):
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.', exitcode=33)
 
-    # Check that the fs itself is clean
     if param['needs_fsck']:
         raise QuietError("File system damaged or not unmounted cleanly, run fsck!",
                          exitcode=30)
@@ -458,18 +432,8 @@ def get_metadata(backend, cachepath):
         if os.path.exists(cachepath + '-cache'):
             shutil.rmtree(cachepath + '-cache')
 
-    save_params(cachepath, param)
-
     return (param, db)
 
-def mark_metadata_dirty(backend, cachepath, param):
-    '''Mark metadata as dirty and increase sequence number'''
-
-    param['seq_no'] += 1
-    param['needs_fsck'] = True
-    save_params(cachepath, param)
-    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-    param['needs_fsck'] = False
 
 def get_fuse_opts(options):
     '''Return fuse options for given command line options'''
@@ -642,23 +606,9 @@ class MetadataUploadTask:
             dump_metadata(self.db, fh)
 
             with self.backend_pool() as backend:
-                seq_no = get_seq_no(backend)
-                if seq_no > self.param['seq_no']:
-                    log.error('Remote metadata is newer than local (%d vs %d), '
-                              'refusing to overwrite and switching to failsafe mode!',
-                              seq_no, self.param['seq_no'])
-                    self.fs.failsafe = True
-                    fh.close()
-                    break
-
                 fh.seek(0)
                 self.param['last-modified'] = time.time()
-
-                # Temporarily decrease sequence no, this is not the final upload
-                self.param['seq_no'] -= 1
-                await trio.to_thread.run_sync(
-                    upload_metadata, backend, fh, self.param)
-                self.param['seq_no'] += 1
+                await trio.to_thread.run_sync(upload_metadata, backend, fh)
 
                 fh.close()
                 self.db_mtime = new_mtime

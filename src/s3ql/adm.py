@@ -12,9 +12,7 @@ from .backends.comprenc import ComprencBackend
 from .deltadump import INTEGER, BLOB
 from .database import Connection
 from base64 import b64decode
-from .common import (get_seq_no, is_mounted, get_backend, load_params,
-                     save_params, handle_on_return, get_backend_factory,
-                     AsyncFn)
+from .common import (is_mounted, get_backend, handle_on_return, AsyncFn)
 from . import metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -52,10 +50,6 @@ def parse_args(args):
     sparser.add_argument("--threads", type=int, default=20,
                         help='Number of threads to use')
     subparsers.add_parser("recover-key", help="Recover master key from offline copy.",
-                          parents=[pparser])
-    subparsers.add_parser("download-metadata",
-                          help="Interactively download metadata backups. "
-                               "Use only if you know what you are doing.",
                           parents=[pparser])
     sparser = subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
                           parents=[pparser])
@@ -101,55 +95,6 @@ def main(args=None):
         if options.action == 'passphrase':
             return change_passphrase(backend)
 
-        elif options.action == 'download-metadata':
-            return download_metadata_cmd(backend, options)
-
-def download_metadata_cmd(backend, options):
-    '''Download old metadata backups'''
-
-    backups = sorted(backend.list('s3ql_metadata'))
-
-    if not backups:
-        raise QuietError('No metadata backups found.')
-
-    log.info('The following backups are available:')
-    log.info('%3s  %-23s %-15s', 'No', 'Name', 'Date')
-    for (i, name) in enumerate(backups):
-        try:
-            params = backend.lookup(name)
-        except:
-            log.error('Error retrieving information about %s, skipping', name)
-            continue
-
-        if 'last-modified' in params:
-            date = Datetime.fromtimestamp(params['last-modified']).strftime('%Y-%m-%d %H:%M:%S')
-        else:
-            # (metadata might from an older fs revision)
-            date = '(unknown)'
-
-        log.info('%3d  %-23s %-15s', i, name, date)
-
-    name = None
-    while name is None:
-        buf = input('Enter no to download: ')
-        try:
-            name = backups[int(buf.strip())]
-        except:
-            log.warning('Invalid input')
-
-    cachepath = options.cachepath
-    for i in ('.db', '.params'):
-        if os.path.exists(cachepath + i):
-            raise QuietError('%s already exists, aborting.' % cachepath + i)
-
-    param = backend.lookup(name)
-    metadata.download_metadata(backend, cachepath + ".db", name)
-
-    # Raise sequence number so that fsck.s3ql actually uses the
-    # downloaded backup
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in backend.list('s3ql_seq_no_') ]
-    param['seq_no'] = max(seq_nos) + 1
-    save_params(cachepath, param)
 
 def change_passphrase(backend):
     '''Change file system passphrase'''

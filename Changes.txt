@@ -3,6 +3,8 @@ UNRELEASED CHANGES
   * The Google Storage backend now retries on network errors when doing the
     initial validation of the bucket.
 
+  * S3QL no longer supports storage backend that do not provide immediate
+    consistency.
 
 2022-06-10, S3QL 4.0.0
 

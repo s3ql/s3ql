@@ -10,9 +10,9 @@ from .logging import logging, setup_logging, QuietError
 from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
-from .common import (get_backend, split_by_n, freeze_basic_mapping, time_ns)
+from .common import (get_backend, split_by_n, time_ns)
 from .database import Connection
-from .metadata import dump_and_upload_metadata, create_tables
+from .metadata import dump_and_upload_metadata, create_tables, store_and_upload_params
 from .parse_args import ArgumentParser
 from getpass import getpass
 from base64 import b64encode
@@ -145,15 +145,14 @@ def main(args=None):
     param['label'] = options.label
     param['max_obj_size'] = options.max_obj_size * 1024
     param['needs_fsck'] = False
+    param['is_mounted'] = False
     param['inode_gen'] = 0
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
     log.info('Dumping metadata...')
-    dump_and_upload_metadata(backend, db, param)
-    backend.store('s3ql_seq_no_%d' % param['seq_no'], b'Empty')
-    with open(cachepath + '.params', 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
+    dump_and_upload_metadata(backend, db)
+    store_and_upload_params(backend, cachepath, param)
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 

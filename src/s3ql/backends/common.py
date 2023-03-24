@@ -179,10 +179,6 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
     Instances behave similarly to dicts. They can be iterated over and
     indexed into, but raise a separate set of exceptions.
-
-    The backend guarantees get after create consistency, i.e. a newly created
-    object will be immediately retrievable. Additional consistency guarantees
-    may or may not be available and can be queried for with instance methods.
     '''
 
     needs_login = True
