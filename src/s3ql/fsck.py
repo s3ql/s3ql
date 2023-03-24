@@ -11,10 +11,11 @@ from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
-from .common import (inode_for_path, sha256_fh, get_path, get_seq_no, is_mounted,
-                     get_backend, load_params, save_params, time_ns)
+from .common import (inode_for_path, sha256_fh, get_path, is_mounted,
+                     get_backend, time_ns)
 from .database import NoSuchRowError, Connection
-from .metadata import dump_and_upload_metadata, download_metadata
+from .metadata import (dump_and_upload_metadata, download_metadata,
+                       store_and_upload_params, read_params)
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw
@@ -1023,37 +1024,24 @@ def main(args=None):
     log.info('Starting fsck of %s', options.storage_url)
 
     cachepath = options.cachepath
-    seq_no = get_seq_no(backend)
     db = None
 
-    # When there was a crash during metadata rotation, we may end up
-    # without an s3ql_metadata object.
-    meta_obj_name = 's3ql_metadata'
-    if meta_obj_name not in backend:
-        meta_obj_name += '_new'
-
-    if os.path.exists(cachepath + '.params'):
+    (local_param, param) = read_params(backend, cachepath)
+    if local_param is not None:
         assert os.path.exists(cachepath + '.db')
-        param = load_params(cachepath)
-        if param['seq_no'] < seq_no:
-            log.info('Ignoring locally cached metadata (outdated).')
-            param = backend.lookup(meta_obj_name)
-        else:
+        if local_param['seq_no'] >= param['seq_no']:
             log.info('Using cached metadata.')
             db = Connection(cachepath + '.db')
-
-        if param['seq_no'] > seq_no:
-            log.warning('File system has not been unmounted cleanly.')
-            param['needs_fsck'] = True
-
-        elif backend.lookup(meta_obj_name)['seq_no'] != param['seq_no']:
-            log.warning('Remote metadata is outdated.')
-            param['needs_fsck'] = True
-
-    else:
-        param = backend.lookup(meta_obj_name)
-        # .db might exist if mount.s3ql is killed at exactly the right instant
-        # and should just be ignored.
+            param = local_param
+            if param['is_mounted']:
+                log.info('File system was not unmounted cleanly')
+                param['needs_fsck'] = True
+                param['is_mounted'] = False
+            if local_param['seq_no'] > param['seq_no']:
+                log.info('Remote metadata is outdated.')
+                param['needs_fsck'] = True
+        else:
+            log.info('Ignoring locally cached metadata (outdated).')
 
     # Check revision
     if param['revision'] < CURRENT_FS_REV:
@@ -1063,12 +1051,10 @@ def main(args=None):
         raise QuietError('File system revision too new, please update your '
                          'S3QL installation.', exitcode=33)
 
-    if param['seq_no'] < seq_no:
+    if param['is_mounted']:
         print(textwrap.fill(textwrap.dedent('''\
-              Backend reports that file system is still mounted elsewhere. Either the file system
-              has not been unmounted cleanly or the data has not yet propagated through the backend.
-              In the later case, waiting for a while should fix the problem, in the former case you
-              should try to run fsck on the computer where the file system has been mounted most
+              Backend reports that file system is still mounted elsewhere. If this is not
+              true,  run fsck on the computer where the file system has been mounted most
               recently.
 
               You may also continue and use whatever metadata is available in the backend.
@@ -1085,8 +1071,6 @@ def main(args=None):
             raise QuietError('(in batch mode, exiting)', exitcode=41)
         elif sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
-
-        param['seq_no'] = seq_no
         param['needs_fsck'] = True
 
     if (not param['needs_fsck']
@@ -1140,18 +1124,16 @@ def main(args=None):
     else:
         db = download_metadata(backend, cachepath + '.db')
 
+    param['is_mounted'] = True
+    param['seq_no'] += 1
+    store_and_upload_params(backend, cachepath, param)
+
     # We only read cache files if the filesystem was not
     # unmounted cleanly. On a clean unmount, the cache files can
     # not be dirty.
     check_cache = param['needs_fsck']
     if check_cache and options.keep_cache:
         check_cache = 'keep'
-
-    # Increase metadata sequence no
-    param['seq_no'] += 1
-    param['needs_fsck'] = True
-    backend['s3ql_seq_no_%d' % param['seq_no']] = b'Empty'
-    save_params(cachepath, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check(check_cache)
@@ -1164,11 +1146,12 @@ def main(args=None):
         log.error('Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql')
 
     param['needs_fsck'] = False
+    param['is_mounted'] = False
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
-    dump_and_upload_metadata(backend, db, param)
-    save_params(cachepath, param)
+    dump_and_upload_metadata(backend, db)
+    store_and_upload_params(backend, cachepath, param)
 
     log.info('Cleaning up local metadata...')
     db.execute('ANALYZE')

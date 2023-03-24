@@ -9,7 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging # Ensure use of custom logger class
 from .database import Connection
 from . import BUFSIZE
-from .common import pretty_print_size
+from .common import pretty_print_size, freeze_basic_mapping, thaw_basic_mapping
 from .deltadump import INTEGER, BLOB, dump_table, load_table
 from .backends.common import NoSuchObject, CorruptedObjectError
 import os
@@ -281,7 +281,13 @@ def stream_read_bz2(ifh, ofh):
     if decompressor.unused_data or ifh.read(1) != b'':
         raise CorruptedObjectError('Data after end of bz2 stream')
 
-def download_metadata(backend, db_file, name='s3ql_metadata'):
+def download_metadata(backend, db_file):
+    # When there was a crash during metadata rotation, we may end up
+    # without an s3ql_metadata object.
+    meta_obj_name = 's3ql_metadata'
+    if meta_obj_name not in backend:
+        meta_obj_name += '_new'
+
     with tempfile.TemporaryFile() as tmpfh:
         def do_read(fh):
             tmpfh.seek(0)
@@ -289,26 +295,63 @@ def download_metadata(backend, db_file, name='s3ql_metadata'):
             stream_read_bz2(fh, tmpfh)
 
         log.info('Downloading and decompressing metadata...')
-        backend.perform_read(do_read, name)
+        backend.perform_read(do_read, meta_obj_name)
 
         log.info("Reading metadata...")
         tmpfh.seek(0)
         return restore_metadata(tmpfh, db_file)
 
-def dump_and_upload_metadata(backend, db, param):
+def dump_and_upload_metadata(backend, db):
     with tempfile.TemporaryFile() as fh:
         log.info('Dumping metadata...')
         dump_metadata(db, fh)
-        upload_metadata(backend, fh, param)
+        upload_metadata(backend, fh)
 
-def upload_metadata(backend, fh, param):
+def store_and_upload_params(backend, cachepath: str, params: dict):
+    buf = freeze_basic_mapping(params)
+    backend['s3ql_params'] = buf
+
+    filename = cachepath + '.params'
+    tmpname  = filename + '.tmp'
+    with open(tmpname, 'wb') as fh:
+        fh.write(buf)
+        # Fsync to make sure that the updated sequence number is committed to
+        # disk. Otherwise, a crash immediately after mount could result in both
+        # the local and remote metadata appearing to be out of date.
+        fh.flush()
+        os.fsync(fh.fileno())
+
+    # we need to flush the dirents too.
+    # stackoverflow.com/a/41362774
+    # stackoverflow.com/a/5809073
+    os.rename(tmpname, filename)
+    dirfd = os.open(os.path.dirname(filename), os.O_DIRECTORY)
+    try:
+        os.fsync(dirfd)
+    finally:
+        os.close(dirfd)
+
+
+def read_params(backend, cachepath: str):
+    params = thaw_basic_mapping(backend['s3ql_params'])
+
+    filename = cachepath + '.params'
+    local_params = None
+    if os.path.exists(filename):
+        with open(filename, 'rb') as fh:
+            local_params = thaw_basic_mapping(fh.read())
+
+    return (local_params, params)
+
+
+def upload_metadata(backend, fh):
     log.info("Compressing and uploading metadata...")
     def do_write(obj_fh):
         fh.seek(0)
         stream_write_bz2(fh, obj_fh)
         return obj_fh
     obj_fh = backend.perform_write(do_write, "s3ql_metadata_new",
-                                   metadata=param, is_compressed=True)
+                                   is_compressed=True)
     log.info('Wrote %s of compressed metadata.',
              pretty_print_size(obj_fh.get_obj_size()))
 

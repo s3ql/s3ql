@@ -23,7 +23,6 @@ from argparse import Namespace
 import signal
 from s3ql.backends import gs
 from s3ql.backends.local import Backend as LocalBackend
-from s3ql.common import get_seq_no
 from s3ql import BUFSIZE
 
 @pytest.mark.usefixtures('pass_reg_output')
@@ -32,9 +31,6 @@ class TestFailsafe(t4_fuse.TestFuse):
     Test behavior with corrupted backend. In contrast to the tests
     in t3_fs_api, here we also make sure that remote connections
     are properly reset.
-
-    We use Google Storage, so that we don't have to worry about
-    propagation delays.
     '''
 
     def setup_method(self, method):
@@ -102,59 +98,6 @@ class TestFailsafe(t4_fuse.TestFuse):
         # Printed during umount
         self.reg_output(r'^WARNING: File system errors encountered, '
                         'marking for fsck.$', count=1)
-
-
-@pytest.mark.usefixtures('pass_reg_output')
-class TestNewerMetadata(t4_fuse.TestFuse):
-    '''
-    Make sure that we turn on failsafe mode and don't overwrite
-    remote metadata if it suddenly becomes newer than local.
-    '''
-
-    def test(self):
-        self.mkfs()
-
-        # Get backend instance
-        plain_backend = LocalBackend(Namespace(storage_url=self.storage_url))
-
-        # Save metadata
-        meta = plain_backend['s3ql_metadata']
-
-        # Mount file system
-        self.mount()
-
-        # Increase sequence number
-        seq_no = get_seq_no(plain_backend)
-        plain_backend['s3ql_seq_no_%d' % (seq_no+1)] = b'Empty'
-
-        # Create a file, so that there's metadata to flush
-        fname = os.path.join(self.mnt_dir, 'file1')
-        with open(fname, 'w') as fh:
-            fh.write('hello, world')
-
-        # Try to upload metadata
-        s3ql.ctrl.main(['upload-meta', self.mnt_dir])
-
-        # Try to write. We repeat a few times, since the metadata upload
-        # happens asynchronously.
-        with pytest.raises(PermissionError):
-            for _ in range(10):
-                with open(fname + 'barz', 'w') as fh:
-                    fh.write('foobar')
-                time.sleep(1)
-        self.reg_output(r'^ERROR: Remote metadata is newer than local '
-                        '\(\d+ vs \d+\), refusing to overwrite(?: and switching '
-                        'to failsafe mode)?!$', count=2)
-        self.reg_output(r'^WARNING: File system errors encountered, marking for '
-                        'fsck\.$', count=1)
-        self.reg_output(r'^ERROR: The locally cached metadata will be '
-                        '\*lost\* the next .+$', count=1)
-        self.umount()
-
-        # Assert that remote metadata has not been overwritten
-        assert meta == plain_backend['s3ql_metadata']
-
-        plain_backend.close()
 
 
 class TestSigInt(t4_fuse.TestFuse):

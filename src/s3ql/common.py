@@ -39,38 +39,6 @@ def path2bytes(s):
 def bytes2path(s):
     return s.decode(file_system_encoding, 'surrogateescape')
 
-def get_seq_no(backend):
-    '''Get current metadata sequence number'''
-
-    from .backends.common import NoSuchObject
-
-    seq_nos = list(backend.list('s3ql_seq_no_'))
-    if not seq_nos:
-        # Maybe list result is outdated
-        seq_nos = [ 's3ql_seq_no_1' ]
-
-    seq_nos = [ int(x[len('s3ql_seq_no_'):]) for x in seq_nos ]
-    seq_no = max(seq_nos)
-
-    # Make sure that object really exists
-    while ('s3ql_seq_no_%d' % seq_no) not in backend:
-        seq_no -= 1
-        if seq_no == 0:
-            raise QuietError('No S3QL file system found at given storage URL.',
-                             exitcode=18)
-    while ('s3ql_seq_no_%d' % seq_no) in backend:
-        seq_no += 1
-    seq_no -= 1
-
-    # Delete old seq nos
-    for i in [ x for x in seq_nos if x < seq_no - 10 ]:
-        try:
-            del backend['s3ql_seq_no_%d' % i]
-        except NoSuchObject:
-            pass # Key list may not be up to date
-
-    return seq_no
-
 def is_mounted(storage_url):
     '''Try to determine if *storage_url* is mounted
 
@@ -540,31 +508,6 @@ def freeze_basic_mapping(d):
 
     buf = '{ %s }' % ', '.join(els)
     return buf.encode('utf-8')
-
-def load_params(cachepath):
-    with open(cachepath + '.params' , 'rb') as fh:
-        return thaw_basic_mapping(fh.read())
-
-def save_params(cachepath, param):
-    filename = cachepath + '.params'
-    tmpname  = filename + '.tmp'
-    with open(tmpname, 'wb') as fh:
-        fh.write(freeze_basic_mapping(param))
-        # Fsync to make sure that the updated sequence number is committed to
-        # disk. Otherwise, a crash immediately after mount could result in both
-        # the local and remote metadata appearing to be out of date.
-        fh.flush()
-        os.fsync(fh.fileno())
-
-    # we need to flush the dirents too.
-    # stackoverflow.com/a/41362774
-    # stackoverflow.com/a/5809073
-    os.rename(tmpname, filename)
-    dirfd = os.open(os.path.dirname(filename), os.O_DIRECTORY)
-    try:
-        os.fsync(dirfd)
-    finally:
-        os.close(dirfd)
 
 def time_ns():
     return int(time.time() * 1e9)
