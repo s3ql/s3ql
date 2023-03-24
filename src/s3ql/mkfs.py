@@ -84,9 +84,6 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    if options.max_obj_size < 1024:
-        log.warning('Maximum object sizes less than 1 MiB will degrade performance.')
-
     plain_backend = get_backend(options, raw=True)
     atexit.register(plain_backend.close)
 
