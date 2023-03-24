@@ -287,16 +287,13 @@ def clear(options, on_return):
     log.info('All visible objects deleted.')
 
 
-
 def get_old_rev_msg(rev, prog):
     return textwrap.dedent('''\
         The last S3QL version that supported this file system revision
         was %(version)s. To run this version's %(prog)s, proceed along
         the following steps:
 
-          $ wget http://s3ql.googlecode.com/files/s3ql-%(version)s.tar.bz2 \
-            || wget https://bitbucket.org/nikratio/s3ql/downloads/s3ql-%(version)s.tar.bz2
-          $ tar xjf s3ql-%(version)s.tar.bz2
+          $ # retrieve and unpack required release
           $ (cd s3ql-%(version)s; ./setup.py build_ext --inplace)
           $ s3ql-%(version)s/bin/%(prog)s <options>
         ''' % { 'version': REV_VER_MAP[rev],
