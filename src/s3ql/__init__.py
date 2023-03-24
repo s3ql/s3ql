@@ -52,6 +52,7 @@ CTRL_INODE = ROOT_INODE+1
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
+    24: '3.8.1',
     23: '2.26',
     22: '2.16',
     21: '2.13',
