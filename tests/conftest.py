@@ -82,8 +82,8 @@ def pytest_configure(config):
             os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
             sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-    # When running from HG repo, enable warnings
-    if os.path.exists(os.path.join(basedir, 'MANIFEST.in')):
+    # When running from VCS repo, enable warnings
+    if os.path.exists(os.path.join(basedir, '.git')):
         import warnings
         warnings.resetwarnings()
 
