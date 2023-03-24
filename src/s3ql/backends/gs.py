@@ -750,31 +750,6 @@ def _unwrap_user_meta(json_resp):
             if isinstance(v, bytes):
                 meta[k] = b64decode(v)
 
-        # TODO: Remove next block on next file system revision bump.
-        # Metadata MD5 headers were created by old S3QL versions where the
-        # Google Storage backend shared code with the S3C backend (which
-        # supports plain HTTP connections).  There's no need to validate them
-        # here since Google Storage always uses TLS. However, we retain the code
-        # for now since the metadata format was used to detect an old filesystem
-        # revision.
-        stored_md5 = meta_raw.get('md5', None)
-        new_md5 = b64encode(checksum_basic_mapping(meta)).decode('ascii')
-        if stored_md5 != new_md5:
-            if UPGRADE_MODE:
-                old_md5 = b64encode(UPGRADE_MODE(meta)).decode('ascii')
-                if stored_md5 == old_md5:
-                    meta['needs_reupload'] = True
-                else:
-                    raise CorruptedObjectError(
-                        'Metadata MD5 mismatch for %s (%s vs %s (old) or %s (new))'
-                        % (json_resp.get('name', None), stored_md5, old_md5, new_md5))
-            else:
-                raise CorruptedObjectError(
-                    'Metadata MD5 mismatch for %s (%s vs %s)'
-                    % (json_resp.get('name', None), stored_md5, new_md5))
-        elif UPGRADE_MODE:
-            meta['needs_reupload'] = False
-
         return meta
 
     meta = {}
