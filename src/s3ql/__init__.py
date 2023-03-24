@@ -38,9 +38,9 @@ assert logging.LOG_ONCE  # prevent warnings about unused module
 
 from pyfuse3 import ROOT_INODE
 
-VERSION = '4.0.0'
+VERSION = '5.0.0'
 RELEASE = '%s' % VERSION
-CURRENT_FS_REV = 25
+CURRENT_FS_REV = 26
 
 # Buffer size when writing objects
 BUFSIZE = 64 * 1024
@@ -52,6 +52,7 @@ CTRL_INODE = ROOT_INODE+1
 # Maps file system revisions to the last S3QL version that
 # supported this revision.
 REV_VER_MAP = {
+    25: '4.0.0',
     24: '3.8.1',
     23: '2.26',
     22: '2.16',
