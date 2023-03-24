@@ -141,7 +141,9 @@ def setup_excepthook():
 
     def excepthook(type_, val, tb):
         root_logger = logging.getLogger()
+
         if isinstance(val, QuietError):
+            root_logger.debug('Uncaught top-level exception:', exc_info=(type_, val, tb))
             root_logger.error(val.msg)
             sys.exit(val.exitcode)
         else:
