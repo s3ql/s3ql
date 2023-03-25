@@ -9,6 +9,8 @@ This work can be distributed under the terms of the GNU GPLv3.
 from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
 from abc import abstractmethod, ABCMeta
 from functools import wraps
+from typing import BinaryIO
+from ..common import BUFSIZE
 import time
 import textwrap
 import hashlib
@@ -285,6 +287,21 @@ class AbstractBackend(object, metaclass=ABCMeta):
         def do_read(fh):
             data = fh.read()
             return (data, fh.metadata)
+
+        return self.perform_read(do_read, key)
+
+    def readinto(self, key: str, ofh: BinaryIO):
+        """Read data stored under `key` into *fh*, return metadata."""
+
+        off = ofh.tell()
+        def do_read(ifh: BinaryIO):
+            ofh.seek(off)
+            while True:
+                buf = ifh.read(BUFSIZE)
+                if not buf:
+                    break
+                ofh.write(buf)
+            return ifh.metadata
 
         return self.perform_read(do_read, key)
 
