@@ -112,7 +112,6 @@ def pytest_configure(config):
     logdebug = config.getoption('logdebug')
     root_logger = logging.getLogger()
     if logdebug is not None:
-        logging.disable(logging.NOTSET)
         if 'all' in logdebug:
             root_logger.setLevel(logging.DEBUG)
         else:
@@ -120,7 +119,6 @@ def pytest_configure(config):
                 logging.getLogger(module).setLevel(logging.DEBUG)
     else:
         root_logger.setLevel(logging.INFO)
-        logging.disable(logging.DEBUG)
     logging.captureWarnings(capture=True)
 
 # Run gc.collect() at the end of every test, so that we get ResourceWarnings
