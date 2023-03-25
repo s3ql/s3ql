@@ -81,7 +81,7 @@ class Fsck(object):
             self.check_contents_parent_inode()
 
             self.check_objects_temp()
-            self.check_objects_hash()            
+            self.check_objects_hash()
             self.check_objects_refcount()
             self.check_objects_id()
             self.check_objects_phys_size()
@@ -188,7 +188,7 @@ class Fsck(object):
             # Calculate block checksum
             with open(os.path.join(self.cachedir, filename), "rb") as fh:
                 size = os.fstat(fh.fileno()).st_size
-                hash_should = sha256_fh(fh)
+                hash_should = sha256_fh(fh).digest()
             log.debug('%s has checksum %s', filename, hash_should)
 
             # Check if stored object has same checksum
@@ -237,7 +237,7 @@ class Fsck(object):
 
                 # Decrease the refcount, but don't take any further action
                 # because the reference count might be wrong
-                self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', 
+                self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                                   (old_obj_id,))
                 self.unlinked_objects.add(old_obj_id)
 
@@ -545,10 +545,10 @@ class Fsck(object):
             self.log_error('Inode-block mapping %d refers to non-existing inode %d, deleting',
                            rowid, inode)
             to_delete.append(rowid)
-            
+
             # Decrease the refcount, but don't take any action because the
             # reference count might be wrong
-            self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', 
+            self.conn.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?',
                               (obj_id,))
             self.unlinked_objects.add(obj_id)
 
@@ -619,7 +619,7 @@ class Fsck(object):
         self.found_errors = True
         self.log_error("No checksum for %d objects, removing from table...", count)
         self.conn.execute('DELETE FROM objects WHERE hash IS NULL')
-        
+
         # Orphaned objects will be picked up by check_objects_id(), and missing
         # blocks handled by check_inode_blocks_obj_id().
 
@@ -835,14 +835,14 @@ class Fsck(object):
                 self.found_errors = True
                 self.log_error("removing temporary file %s", name)
                 os.unlink(os.path.join(path, name))
-                
+
             if path != plain_backend.prefix:
                 try:
                     os.rmdir(path)
                     empty_dirs += 1
                 except OSError:
                     pass
-                    
+
         log.info('Removed %d empty directories', empty_dirs)
 
     def check_objects_id(self):
@@ -900,7 +900,7 @@ class Fsck(object):
                 self.log_error("object %s only exists in table but not in backend, deleting", obj_id)
                 # Missing references will be picked up by check_inode_blocks_obj_id() later.
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
-                
+
         finally:
             if sys.stdout.isatty():
                 sys.stdout.write('\n')
