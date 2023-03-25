@@ -78,7 +78,7 @@ class TestFuse:
 
     def mount(self, expect_fail=None, in_foreground = True, extra_args=[]):
         cmd = (self.s3ql_cmd_argv('mount.s3ql') +
-               ['--cachedir', self.cache_dir, '--log', 'none',
+               ['--cachedir', self.cache_dir, '--log', 'none', '--threads=2',
                 '--compress', 'zlib', '--quiet', self.storage_url, self.mnt_dir,
                 '--authfile', '/dev/null' ])
         if in_foreground:
