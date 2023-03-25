@@ -404,7 +404,7 @@ async def test_rename2(ctx):
 
     # Put these inodes on the brink of being flushed in the inode cache
     for _ in range(0, INODE_CACHE_SIZE - 3):
-        await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx)    
+        await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx)
 
     # Move the file
     await ctx.server.rename(inode_src_folder.st_ino, src_file_name, inode_dst_folder.st_ino, dst_file_name, 0, some_ctx)

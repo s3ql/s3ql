@@ -59,7 +59,7 @@ class fsck_tests(unittest.TestCase):
 
         self.fsck.expect_errors = True
         for fn in fns:
-            self.fsck.found_errors = False        
+            self.fsck.found_errors = False
             fn()
             assert self.fsck.found_errors
         if not can_fix:
