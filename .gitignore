@@ -1,9 +1,5 @@
 .pyc
 __pycache__/
-/.project
-/.pydevproject
-/.settings
-/.idea
 /build/
 /contrib/expire_backups.1
 /contrib/pcp.1
@@ -19,4 +15,3 @@ __pycache__/
 /tests/test.log
 /tests/test_crit.log
 /.history
-/*.code-workspace

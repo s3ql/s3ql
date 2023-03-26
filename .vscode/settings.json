@@ -1,3 +1,13 @@
 {
-    "python.formatting.provider": "black"
+    "rewrap.wrappingColumn": 100,
+    "pythonIndent.keepHangingBracketOnLine": true,
+    "files.trimTrailingWhitespace": true,
+    "pythonIndent.trimLinesWithOnlyWhitespace": true,
+    "python.analysis.importFormat": "relative",
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=100",
+        "--skip-string-normalization"
+    ],
+    "editor.formatOnSave": true,
 }
