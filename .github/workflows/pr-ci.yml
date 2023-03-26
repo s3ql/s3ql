@@ -1,0 +1,24 @@
+name: 'Build & Test'
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+jobs:
+  build:
+    runs-on: '${{ matrix.os }}'
+    strategy:
+      matrix:
+        os:
+          - ubuntu-20.04
+          - ubuntu-latest
+        deps: [ dist, latest ]
+    steps:
+      - uses: actions/checkout@v3
+      - run: tests/ci-prepare-${{ matrix.deps }}.sh ${{ matrix.os }}
+      - run: python3 setup.py build_cython
+      - run: python3 setup.py build_ext --inplace
+      - run: python3 -m pytest -r s tests/
+      - run: ./build_docs.sh
