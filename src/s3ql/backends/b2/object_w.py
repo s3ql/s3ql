@@ -8,6 +8,7 @@ from .b2_error import BadDigestError
 
 log = logging.getLogger(__name__)
 
+
 class ObjectW(object):
     '''A Backblaze B2 object open for writing
 

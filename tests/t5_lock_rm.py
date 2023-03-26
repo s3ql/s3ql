@@ -10,6 +10,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 if __name__ == '__main__':
     import pytest
     import sys
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import pyfuse3
@@ -21,8 +22,8 @@ from pytest import raises as assert_raises
 import pytest
 import t4_fuse
 
-class TestLockRemove(t4_fuse.TestFuse):
 
+class TestLockRemove(t4_fuse.TestFuse):
     def test(self):
         self.mkfs()
         self.mount()

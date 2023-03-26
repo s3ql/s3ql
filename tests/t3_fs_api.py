@@ -10,6 +10,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 if __name__ == '__main__':
     import pytest
     import sys
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from argparse import Namespace
@@ -41,16 +42,17 @@ import tempfile
 import trio
 
 # We need to access to protected members
-#pylint: disable=W0212
+# pylint: disable=W0212
 
 # The classes provided by pyfuse3 have read-only attributes,
 # so we duck-type our own.
 class Ctx:
     def __init__(self):
-        self.uid = randint(0, 2 ** 32)
-        self.gid = randint(0, 2 ** 32)
-        self.pid = randint(0, 2 ** 32)
+        self.uid = randint(0, 2**32)
+        self.gid = randint(0, 2**32)
+        self.pid = randint(0, 2**32)
         self.umask = 0
+
 
 class SetattrFields:
     def __init__(self, **kw):
@@ -62,16 +64,16 @@ class SetattrFields:
         self.update_size = False
         self.__dict__.update(kw)
 
+
 some_ctx = Ctx()
+
 
 @pytest.fixture
 async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    plain_backend = local.Backend(Namespace(
-        storage_url='local://' + ctx.backend_dir))
-    ctx.backend_pool = BackendPool(lambda: ComprencBackend(b'schwubl', ('zlib', 6),
-                                                          plain_backend))
+    plain_backend = local.Backend(Namespace(storage_url='local://' + ctx.backend_dir))
+    ctx.backend_pool = BackendPool(lambda: ComprencBackend(b'schwubl', ('zlib', 6), plain_backend))
     ctx.backend = ctx.backend_pool.pop_conn()
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
@@ -85,19 +87,19 @@ async def ctx():
     create_tables(ctx.db)
     init_tables(ctx.db)
 
-    cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
-                       ctx.max_obj_size * 5)
+    cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache", ctx.max_obj_size * 5)
     cache.trio_token = trio.lowlevel.current_trio_token()
     ctx.cache = cache
-    ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size,
-                                InodeCache(ctx.db, 0))
+    ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size, InodeCache(ctx.db, 0))
     ctx.server.init()
 
     # Monkeypatch around the need for removal and upload threads
     cache.to_remove = DummyQueue(cache)
+
     class DummyChannel:
         async def send(self, arg):
             await trio.to_thread.run_sync(cache._do_upload, *arg)
+
     cache.to_upload = (DummyChannel(), None)
 
     # Keep track of unused filenames
@@ -112,25 +114,29 @@ async def ctx():
     os.unlink(ctx.dbfile.name)
     ctx.dbfile.close()
 
+
 def random_data(len_):
     with open("/dev/urandom", "rb") as fd:
         return fd.read(len_)
 
+
 async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
-    fsck = Fsck(ctx.cachedir + '/cache', ctx.backend,
-              { 'data-block-size': ctx.max_obj_size }, ctx.db)
+    fsck = Fsck(ctx.cachedir + '/cache', ctx.backend, {'data-block-size': ctx.max_obj_size}, ctx.db)
     fsck.check()
     assert not fsck.found_errors
+
 
 def newname(ctx):
     ctx.name_cnt += 1
     return ("s3ql_%d" % ctx.name_cnt).encode()
 
+
 async def test_getattr_root(ctx):
     assert stat.S_ISDIR((await ctx.server.getattr(ROOT_INODE, some_ctx)).st_mode)
     await fsck(ctx)
+
 
 async def test_create(ctx):
     fctx = Ctx()
@@ -141,8 +147,11 @@ async def test_create(ctx):
     safe_sleep(CLOCK_GRANULARITY)
     ctx.server._create(ROOT_INODE, name, mode, fctx)
 
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON name_id = names.id '
-                          'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON name_id = names.id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
 
     inode = await ctx.server.getattr(id_, some_ctx)
 
@@ -160,13 +169,15 @@ async def test_create(ctx):
     await ctx.server.forget([(id_, 1)])
     await fsck(ctx)
 
+
 async def test_extstat(ctx):
     # Test with zero contents
     ctx.server.extstat()
 
     # Test with empty file
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
     ctx.server.extstat()
@@ -181,15 +192,19 @@ async def test_extstat(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 def dir_mode():
     return (randint(0, 0o7777) & ~stat.S_IFDIR) | stat.S_IFDIR
+
 
 def file_mode():
     return (randint(0, 0o7777) & ~stat.S_IFREG) | stat.S_IFREG
 
+
 async def test_getxattr(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -202,15 +217,16 @@ async def test_getxattr(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_link(ctx):
     name = newname(ctx)
 
-    inode_p_new = await ctx.server.mkdir(ROOT_INODE, newname(ctx),
-                                    dir_mode(), some_ctx)
+    inode_p_new = await ctx.server.mkdir(ROOT_INODE, newname(ctx), dir_mode(), some_ctx)
     inode_p_new_before = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
     safe_sleep(CLOCK_GRANULARITY)
@@ -221,8 +237,11 @@ async def test_link(ctx):
     inode_after = await ctx.server.lookup(inode_p_new.st_ino, name, some_ctx)
     inode_p_new_after = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
 
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                          'WHERE name=? AND parent_inode = ?', (name, inode_p_new.st_ino))
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, inode_p_new.st_ino),
+    )
 
     assert inode_before.st_ino == id_
     assert inode_after.st_nlink == 2
@@ -232,9 +251,11 @@ async def test_link(ctx):
     await ctx.server.forget([(inode.st_ino, 1), (inode_p_new.st_ino, 1), (inode_after.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_listxattr(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                          file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -244,17 +265,19 @@ async def test_listxattr(ctx):
     assert [b'key1'] == await ctx.server.listxattr(inode.st_ino, some_ctx)
 
     await ctx.server.setxattr(inode.st_ino, b'key2', b'blub', some_ctx)
-    assert sorted([b'key1', b'key2']) == sorted(await ctx.server.listxattr(inode.st_ino,  some_ctx))
+    assert sorted([b'key1', b'key2']) == sorted(await ctx.server.listxattr(inode.st_ino, some_ctx))
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_read(ctx):
 
     len_ = ctx.max_obj_size
     data = random_data(len_)
     off = ctx.max_obj_size // 2
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                 file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
 
     await ctx.server.write(fh, off, data)
@@ -269,13 +292,13 @@ async def test_read(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_readdir(ctx, monkeypatch):
 
     # Create a few entries
-    names = [ ('entry_%2d' % i).encode() for i in range(20) ]
+    names = [('entry_%2d' % i).encode() for i in range(20)]
     for name in names:
-        (fi, inode) = await ctx.server.create(ROOT_INODE, name,
-                                     file_mode(), os.O_RDWR, some_ctx)
+        (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(), os.O_RDWR, some_ctx)
         fh = fi.fh
         await ctx.server.release(fh)
         await ctx.server.forget([(inode.st_ino, 1)])
@@ -290,10 +313,12 @@ async def test_readdir(ctx, monkeypatch):
     fh = await ctx.server.opendir(ROOT_INODE, some_ctx)
     names_ret = []
     next_ids = []
+
     def readdir_reply(token, name, attr, next_id):
         names_ret.append(name)
         next_ids.append(next_id)
         return True
+
     monkeypatch.setattr('pyfuse3.readdir_reply', readdir_reply)
     await ctx.server.readdir(fh, 0, 'my-token')
     await ctx.server.releasedir(fh)
@@ -309,22 +334,25 @@ async def test_readdir(ctx, monkeypatch):
         if old_len == len(next_ids):
             break
 
-    assert set(names + [b'lost+found'])  == set(names_ret)
+    assert set(names + [b'lost+found']) == set(names_ret)
     await ctx.server.releasedir(fh)
 
     await fsck(ctx)
+
 
 async def test_forget(ctx):
     name = newname(ctx)
 
     # Test that entries are deleted when they're no longer referenced
-    (fi, inode) = await ctx.server.create(ROOT_INODE, name,
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.write(fh, 0, b'foobar')
     await ctx.server.unlink(ROOT_INODE, name, some_ctx)
-    assert not ctx.db.has_val('SELECT 1 FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    assert not ctx.db.has_val(
+        'SELECT 1 FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
     assert (await ctx.server.getattr(inode.st_ino, some_ctx)).st_ino
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
@@ -333,9 +361,11 @@ async def test_forget(ctx):
 
     await fsck(ctx)
 
+
 async def test_removexattr(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -347,6 +377,7 @@ async def test_removexattr(ctx):
     assert await ctx.server.listxattr(inode.st_ino, some_ctx) == []
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_rename(ctx):
     oldname = newname(ctx)
@@ -364,10 +395,16 @@ async def test_rename(ctx):
     inode_p_old_after = await ctx.server.getattr(ROOT_INODE, some_ctx)
     inode_p_new_after = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
 
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE))
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON names.id == name_id '
-                          'WHERE name=? AND parent_inode = ?', (newname_, inode_p_new.st_ino))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (oldname, ROOT_INODE),
+    )
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON names.id == name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (newname_, inode_p_new.st_ino),
+    )
     assert inode.st_ino == id_
 
     assert inode_p_new_before.st_mtime_ns < inode_p_new_after.st_mtime_ns
@@ -378,6 +415,7 @@ async def test_rename(ctx):
     await ctx.server.forget([(inode.st_ino, 1), (inode_p_new.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_rename2(ctx):
     src_file_name = newname(ctx)
     src_folder_name = newname(ctx)
@@ -386,7 +424,9 @@ async def test_rename2(ctx):
 
     inode_dst_folder = await ctx.server.mkdir(ROOT_INODE, dst_folder_name, dir_mode(), some_ctx)
     inode_src_folder = await ctx.server.mkdir(ROOT_INODE, src_folder_name, dir_mode(), some_ctx)
-    (_, inode_file) = await ctx.server.create(inode_src_folder.st_ino, src_file_name, file_mode(), os.O_RDWR, some_ctx)
+    (_, inode_file) = await ctx.server.create(
+        inode_src_folder.st_ino, src_file_name, file_mode(), os.O_RDWR, some_ctx
+    )
 
     safe_sleep(CLOCK_GRANULARITY)
 
@@ -407,7 +447,9 @@ async def test_rename2(ctx):
         await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx)
 
     # Move the file
-    await ctx.server.rename(inode_src_folder.st_ino, src_file_name, inode_dst_folder.st_ino, dst_file_name, 0, some_ctx)
+    await ctx.server.rename(
+        inode_src_folder.st_ino, src_file_name, inode_dst_folder.st_ino, dst_file_name, 0, some_ctx
+    )
 
     await fsck(ctx)
 
@@ -416,8 +458,7 @@ async def test_replace_file(ctx):
     oldname = newname(ctx)
     newname_ = newname(ctx)
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, oldname, file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, oldname, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.write(fh, 0, b'some data to deal with')
     await ctx.server.release(fh)
@@ -427,8 +468,9 @@ async def test_replace_file(ctx):
     inode_p_new_before = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
     inode_p_old_before = await ctx.server.getattr(ROOT_INODE, some_ctx)
 
-    (fi, inode2) = await ctx.server.create(inode_p_new.st_ino, newname_, file_mode(),
-                                      os.O_RDWR, some_ctx)
+    (fi, inode2) = await ctx.server.create(
+        inode_p_new.st_ino, newname_, file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'even more data to deal with')
     await ctx.server.release(fh)
@@ -441,10 +483,16 @@ async def test_replace_file(ctx):
     inode_p_old_after = await ctx.server.getattr(ROOT_INODE, some_ctx)
     inode_p_new_after = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
 
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE))
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                          'WHERE name=? AND parent_inode = ?', (newname_, inode_p_new.st_ino))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (oldname, ROOT_INODE),
+    )
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (newname_, inode_p_new.st_ino),
+    )
     assert inode.st_ino == id_
 
     assert inode_p_new_before.st_mtime_ns < inode_p_new_after.st_mtime_ns
@@ -455,6 +503,7 @@ async def test_replace_file(ctx):
     assert not ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (inode2.st_ino,))
     await ctx.server.forget([(inode.st_ino, 1), (inode_p_new.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_replace_dir(ctx):
     oldname = newname(ctx)
@@ -475,10 +524,16 @@ async def test_replace_dir(ctx):
     inode_p_old_after = await ctx.server.getattr(ROOT_INODE, some_ctx)
     inode_p_new_after = await ctx.server.getattr(inode_p_new.st_ino, some_ctx)
 
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (oldname, ROOT_INODE))
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                          'WHERE name=? AND parent_inode = ?', (newname_, inode_p_new.st_ino))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (oldname, ROOT_INODE),
+    )
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (newname_, inode_p_new.st_ino),
+    )
     assert inode.st_ino == id_
 
     assert inode_p_new_before.st_mtime_ns < inode_p_new_after.st_mtime_ns
@@ -490,46 +545,48 @@ async def test_replace_dir(ctx):
     assert not ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (inode2.st_ino,))
     await fsck(ctx)
 
+
 async def test_setattr_one(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
     inode_old = await ctx.server.getattr(inode.st_ino, some_ctx)
 
     attr = await ctx.server.getattr(inode.st_ino, some_ctx)  # this is a fresh instance
     attr.st_mode = file_mode()
-    attr.st_uid = randint(0, 2 ** 32)
-    attr.st_gid = randint(0, 2 ** 32) # should be ignored
-    attr.st_atime_ns = randint(0, 2 ** 50)
-    attr.st_mtime_ns = randint(0, 2 ** 50)
+    attr.st_uid = randint(0, 2**32)
+    attr.st_gid = randint(0, 2**32)  # should be ignored
+    attr.st_atime_ns = randint(0, 2**50)
+    attr.st_mtime_ns = randint(0, 2**50)
 
     safe_sleep(CLOCK_GRANULARITY)
-    sf = SetattrFields(update_mode=True, update_uid=True,
-                       update_atime=True, update_mtime=True)
+    sf = SetattrFields(update_mode=True, update_uid=True, update_atime=True, update_mtime=True)
     await ctx.server.setattr(inode.st_ino, attr, sf, None, some_ctx)
     inode_new = await ctx.server.getattr(inode.st_ino, some_ctx)
 
     for name in ('st_mode', 'st_uid', 'st_atime_ns', 'st_mtime_ns'):
         assert getattr(attr, name) == getattr(inode_new, name)
-    for name in ('st_gid', 'st_size', 'st_nlink', 'st_rdev',
-                 'st_blocks', 'st_blksize'):
+    for name in ('st_gid', 'st_size', 'st_nlink', 'st_rdev', 'st_blocks', 'st_blksize'):
         assert getattr(inode_old, name) == getattr(inode_new, name)
     assert inode_old.st_ctime_ns < inode_new.st_ctime_ns
 
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_setattr_two(ctx):
-    (fi, inode_old) = await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(),
-                                         os.O_RDWR, some_ctx)
+    (fi, inode_old) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
 
     attr = await ctx.server.getattr(inode_old.st_ino, some_ctx)
     attr.st_mode = file_mode()
-    attr.st_uid = randint(0, 2 ** 32)
-    attr.st_gid = randint(0, 2 ** 32)
-    attr.st_mtime_ns = randint(0, 2 ** 50)
+    attr.st_uid = randint(0, 2**32)
+    attr.st_gid = randint(0, 2**32)
+    attr.st_mtime_ns = randint(0, 2**50)
     attr.st_ctime_ns = 5e9
 
     safe_sleep(CLOCK_GRANULARITY)
@@ -540,8 +597,16 @@ async def test_setattr_two(ctx):
 
     for name in ('st_gid', 'st_mtime_ns'):
         assert getattr(attr, name) == getattr(inode_new, name)
-    for name in ('st_uid', 'st_size', 'st_nlink', 'st_rdev',
-                 'st_blocks', 'st_blksize', 'st_mode', 'st_atime_ns'):
+    for name in (
+        'st_uid',
+        'st_size',
+        'st_nlink',
+        'st_rdev',
+        'st_blocks',
+        'st_blksize',
+        'st_mode',
+        'st_atime_ns',
+    ):
         assert getattr(inode_old, name) == getattr(inode_new, name)
     assert inode_old.st_ctime_ns < inode_new.st_ctime_ns
 
@@ -549,12 +614,14 @@ async def test_setattr_two(ctx):
     await ctx.server.forget([(inode_old.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_truncate(ctx):
     len_ = int(2.7 * ctx.max_obj_size)
     data = random_data(len_)
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, data)
 
@@ -562,20 +629,22 @@ async def test_truncate(ctx):
     attr.st_size = len_ // 2
     sf = SetattrFields(update_size=True)
     await ctx.server.setattr(inode.st_ino, attr, sf, None, some_ctx)
-    assert await ctx.server.read(fh, 0, len_) == data[:len_ // 2]
+    assert await ctx.server.read(fh, 0, len_) == data[: len_ // 2]
     attr.st_size = len_
     await ctx.server.setattr(inode.st_ino, attr, sf, None, some_ctx)
-    assert await ctx.server.read(fh, 0, len_) == data[:len_ // 2] + b'\0' * (len_ // 2)
+    assert await ctx.server.read(fh, 0, len_) == data[: len_ // 2] + b'\0' * (len_ // 2)
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_truncate_0(ctx):
     len1 = 158
     len2 = 133
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, random_data(len1))
     await ctx.server.release(fh)
@@ -585,8 +654,7 @@ async def test_truncate_0(ctx):
     fi = await ctx.server.open(inode.st_ino, os.O_RDWR, some_ctx)
     fh = fi.fh
     attr.st_size = 0
-    await ctx.server.setattr(inode.st_ino, attr, SetattrFields(update_size=True),
-                        fh, some_ctx)
+    await ctx.server.setattr(inode.st_ino, attr, SetattrFields(update_size=True), fh, some_ctx)
     data = random_data(len2)
     await ctx.server.write(fh, 0, data)
     await ctx.server.release(fh)
@@ -598,9 +666,11 @@ async def test_truncate_0(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_setxattr(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -609,18 +679,17 @@ async def test_setxattr(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_names(ctx):
     name1 = newname(ctx)
     name2 = newname(ctx)
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, name1, file_mode(),
-                                 os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, name1, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
 
-    (fi, inode) = await ctx.server.create(ROOT_INODE, name2, file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, name2, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -630,8 +699,7 @@ async def test_names(ctx):
     await ctx.server.removexattr(inode.st_ino, name1, some_ctx)
     await fsck(ctx)
 
-    await ctx.server.setxattr(inode.st_ino, name1, b'strabumm karacho!!',
-                         some_ctx)
+    await ctx.server.setxattr(inode.st_ino, name1, b'strabumm karacho!!', some_ctx)
     await ctx.server.unlink(ROOT_INODE, name1, some_ctx)
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
@@ -642,8 +710,9 @@ async def test_statfs(ctx):
     await ctx.server.statfs(some_ctx)
 
     # Test with empty file
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.release(fh)
     await ctx.server.statfs(some_ctx)
@@ -656,6 +725,7 @@ async def test_statfs(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await ctx.server.statfs(some_ctx)
 
+
 async def test_symlink(ctx):
     target = newname(ctx)
     name = newname(ctx)
@@ -667,8 +737,11 @@ async def test_symlink(ctx):
 
     assert target, await ctx.server.readlink(inode.st_ino == some_ctx)
 
-    id_ = ctx.db.get_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                          'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    id_ = ctx.db.get_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
 
     assert inode.st_ino == id_
     assert inode_p_before.st_mtime_ns < inode_p_after.st_mtime_ns
@@ -676,6 +749,7 @@ async def test_symlink(ctx):
 
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_unlink(ctx):
     name = newname(ctx)
@@ -697,11 +771,15 @@ async def test_unlink(ctx):
     assert inode_p_before.st_mtime_ns < inode_p_after.st_mtime_ns
     assert inode_p_before.st_ctime_ns < inode_p_after.st_ctime_ns
 
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
     assert not ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.st_ino,))
 
     await fsck(ctx)
+
 
 async def test_rmdir(ctx):
     name = newname(ctx)
@@ -714,11 +792,15 @@ async def test_rmdir(ctx):
 
     assert inode_p_before.st_mtime_ns < inode_p_after.st_mtime_ns
     assert inode_p_before.st_ctime_ns < inode_p_after.st_ctime_ns
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
     assert not ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.st_ino,))
 
     await fsck(ctx)
+
 
 async def test_relink(ctx):
     name = newname(ctx)
@@ -731,8 +813,11 @@ async def test_relink(ctx):
     await ctx.server.release(fh)
     await ctx.server.unlink(ROOT_INODE, name, some_ctx)
     ctx.server.inodes.flush()
-    assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                              'WHERE name=? AND parent_inode = ?', (name, ROOT_INODE))
+    assert not ctx.db.has_val(
+        'SELECT inode FROM contents JOIN names ON names.id = name_id '
+        'WHERE name=? AND parent_inode = ?',
+        (name, ROOT_INODE),
+    )
     assert ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (inode.st_ino,))
     await ctx.server.link(inode.st_ino, ROOT_INODE, name2, some_ctx)
     await ctx.server.forget([(inode.st_ino, 2)])
@@ -745,12 +830,14 @@ async def test_relink(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_write(ctx):
     len_ = ctx.max_obj_size
     data = random_data(len_)
     off = ctx.max_obj_size // 2
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                 file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     inode_before = await ctx.server.getattr(inode.st_ino, some_ctx)
     safe_sleep(CLOCK_GRANULARITY)
@@ -769,12 +856,14 @@ async def test_write(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_fsync(ctx):
     len_ = ctx.max_obj_size
     data = random_data(len_)
     off = ctx.max_obj_size // 2
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                 file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, off, data)
     await ctx.server.fsync(fh, datasync=False)
@@ -785,8 +874,9 @@ async def test_fsync(ctx):
 async def test_failsafe(ctx):
     len_ = ctx.max_obj_size
     data = random_data(len_)
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                 file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, data)
     await ctx.cache.drop()
@@ -800,8 +890,7 @@ async def test_failsafe(ctx):
         rfh.seek(560)
         rfh.write(b'blrub!')
     with assert_raises(FUSEError) as cm:
-        with assert_logs('^Backend returned malformed data for',
-                          count=1, level=logging.ERROR):
+        with assert_logs('^Backend returned malformed data for', count=1, level=logging.ERROR):
             await ctx.server.read(fh, 0, len_)
     assert cm.value.errno == errno.EIO
     assert ctx.server.failsafe
@@ -828,38 +917,37 @@ async def test_failsafe(ctx):
 
     # Remove completely, should give error after cache flush
     os.unlink(datafile)
-    await ctx.server.read(fh, 3, len_//2)
+    await ctx.server.read(fh, 3, len_ // 2)
     await ctx.cache.drop()
     with assert_raises(FUSEError) as cm:
-        with assert_logs('^Backend lost block',
-                          count=1, level=logging.ERROR):
-            await ctx.server.read(fh, 5, len_//2)
+        with assert_logs('^Backend lost block', count=1, level=logging.ERROR):
+            await ctx.server.read(fh, 5, len_ // 2)
     assert cm.value.errno == errno.EIO
 
-
     # Don't call fsck, we're missing a block
+
 
 async def test_create_open(ctx):
     name = newname(ctx)
     # Create a new file
-    (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
 
     # Open it atomically
-    (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(),
-                                     os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(ROOT_INODE, name, file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
 
     await fsck(ctx)
 
+
 async def test_open_truncate(ctx):
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx), file_mode(),
-                                          os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, random_data(int(1.5 * ctx.max_obj_size)))
     await ctx.server.release(fh)
@@ -879,11 +967,13 @@ async def test_open_truncate(ctx):
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_edit(ctx):
     len_ = ctx.max_obj_size
     data = random_data(len_)
-    (fi, inode) = await ctx.server.create(ROOT_INODE, newname(ctx),
-                                     file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, data)
     await ctx.server.release(fh)
@@ -894,12 +984,12 @@ async def test_edit(ctx):
     fh = fi.fh
     attr = await ctx.server.getattr(inode.st_ino, some_ctx)
     attr.st_size = 0
-    await ctx.server.setattr(inode.st_ino, attr, SetattrFields(update_size=True),
-                        fh, some_ctx)
+    await ctx.server.setattr(inode.st_ino, attr, SetattrFields(update_size=True), fh, some_ctx)
     await ctx.server.write(fh, 0, data[50:])
     await ctx.server.release(fh)
     await ctx.server.forget([(inode.st_ino, 1)])
     await fsck(ctx)
+
 
 async def test_copy_tree(ctx, monkeypatch):
     ext_attr_name = b'system.foo.brazl'
@@ -909,29 +999,29 @@ async def test_copy_tree(ctx, monkeypatch):
     dst_inode = await ctx.server.mkdir(ROOT_INODE, b'dest', dir_mode(), some_ctx)
 
     # Create file
-    (fi, f1_inode) = await ctx.server.create(src_inode.st_ino, b'file1',
-                                        file_mode(), os.O_RDWR, some_ctx)
+    (fi, f1_inode) = await ctx.server.create(
+        src_inode.st_ino, b'file1', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file1 contents')
     await ctx.server.release(fh)
     await ctx.server.setxattr(f1_inode.st_ino, ext_attr_name, ext_attr_val, some_ctx)
 
     # Create hardlink
-    (fi, f2_inode) = await ctx.server.create(src_inode.st_ino, b'file2',
-                                        file_mode(), os.O_RDWR, some_ctx)
+    (fi, f2_inode) = await ctx.server.create(
+        src_inode.st_ino, b'file2', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file2 contents')
     await ctx.server.release(fh)
-    f2_inode = await ctx.server.link(f2_inode.st_ino, src_inode.st_ino, b'file2_hardlink',
-                                some_ctx)
+    f2_inode = await ctx.server.link(f2_inode.st_ino, src_inode.st_ino, b'file2_hardlink', some_ctx)
 
     # Create subdirectory
     d1_inode = await ctx.server.mkdir(src_inode.st_ino, b'dir1', dir_mode(), some_ctx)
     d2_inode = await ctx.server.mkdir(d1_inode.st_ino, b'dir2', dir_mode(), some_ctx)
 
     # ..with a 3rd hardlink
-    f2_inode = await ctx.server.link(f2_inode.st_ino, d1_inode.st_ino, b'file2_hardlink',
-                                some_ctx)
+    f2_inode = await ctx.server.link(f2_inode.st_ino, d1_inode.st_ino, b'file2_hardlink', some_ctx)
 
     # Replicate
     monkeypatch.setattr('pyfuse3.invalidate_inode', lambda *args: None)
@@ -980,13 +1070,15 @@ async def test_copy_tree(ctx, monkeypatch):
     await ctx.server.forget(list(ctx.server.open_inodes.items()))
     await fsck(ctx)
 
+
 async def test_copy_tree_2(ctx, monkeypatch):
     src_inode = await ctx.server.mkdir(ROOT_INODE, b'source', dir_mode(), some_ctx)
     dst_inode = await ctx.server.mkdir(ROOT_INODE, b'dest', dir_mode(), some_ctx)
 
     # Create file
-    (fi, inode) = await ctx.server.create(src_inode.st_ino, b'file1',
-                                 file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode) = await ctx.server.create(
+        src_inode.st_ino, b'file1', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'block 1 contents')
     await ctx.server.write(fh, ctx.max_obj_size, b'block 1 contents')
@@ -999,28 +1091,30 @@ async def test_copy_tree_2(ctx, monkeypatch):
     await ctx.server.forget([(src_inode.st_ino, 1), (dst_inode.st_ino, 1)])
     await fsck(ctx)
 
+
 async def test_lock_tree(ctx):
 
     inode1 = await ctx.server.mkdir(ROOT_INODE, b'source', dir_mode(), some_ctx)
 
     # Create file
-    (fi, inode1a) = await ctx.server.create(inode1.st_ino, b'file1',
-                                        file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode1a) = await ctx.server.create(
+        inode1.st_ino, b'file1', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file1 contents')
     await ctx.server.release(fh)
 
     # Create subdirectory
     inode2 = await ctx.server.mkdir(inode1.st_ino, b'dir1', dir_mode(), some_ctx)
-    (fi, inode2a) = await ctx.server.create(inode2.st_ino, b'file2',
-                                       file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode2a) = await ctx.server.create(
+        inode2.st_ino, b'file2', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file2 contents')
     await ctx.server.release(fh)
 
     # Another file
-    (fi, inode3) = await ctx.server.create(ROOT_INODE, b'file1',
-                                      file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode3) = await ctx.server.create(ROOT_INODE, b'file1', file_mode(), os.O_RDWR, some_ctx)
     fh = fi.fh
     await ctx.server.release(fh)
 
@@ -1068,8 +1162,9 @@ async def test_lock_tree(ctx):
     # Setattr
     attr = await ctx.server.getattr(inode2a.st_ino, some_ctx)
     with assert_raises(FUSEError) as cm:
-        await ctx.server.setattr(inode2a.st_ino, attr, SetattrFields(update_mtime=True),
-                            None, some_ctx)
+        await ctx.server.setattr(
+            inode2a.st_ino, attr, SetattrFields(update_mtime=True), None, some_ctx
+        )
     assert cm.value.errno == errno.EPERM
 
     # xattr
@@ -1082,21 +1177,24 @@ async def test_lock_tree(ctx):
     await ctx.server.forget(list(ctx.server.open_inodes.items()))
     await fsck(ctx)
 
+
 async def test_remove_tree(ctx, monkeypatch):
 
     inode1 = await ctx.server.mkdir(ROOT_INODE, b'source', dir_mode(), some_ctx)
 
     # Create file
-    (fi, inode1a) = await ctx.server.create(inode1.st_ino, b'file1',
-                                        file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode1a) = await ctx.server.create(
+        inode1.st_ino, b'file1', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file1 contents')
     await ctx.server.release(fh)
 
     # Create subdirectory
     inode2 = await ctx.server.mkdir(inode1.st_ino, b'dir1', dir_mode(), some_ctx)
-    (fi, inode2a) = await ctx.server.create(inode2.st_ino, b'file2',
-                                       file_mode(), os.O_RDWR, some_ctx)
+    (fi, inode2a) = await ctx.server.create(
+        inode2.st_ino, b'file2', file_mode(), os.O_RDWR, some_ctx
+    )
     fh = fi.fh
     await ctx.server.write(fh, 0, b'file2 contents')
     await ctx.server.release(fh)
@@ -1106,12 +1204,17 @@ async def test_remove_tree(ctx, monkeypatch):
     monkeypatch.setattr('pyfuse3.invalidate_entry', lambda *args: None)
     await ctx.server.remove_tree(ROOT_INODE, b'source')
 
-    for (id_p, name) in ((ROOT_INODE, b'source'),
-                         (inode1.st_ino, b'file1'),
-                         (inode1.st_ino, b'dir1'),
-                         (inode2.st_ino, b'file2')):
-        assert not ctx.db.has_val('SELECT inode FROM contents JOIN names ON names.id = name_id '
-                                  'WHERE name=? AND parent_inode = ?', (name, id_p))
+    for (id_p, name) in (
+        (ROOT_INODE, b'source'),
+        (inode1.st_ino, b'file1'),
+        (inode1.st_ino, b'dir1'),
+        (inode2.st_ino, b'file2'),
+    ):
+        assert not ctx.db.has_val(
+            'SELECT inode FROM contents JOIN names ON names.id = name_id '
+            'WHERE name=? AND parent_inode = ?',
+            (name, id_p),
+        )
 
     for id_ in (inode1.st_ino, inode1a.st_ino, inode2.st_ino, inode2a.st_ino):
         assert not ctx.db.has_val('SELECT id FROM inodes WHERE id=?', (id_,))

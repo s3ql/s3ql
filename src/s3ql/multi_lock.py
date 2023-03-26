@@ -14,9 +14,10 @@ try:
 except ModuleNotFoundError:
     from async_generator import asynccontextmanager
 
-__all__ = [ "MultiLock" ]
+__all__ = ["MultiLock"]
 
 log = logging.getLogger(__name__)
+
 
 class MultiLock:
     """Provides locking for multiple objects.

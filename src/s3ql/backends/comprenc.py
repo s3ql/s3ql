@@ -6,12 +6,11 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging  # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
+from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 import cryptography.hazmat.backends as crypto_backends
 import bz2
@@ -29,8 +28,10 @@ HMAC_SIZE = 32
 
 crypto_backend = crypto_backends.default_backend()
 
+
 def sha256(s):
     return hashlib.sha256(s).digest()
+
 
 def aes_encryptor(key):
     '''Return AES cipher in CTR mode for *key*'''
@@ -38,8 +39,10 @@ def aes_encryptor(key):
     cipher = crypto_ciphers.Cipher(
         crypto_ciphers.algorithms.AES(key),
         crypto_ciphers.modes.CTR(nonce=bytes(16)),
-        backend=crypto_backend)
+        backend=crypto_backend,
+    )
     return cipher.encryptor()
+
 
 def aes_decryptor(key):
     '''Return AES cipher in CTR mode for *key*'''
@@ -47,8 +50,10 @@ def aes_decryptor(key):
     cipher = crypto_ciphers.Cipher(
         crypto_ciphers.algorithms.AES(key),
         crypto_ciphers.modes.CTR(nonce=bytes(16)),
-        backend=crypto_backend)
+        backend=crypto_backend,
+    )
     return cipher.decryptor()
+
 
 class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
@@ -65,8 +70,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         self.compression = compression
         self.backend = backend
 
-        if (compression[0] not in ('bzip2', 'lzma', 'zlib', None)
-            or compression[1] not in range(10)):
+        if compression[0] not in ('bzip2', 'lzma', 'zlib', None) or compression[1] not in range(10):
             raise ValueError('Unsupported compression: %s' % compression)
 
     @property
@@ -121,7 +125,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise CorruptedObjectError('meta key %s is missing' % mkey)
 
         encr_alg = metadata['encryption']
-        encrypted = (encr_alg != 'None')
+        encrypted = encr_alg != 'None'
 
         if encrypted and self.passphrase is None:
             raise CorruptedObjectError('Encrypted object and no passphrase supplied')
@@ -150,8 +154,9 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             raise CorruptedObjectError('HMAC mismatch')
 
         if stored_key != key:
-            raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
-                                       % (stored_key, key))
+            raise CorruptedObjectError(
+                'Object content does not match its key (%s vs %s)' % (stored_key, key)
+            )
 
         decryptor = aes_decryptor(meta_key)
         buf = decryptor.update(meta_buf) + decryptor.finalize()
@@ -197,7 +202,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             elif compr_alg == 'LZMA':
                 fh = DecompressFilter(fh, lzma.LZMADecompressor())
             elif compr_alg == 'ZLIB':
-                fh = DecompressFilter(fh,zlib.decompressobj())
+                fh = DecompressFilter(fh, zlib.decompressobj())
             elif compr_alg != 'None':
                 raise RuntimeError('Unsupported compression: %s' % compr_alg)
 
@@ -277,8 +282,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     def update_meta(self, key, metadata):
         if not isinstance(metadata, dict):
             raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-        self._copy_or_rename(src=key, dest=key, rename=False,
-                             metadata=metadata)
+        self._copy_or_rename(src=key, dest=key, rename=False, metadata=metadata)
 
     @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None):
@@ -312,7 +316,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             meta_raw['data'] = freeze_basic_mapping(metadata)
 
-        if src == dest: # metadata update only
+        if src == dest:  # metadata update only
             self.backend.update_meta(src, meta_raw)
         elif rename:
             self.backend.rename(src, dest, metadata=meta_raw)
@@ -322,6 +326,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def close(self):
         self.backend.close()
+
 
 class CompressFilter(object):
     '''Compress data while writing'''
@@ -371,6 +376,7 @@ class CompressFilter(object):
             raise RuntimeError('Object must be closed first.')
         return self.obj_size
 
+
 class InputFilter(io.RawIOBase):
 
     # Overwrite default implementation to make sure that we're using a decent
@@ -391,7 +397,7 @@ class InputFilter(io.RawIOBase):
 
     def readinto(self, buf):
         var = self.read(len(buf))
-        buf[:len(var)] = var
+        buf[: len(var)] = var
         return var
 
     def read(self, size=-1):
@@ -409,6 +415,7 @@ class InputFilter(io.RawIOBase):
             buf = self.fh.read(BUFSIZE)
             if not buf:
                 break
+
 
 class DecompressFilter(InputFilter):
     '''Decompress data while reading'''
@@ -554,7 +561,7 @@ class DecryptFilter(InputFilter):
         super().__init__()
 
         self.fh = fh
-        self.remaining = 0 # Remaining length of current packet
+        self.remaining = 0  # Remaining length of current packet
         self.metadata = metadata
         self.hmac_checked = False
         self.decryptor = aes_decryptor(key)
@@ -607,7 +614,7 @@ class DecryptFilter(InputFilter):
             # but make sure not to stop in packet header (so that we don't
             # cache the partially read header from one invocation to the next).
             to_next = self.remaining + self.off_size
-            if (not inbuf or len(inbuf) < to_next):
+            if not inbuf or len(inbuf) < to_next:
                 if not inbuf:
                     buf = self._read_and_decrypt(size - len(outbuf))
                     if not buf:
@@ -620,9 +627,9 @@ class DecryptFilter(InputFilter):
 
             # Copy rest of current packet to output and start reading
             # from next packet
-            outbuf += inbuf[:self.remaining]
+            outbuf += inbuf[: self.remaining]
             self.hmac.update(inbuf[:to_next])
-            paket_size = struct.unpack(b'<I', inbuf[self.remaining:to_next])[0]
+            paket_size = struct.unpack(b'<I', inbuf[self.remaining : to_next])[0]
             inbuf = inbuf[to_next:]
             self.remaining = paket_size
 
@@ -631,7 +638,7 @@ class DecryptFilter(InputFilter):
                 while len(inbuf) < HMAC_SIZE:
                     # Don't read exactly the missing amount, we wan't to detect
                     # if there's extraneous data
-                    buf = self._read_and_decrypt(HMAC_SIZE+1)
+                    buf = self._read_and_decrypt(HMAC_SIZE + 1)
                     assert buf
                     inbuf += buf
 
@@ -659,6 +666,7 @@ class DecryptFilter(InputFilter):
         self.close()
         return False
 
+
 def decompress(decomp, buf):
     '''Decompress *buf* using *decomp*
 
@@ -673,14 +681,16 @@ def decompress(decomp, buf):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
     except lzma.LZMAError as exc:
-        if (exc.args[0].lower().startswith('corrupt input data')
-            or exc.args[0].startswith('Input format not supported')):
+        if exc.args[0].lower().startswith('corrupt input data') or exc.args[0].startswith(
+            'Input format not supported'
+        ):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
     except zlib.error as exc:
         if exc.args[0].lower().startswith('error -3 while decompressing'):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
+
 
 class ObjectNotEncrypted(Exception):
     '''

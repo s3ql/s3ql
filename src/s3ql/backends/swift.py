@@ -6,16 +6,27 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
+from ..logging import logging, QuietError, LOG_ONCE  # Ensure use of custom logger class
 from .. import BUFSIZE
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-                     DanglingStorageURLError, get_proxy, get_ssl_context)
+from .common import (
+    AbstractBackend,
+    NoSuchObject,
+    retry,
+    AuthorizationError,
+    DanglingStorageURLError,
+    get_proxy,
+    get_ssl_context,
+)
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
 from . import s3c
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
-from dugong import (HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict,
-                    ConnectionClosed)
+from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
+from dugong import (
+    HTTPConnection,
+    BodyFollowing,
+    is_temp_network_error,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+)
 from urllib.parse import urlsplit
 import json
 import shutil
@@ -30,6 +41,7 @@ log = logging.getLogger(__name__)
 #: Suffix to use when creating temporary objects
 TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
+
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to store data in OpenStack Swift
 
@@ -38,8 +50,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """
 
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'disable-expect100', 'no-feature-detection'}
+    known_options = {
+        'no-ssl',
+        'ssl-ca-path',
+        'tcp-timeout',
+        'disable-expect100',
+        'no-feature-detection',
+    }
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
@@ -82,7 +99,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Make sure that the container exists'''
 
         try:
-            self._do_request('GET', '/', query_string={'limit': 1 })
+            self._do_request('GET', '/', query_string={'limit': 1})
             self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
@@ -92,12 +109,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _parse_storage_url(self, storage_url, ssl_context):
         '''Init instance variables from storage url'''
 
-        hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
-                       r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port
-                       r'/([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       storage_url)
+        hit = re.match(
+            r'^[a-zA-Z0-9]+://'  # Backend
+            r'([^/:]+)'  # Hostname
+            r'(?::([0-9]+))?'  # Port
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            storage_url,
+        )
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 
@@ -117,7 +136,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.prefix = prefix
 
     @copy_ancestor_docstring
-    def is_temp_failure(self, exc): #IGNORE:W0613
+    def is_temp_failure(self, exc):  # IGNORE:W0613
         if isinstance(exc, AuthenticationExpired):
             return True
 
@@ -126,11 +145,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
         # modifications. We also retry on 429 (Too Many Requests).
-        elif (isinstance(exc, HTTPError) and
-              ((500 <= exc.status <= 599
-                and exc.status not in (501,505,508,510,511,523))
-               or exc.status in (408,429)
-               or 'client disconnected' in exc.msg.lower())):
+        elif isinstance(exc, HTTPError) and (
+            (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
+            or exc.status in (408, 429)
+            or 'client disconnected' in exc.msg.lower()
+        ):
             return True
 
         elif is_temp_network_error(exc):
@@ -139,9 +158,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Temporary workaround for
         # https://bitbucket.org/nikratio/s3ql/issues/87 and
         # https://bitbucket.org/nikratio/s3ql/issues/252
-        elif (isinstance(exc, ssl.SSLError) and
-              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
-               str(exc).startswith('[SSL: BAD_LENGTH]'))):
+        elif isinstance(exc, ssl.SSLError) and (
+            str(exc).startswith('[SSL: BAD_WRITE_RETRY]')
+            or str(exc).startswith('[SSL: BAD_LENGTH]')
+        ):
             return True
 
         return False
@@ -160,8 +180,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['X-Auth-User'] = self.login
         headers['X-Auth-Key'] = self.password
 
-        with HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                              ssl_context=ssl_context) as conn:
+        with HTTPConnection(
+            self.hostname, self.port, proxy=self.proxy, ssl_context=ssl_context
+        ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
@@ -181,7 +202,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     raise HTTPError(resp.status, resp.reason, resp.headers)
 
                 # Pylint can't infer SplitResult Types
-                #pylint: disable=E1103
+                # pylint: disable=E1103
                 self.auth_token = resp.headers['X-Auth-Token']
                 o = urlsplit(resp.headers['X-Storage-Url'])
                 self.auth_prefix = urllib.parse.unquote(o.path)
@@ -201,22 +222,21 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy,
-                                      ssl_context=ssl_context)
+                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
             raise RuntimeError('No valid authentication path found')
 
-    def _do_request(self, method, path, subres=None, query_string=None,
-                    headers=None, body=None):
+    def _do_request(self, method, path, subres=None, query_string=None, headers=None, body=None):
         '''Send request, read and return response object
 
         This method modifies the *headers* dictionary.
         '''
 
-        log.debug('started with %r, %r, %r, %r, %r, %r',
-                  method, path, subres, query_string, headers, body)
+        log.debug(
+            'started with %r, %r, %r, %r, %r, %r', method, path, subres, query_string, headers, body
+        )
 
         if headers is None:
             headers = CaseInsensitiveDict()
@@ -226,7 +246,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if self.conn is None:
             log.debug('no active connection, calling _get_conn()')
-            self.conn =  self._get_conn()
+            self.conn = self._get_conn()
 
         # Construct full path
         path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
@@ -278,8 +298,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return self.conn.read_response()
 
         body_len = os.fstat(body.fileno()).st_size
-        self.conn.send_request(method, path, expect100=use_expect_100c,
-                               headers=headers, body=BodyFollowing(body_len))
+        self.conn.send_request(
+            method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
+        )
 
         if use_expect_100c:
             log.debug('waiting for 100-continue')
@@ -296,14 +317,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # but we may still be able to read an error response
             try:
                 resp = self.conn.read_response()
-            except ConnectionClosed: # No server response available
+            except ConnectionClosed:  # No server response available
                 log.debug('no response available in  buffer')
                 pass
             else:
-                if resp.status >= 400: # error response
+                if resp.status >= 400:  # error response
                     return resp
-                log.warning('Server broke connection during upload, but signaled '
-                            '%d %s', resp.status, resp.reason)
+                log.warning(
+                    'Server broke connection during upload, but signaled ' '%d %s',
+                    resp.status,
+                    resp.reason,
+                )
 
             # Re-raise original error
             raise
@@ -366,7 +390,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except BadDigestError:
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
-            if resp.length is not None and resp.length < 64*1024:
+            if resp.length is not None and resp.length < 64 * 1024:
                 self.conn.discard()
             else:
                 self.conn.disconnect()
@@ -461,15 +485,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         """
 
         body = []
-        esc_prefix = "/%s/%s" % (urllib.parse.quote(self.container_name),
-                                 urllib.parse.quote(self.prefix))
+        esc_prefix = "/%s/%s" % (
+            urllib.parse.quote(self.container_name),
+            urllib.parse.quote(self.prefix),
+        )
         for key in keys:
             body.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
         body = '\n'.join(body).encode('utf-8')
-        headers = {
-            'content-type': 'text/plain; charset=utf-8',
-            'accept': 'application/json'
-        }
+        headers = {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
 
         resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
 
@@ -477,11 +500,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if resp.status != 200:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
-                       resp.headers['content-type'])
+        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type'])
         if not hit:
-            log.error('Unexpected server response. Expected json, got:\n%s',
-                      self._dump_response(resp))
+            log.error(
+                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+            )
             raise RuntimeError('Unexpected server reply')
 
         # there might be an arbitrary amount of whitespace before the
@@ -492,7 +515,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('Response %s', resp_dict)
 
         try:
-            resp_status_code, resp_status_text = _split_response_status(resp_dict['Response Status'])
+            resp_status_code, resp_status_text = _split_response_status(
+                resp_dict['Response Status']
+            )
         except ValueError:
             raise RuntimeError('Unexpected server reply')
 
@@ -574,11 +599,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if self.features.has_bulk_delete:
             while len(keys) > 0:
-                tmp = keys[:self.features.max_deletes]
+                tmp = keys[: self.features.max_deletes]
                 try:
                     self._delete_multi(tmp, force=force)
                 finally:
-                    keys[:self.features.max_deletes] = tmp
+                    keys[: self.features.max_deletes] = tmp
         else:
             super().delete_multi(keys, force=force)
 
@@ -685,8 +710,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
-        query_string = { 'prefix': prefix, 'limit': str(batch_size),
-                         'format': 'json' }
+        query_string = {'prefix': prefix, 'limit': str(batch_size), 'format': 'json'}
         if page_token:
             query_string['marker'] = page_token
 
@@ -700,11 +724,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if resp.status == 204:
             return
 
-        hit = re.match('application/json; charset="?(.+?)"?$',
-                       resp.headers['content-type'])
+        hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
         if not hit:
-            log.error('Unexpected server response. Expected json, got:\n%s',
-                      self._dump_response(resp))
+            log.error(
+                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+            )
             raise RuntimeError('Unexpected server reply')
 
         body = self.conn.readall()
@@ -723,7 +747,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             page_token = None
 
         return (names, page_token)
-
 
     @copy_ancestor_docstring
     def close(self):
@@ -745,8 +768,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         detected_features = Features()
 
-        with HTTPConnection(hostname, port, proxy=self.proxy,
-                            ssl_context=ssl_context) as conn:
+        with HTTPConnection(hostname, port, proxy=self.proxy, ssl_context=ssl_context) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             log.debug('GET /info')
@@ -757,16 +779,20 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # may not be accessible (misconfiguration) or may not
             # exist (old Swift version).
             if resp.status not in (200, 401, 403, 404):
-                log.error("Wrong server response.\n%s",
-                          self._dump_response(resp, body=conn.read(2048)))
+                log.error(
+                    "Wrong server response.\n%s", self._dump_response(resp, body=conn.read(2048))
+                )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             if resp.status == 200:
-                hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
-                resp.headers['content-type'])
+                hit = re.match(
+                    r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type']
+                )
                 if not hit:
-                    log.error("Wrong server response. Expected json. Got: \n%s",
-                              self._dump_response(resp, body=conn.read(2048)))
+                    log.error(
+                        "Wrong server response. Expected json. Got: \n%s",
+                        self._dump_response(resp, body=conn.read(2048)),
+                    )
                     raise RuntimeError('Unexpected server reply')
 
                 info = json.loads(conn.readall().decode(hit.group(2) or 'utf-8'))
@@ -775,8 +801,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 log.debug('%s:%s/info returns %s', hostname, port, info)
 
                 swift_version_string = swift_info.get('version', None)
-                if swift_version_string and \
-                    LooseVersion(swift_version_string) >= LooseVersion('2.8'):
+                if swift_version_string and LooseVersion(swift_version_string) >= LooseVersion(
+                    '2.8'
+                ):
                     detected_features.has_copy = True
 
                 # Default metadata value length constrain is 256 bytes
@@ -789,8 +816,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if info.get('bulk_delete', False):
                     detected_features.has_bulk_delete = True
                     bulk_delete = info['bulk_delete']
-                    assert bulk_delete.get('max_failed_deletes', 1000) <= \
-                           bulk_delete.get('max_deletes_per_request', 10000)
+                    assert bulk_delete.get('max_failed_deletes', 1000) <= bulk_delete.get(
+                        'max_deletes_per_request', 10000
+                    )
                     assert bulk_delete.get('max_failed_deletes', 1000) > 0
                     # The block cache removal queue has a capacity of 1000.
                     # We do not need bigger values than that.
@@ -800,15 +828,23 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # If we would set the value higher, _delete_multi() would maybe
                     # delete some entries from the *keys* list that did not get
                     # deleted and would miss them in a retry.
-                    detected_features.max_deletes = min(1000,
-                        int(bulk_delete.get('max_failed_deletes', 1000)))
+                    detected_features.max_deletes = min(
+                        1000, int(bulk_delete.get('max_failed_deletes', 1000))
+                    )
 
-
-                log.info('Detected Swift features for %s:%s: %s',
-                         hostname, port, detected_features, extra=LOG_ONCE)
+                log.info(
+                    'Detected Swift features for %s:%s: %s',
+                    hostname,
+                    port,
+                    detected_features,
+                    extra=LOG_ONCE,
+                )
             else:
-                log.debug('%s:%s/info not found or not accessible. Skip feature detection.',
-                          hostname, port)
+                log.debug(
+                    '%s:%s/info not found or not accessible. Skip feature detection.',
+                    hostname,
+                    port,
+                )
 
         self.features = detected_features
 
@@ -821,6 +857,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.conn = None
         raise AuthenticationExpired(reason)
 
+
 def _split_response_status(line):
     '''Splits a HTTP response line into status code (integer)
     and status text.
@@ -830,10 +867,10 @@ def _split_response_status(line):
     Raises ValueError when line is not parsable'''
     hit = re.match('^([0-9]{3})\s+(.*)$', line)
     if not hit:
-        log.error('Expected valid Response Status, got: %s',
-                  line)
+        log.error('Expected valid Response Status, got: %s', line)
         raise ValueError('Expected valid Response Status, got: %s' % line)
     return (int(hit.group(1)), hit.group(2))
+
 
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
@@ -844,6 +881,7 @@ class AuthenticationExpired(Exception):
 
     def __str__(self):
         return 'Auth token expired. Server said: %s' % self.msg
+
 
 class Features:
     """Set of configurable features for Swift servers.
@@ -856,8 +894,7 @@ class Features:
 
     __slots__ = ['has_copy', 'has_bulk_delete', 'max_deletes', 'max_meta_len']
 
-    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000,
-                 max_meta_len=255):
+    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000, max_meta_len=255):
         self.has_copy = has_copy
         self.has_bulk_delete = has_bulk_delete
         self.max_deletes = max_deletes

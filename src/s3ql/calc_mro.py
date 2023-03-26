@@ -9,6 +9,7 @@ The original source code was retrieved from
 http://code.activestate.com/recipes/577748-calculate-the-mro-of-a-class/
 '''
 
+
 def calc_mro(*bases):
     """Calculate the Method Resolution Order of bases using the C3 algorithm.
 
@@ -22,36 +23,44 @@ def calc_mro(*bases):
     seqs = [list(C.__mro__) for C in bases] + [list(bases)]
     res = []
     while True:
-      non_empty = list(filter(None, seqs))
-      if not non_empty:
-          # Nothing left to process, we're done.
-          return tuple(res)
-      for seq in non_empty:  # Find merge candidates among seq heads.
-          candidate = seq[0]
-          not_head = [s for s in non_empty if candidate in s[1:]]
-          if not_head:
-              # Reject the candidate.
-              candidate = None
-          else:
-              break
-      if not candidate:
-          raise TypeError("inconsistent hierarchy, no C3 MRO is possible")
-      res.append(candidate)
-      for seq in non_empty:
-          # Remove candidate.
-          if seq[0] == candidate:
-              del seq[0]
-
+        non_empty = list(filter(None, seqs))
+        if not non_empty:
+            # Nothing left to process, we're done.
+            return tuple(res)
+        for seq in non_empty:  # Find merge candidates among seq heads.
+            candidate = seq[0]
+            not_head = [s for s in non_empty if candidate in s[1:]]
+            if not_head:
+                # Reject the candidate.
+                candidate = None
+            else:
+                break
+        if not candidate:
+            raise TypeError("inconsistent hierarchy, no C3 MRO is possible")
+        res.append(candidate)
+        for seq in non_empty:
+            # Remove candidate.
+            if seq[0] == candidate:
+                del seq[0]
 
 
 if __name__ == '__main__':
     # Run self-tests. Prints nothing if they succeed.
     O = object
+
     class SeriousOrderDisagreement:
-        class X(O): pass
-        class Y(O): pass
-        class A(X, Y): pass
-        class B(Y, X): pass
+        class X(O):
+            pass
+
+        class Y(O):
+            pass
+
+        class A(X, Y):
+            pass
+
+        class B(Y, X):
+            pass
+
         bases = (A, B)
 
     try:
@@ -62,43 +71,92 @@ if __name__ == '__main__':
         print("failed test, mro should have raised but got %s instead" % (x,))
 
     class Example0:  # Trivial single inheritance case.
-        class A(O): pass
-        class B(A): pass
-        class C(B): pass
-        class D(C): pass
+        class A(O):
+            pass
+
+        class B(A):
+            pass
+
+        class C(B):
+            pass
+
+        class D(C):
+            pass
+
         tester = D
         expected = (D, C, B, A, O)
 
     class Example1:
-        class F(O): pass
-        class E(O): pass
-        class D(O): pass
-        class C(D, F): pass
-        class B(D, E): pass
-        class A(B, C): pass
+        class F(O):
+            pass
+
+        class E(O):
+            pass
+
+        class D(O):
+            pass
+
+        class C(D, F):
+            pass
+
+        class B(D, E):
+            pass
+
+        class A(B, C):
+            pass
+
         tester = A
         expected = (A, B, C, D, E, F, O)
 
     class Example2:
-        class F(O): pass
-        class E(O): pass
-        class D(O): pass
-        class C(D, F): pass
-        class B(E, D): pass
-        class A(B, C): pass
+        class F(O):
+            pass
+
+        class E(O):
+            pass
+
+        class D(O):
+            pass
+
+        class C(D, F):
+            pass
+
+        class B(E, D):
+            pass
+
+        class A(B, C):
+            pass
+
         tester = A
         expected = (A, B, E, C, D, F, O)
 
     class Example3:
-        class A(O): pass
-        class B(O): pass
-        class C(O): pass
-        class D(O): pass
-        class E(O): pass
-        class K1(A, B, C): pass
-        class K2(D, B, E): pass
-        class K3(D, A): pass
-        class Z(K1, K2, K3): pass
+        class A(O):
+            pass
+
+        class B(O):
+            pass
+
+        class C(O):
+            pass
+
+        class D(O):
+            pass
+
+        class E(O):
+            pass
+
+        class K1(A, B, C):
+            pass
+
+        class K2(D, B, E):
+            pass
+
+        class K3(D, A):
+            pass
+
+        class Z(K1, K2, K3):
+            pass
 
         assert calc_mro(A) == (A, O)
         assert calc_mro(B) == (B, O)

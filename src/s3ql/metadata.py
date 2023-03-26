@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging # Ensure use of custom logger class
+from .logging import logging  # Ensure use of custom logger class
 from .database import Connection
 from . import BUFSIZE
 from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
@@ -24,21 +24,24 @@ def create_tables(conn):
     # phys_size is the number of bytes stored in the backend (i.e., after compression).
     # length is the logical size in the filesystem.
     # phys_size == -1 indicates block has not been uploaded yet
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE objects (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         hash        BLOB(32) UNIQUE,
         refcount    INT NOT NULL,
         phys_size   INT NOT NULL,
         length      INT NOT NULL
-    )""")
+    )"""
+    )
 
     # Table with filesystem metadata
     # The number of links `refcount` to an inode can in theory
     # be determined from the `contents` table. However, managing
     # this separately should be significantly faster (the information
     # is required for every getattr!)
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE inodes (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid.
@@ -53,36 +56,44 @@ def create_tables(conn):
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
         locked    BOOLEAN NOT NULL DEFAULT 0
-    )""")
+    )"""
+    )
 
     # Further Blocks used by inode (blockno >= 1)
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE inode_blocks (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         blockno   INT NOT NULL,
         obj_id    INTEGER NOT NULL REFERENCES objects(id),
         PRIMARY KEY (inode, blockno)
-    )""")
+    )"""
+    )
 
     # Symlinks
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE symlink_targets (
         inode     INTEGER PRIMARY KEY REFERENCES inodes(id),
         target    BLOB NOT NULL
-    )""")
+    )"""
+    )
 
     # Names of file system objects
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE names (
         id     INTEGER PRIMARY KEY,
         name   BLOB NOT NULL,
         refcount  INT NOT NULL,
         UNIQUE (name)
-    )""")
+    )"""
+    )
 
     # Table of filesystem objects
     # rowid is used by readdir() to restart at the correct position
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE contents (
         rowid     INTEGER PRIMARY KEY AUTOINCREMENT,
         name_id   INT NOT NULL REFERENCES names(id),
@@ -90,27 +101,34 @@ def create_tables(conn):
         parent_inode INT NOT NULL REFERENCES inodes(id),
 
         UNIQUE (parent_inode, name_id)
-    )""")
+    )"""
+    )
 
     # Extended attributes
-    conn.execute("""
+    conn.execute(
+        """
     CREATE TABLE ext_attributes (
         inode     INTEGER NOT NULL REFERENCES inodes(id),
         name_id   INTEGER NOT NULL REFERENCES names(id),
         value     BLOB NOT NULL,
 
         PRIMARY KEY (inode, name_id)
-    )""")
+    )"""
+    )
 
     # Shortcuts
-    conn.execute("""
+    conn.execute(
+        """
     CREATE VIEW contents_v AS
     SELECT * FROM contents JOIN names ON names.id = name_id
-    """)
-    conn.execute("""
+    """
+    )
+    conn.execute(
+        """
     CREATE VIEW ext_attributes_v AS
     SELECT * FROM ext_attributes JOIN names ON names.id = name_id
-    """)
+    """
+    )
 
 
 class DatabaseChecksumError(RuntimeError):
@@ -126,8 +144,7 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
-def download_metadata(backend: AbstractBackend, db_file: str,
-                      params: dict, failsafe=False):
+def download_metadata(backend: AbstractBackend, db_file: str, params: dict, failsafe=False):
     '''Download metadata from backend into *db_file*
 
     If *failsafe* is True, do not truncate file and do not verify
@@ -218,7 +235,7 @@ def store_and_upload_params(backend, cachepath: str, params: dict):
     backend['s3ql_params'] = buf
 
     filename = cachepath + '.params'
-    tmpname  = filename + '.tmp'
+    tmpname = filename + '.tmp'
     with open(tmpname, 'wb') as fh:
         fh.write(buf)
         # Fsync to make sure that the updated sequence number is committed to

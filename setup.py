@@ -11,8 +11,10 @@ This work can be distributed under the terms of the GNU GPLv3.
 try:
     import setuptools
 except ModuleNotFoundError:
-    raise SystemExit('Setuptools package not found. Please install from '
-                     'https://pypi.python.org/pypi/setuptools')
+    raise SystemExit(
+        'Setuptools package not found. Please install from '
+        'https://pypi.python.org/pypi/setuptools'
+    )
 from setuptools import Extension
 from setuptools.command.test import test as TestCommand
 
@@ -23,6 +25,7 @@ import re
 import sys
 from glob import glob
 import faulthandler
+
 faulthandler.enable()
 
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -37,7 +40,6 @@ import s3ql
 
 
 class pytest(TestCommand):
-
     def run_tests(self):
         # import here, cause outside the eggs aren't loaded
         import pytest
@@ -70,72 +72,93 @@ def main():
 
         compile_args.append('-Wno-unused-function')
 
-    required_pkgs = ['apsw >= 3.7.0',
-                     'cryptography',
-                     'requests',
-                     'defusedxml',
-                     'dugong >= 3.4, < 4.0',
-                     'google-auth',
-                     'google-auth-oauthlib',
-
-                     # Need trio.lowlevel
-                     'trio >= 0.15',
-                     'pyfuse3 >= 3.2.0, < 4.0' ]
+    required_pkgs = [
+        'apsw >= 3.7.0',
+        'cryptography',
+        'requests',
+        'defusedxml',
+        'dugong >= 3.4, < 4.0',
+        'google-auth',
+        'google-auth-oauthlib',
+        # Need trio.lowlevel
+        'trio >= 0.15',
+        'pyfuse3 >= 3.2.0, < 4.0',
+    ]
     if sys.version_info < (3, 7, 0):
         required_pkgs.append('async_generator')
 
     setuptools.setup(
-          name='s3ql',
-          zip_safe=False,
-          version=s3ql.VERSION,
-          description='a full-featured file system for online data storage',
-          long_description=long_desc,
-          author='Nikolaus Rath',
-          author_email='Nikolaus@rath.org',
-          url='https://bitbucket.org/nikratio/s3ql/',
-          download_url='https://bitbucket.org/nikratio/s3ql/downloads',
-          license='GPLv3',
-          classifiers=['Development Status :: 5 - Production/Stable',
-                       'Environment :: No Input/Output (Daemon)',
-                       'Environment :: Console',
-                       'License :: OSI Approved :: GNU Library or Lesser General Public License (GPLv3)',
-                       'Topic :: Internet',
-                       'Operating System :: POSIX',
-                       'Topic :: System :: Archiving'],
-          platforms=[ 'POSIX', 'UNIX', 'Linux' ],
-          keywords=['FUSE', 'backup', 'archival', 'compression', 'encryption',
-                    'deduplication', 'aws', 's3' ],
-          package_dir={'': 'src'},
-          packages=setuptools.find_packages('src'),
-          provides=['s3ql'],
-          ext_modules=[Extension('s3ql.deltadump', ['src/s3ql/deltadump.c'],
-                                 extra_compile_args=compile_args,
-                                 extra_link_args=[ '-lsqlite3'])],
-          data_files=[ ('share/man/man1',
-                          [ os.path.join('doc/manpages/', x) for x
-                            in glob(os.path.join(basedir, 'doc', 'manpages', '*.1')) ]) ],
-          entry_points={ 'console_scripts':
-                        [
-                         'mkfs.s3ql = s3ql.mkfs:main',
-                         'fsck.s3ql = s3ql.fsck:main',
-                         'mount.s3ql = s3ql.mount:main',
-                         'umount.s3ql = s3ql.umount:main',
-                         's3qlcp = s3ql.cp:main',
-                         's3qlstat = s3ql.statfs:main',
-                         's3qladm = s3ql.adm:main',
-                         's3qlctrl = s3ql.ctrl:main',
-                         's3qllock = s3ql.lock:main',
-                         's3qlrm = s3ql.remove:main',
-                         's3ql_oauth_client = s3ql.oauth_client:main',
-                         's3ql_verify = s3ql.verify:main',
-                         ]
-                          },
-          install_requires=required_pkgs,
-          tests_require=['pytest >= 3.7'],
-          cmdclass={'upload_docs': upload_docs,
-                    'build_cython': build_cython,
-                    'pytest': pytest },
-         )
+        name='s3ql',
+        zip_safe=False,
+        version=s3ql.VERSION,
+        description='a full-featured file system for online data storage',
+        long_description=long_desc,
+        author='Nikolaus Rath',
+        author_email='Nikolaus@rath.org',
+        url='https://bitbucket.org/nikratio/s3ql/',
+        download_url='https://bitbucket.org/nikratio/s3ql/downloads',
+        license='GPLv3',
+        classifiers=[
+            'Development Status :: 5 - Production/Stable',
+            'Environment :: No Input/Output (Daemon)',
+            'Environment :: Console',
+            'License :: OSI Approved :: GNU Library or Lesser General Public License (GPLv3)',
+            'Topic :: Internet',
+            'Operating System :: POSIX',
+            'Topic :: System :: Archiving',
+        ],
+        platforms=['POSIX', 'UNIX', 'Linux'],
+        keywords=[
+            'FUSE',
+            'backup',
+            'archival',
+            'compression',
+            'encryption',
+            'deduplication',
+            'aws',
+            's3',
+        ],
+        package_dir={'': 'src'},
+        packages=setuptools.find_packages('src'),
+        provides=['s3ql'],
+        ext_modules=[
+            Extension(
+                's3ql.deltadump',
+                ['src/s3ql/deltadump.c'],
+                extra_compile_args=compile_args,
+                extra_link_args=['-lsqlite3'],
+            )
+        ],
+        data_files=[
+            (
+                'share/man/man1',
+                [
+                    os.path.join('doc/manpages/', x)
+                    for x in glob(os.path.join(basedir, 'doc', 'manpages', '*.1'))
+                ],
+            )
+        ],
+        entry_points={
+            'console_scripts': [
+                'mkfs.s3ql = s3ql.mkfs:main',
+                'fsck.s3ql = s3ql.fsck:main',
+                'mount.s3ql = s3ql.mount:main',
+                'umount.s3ql = s3ql.umount:main',
+                's3qlcp = s3ql.cp:main',
+                's3qlstat = s3ql.statfs:main',
+                's3qladm = s3ql.adm:main',
+                's3qlctrl = s3ql.ctrl:main',
+                's3qllock = s3ql.lock:main',
+                's3qlrm = s3ql.remove:main',
+                's3ql_oauth_client = s3ql.oauth_client:main',
+                's3ql_verify = s3ql.verify:main',
+            ]
+        },
+        install_requires=required_pkgs,
+        tests_require=['pytest >= 3.7'],
+        cmdclass={'upload_docs': upload_docs, 'build_cython': build_cython, 'pytest': pytest},
+    )
+
 
 class build_cython(setuptools.Command):
     user_options = []
@@ -147,15 +170,16 @@ class build_cython(setuptools.Command):
 
     def finalize_options(self):
         # Attribute defined outside init
-        #pylint: disable=W0201
+        # pylint: disable=W0201
         self.extensions = self.distribution.ext_modules
 
     def run(self):
         cython = None
         for c in ('cython3', 'cython'):
             try:
-                version = subprocess.check_output([c, '--version'],
-                                              universal_newlines=True, stderr=subprocess.STDOUT)
+                version = subprocess.check_output(
+                    [c, '--version'], universal_newlines=True, stderr=subprocess.STDOUT
+                )
                 cython = c
             except FileNotFoundError:
                 pass
@@ -166,13 +190,12 @@ class build_cython(setuptools.Command):
         if not hit or LooseVersion(hit.group(1)) < "0.17":
             raise SystemExit('Need Cython 0.17 or newer, found ' + version)
 
-        cmd = [cython, '-Wextra', '-f', '-3',
-               '-X', 'embedsignature=True' ]
+        cmd = [cython, '-Wextra', '-f', '-3', '-X', 'embedsignature=True']
         if DEVELOPER_MODE:
             cmd.append('-Werror')
 
         # Work around http://trac.cython.org/cython_trac/ticket/714
-        cmd += ['-X', 'warn.maybe_uninitialized=False' ]
+        cmd += ['-X', 'warn.maybe_uninitialized=False']
 
         for extension in self.extensions:
             for file_ in extension.sources:
@@ -184,6 +207,7 @@ class build_cython(setuptools.Command):
                     print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
                     if subprocess.call(cmd + [path + '.pyx']) != 0:
                         raise SystemExit('Cython compilation failed')
+
 
 class upload_docs(setuptools.Command):
     user_options = []
@@ -197,16 +221,32 @@ class upload_docs(setuptools.Command):
         pass
 
     def run(self):
-        subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'html') + '/',
-                               'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
-        subprocess.check_call(['rsync', '-aHv', '--del', os.path.join(basedir, 'doc', 'manual.pdf'),
-                               'ebox.rath.org:/srv/www.rath.org/s3ql-docs/'])
+        subprocess.check_call(
+            [
+                'rsync',
+                '-aHv',
+                '--del',
+                os.path.join(basedir, 'doc', 'html') + '/',
+                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/',
+            ]
+        )
+        subprocess.check_call(
+            [
+                'rsync',
+                '-aHv',
+                '--del',
+                os.path.join(basedir, 'doc', 'manual.pdf'),
+                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/',
+            ]
+        )
+
 
 def fix_docutils():
     '''Work around https://bitbucket.org/birkenfeld/sphinx/issue/1154/'''
 
     import docutils.parsers
     from docutils.parsers import rst
+
     old_getclass = docutils.parsers.get_parser_class
 
     # Check if bug is there
@@ -223,6 +263,7 @@ def fix_docutils():
             return rst.Parser
         else:
             return old_getclass(parser_name)
+
     docutils.parsers.get_parser_class = get_parser_class
 
     assert docutils.parsers.get_parser_class('rst') is rst.Parser

@@ -12,7 +12,7 @@ from .backends.comprenc import ComprencBackend
 from .deltadump import INTEGER, BLOB
 from .database import Connection
 from base64 import b64decode
-from .common import (is_mounted, get_backend, handle_on_return, AsyncFn)
+from .common import is_mounted, get_backend, handle_on_return, AsyncFn
 from . import metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
@@ -28,33 +28,41 @@ import time
 
 log = logging.getLogger(__name__)
 
+
 def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
         description="Manage S3QL File Systems.",
-        epilog=textwrap.dedent('''\
+        epilog=textwrap.dedent(
+            '''\
                Hint: run `%(prog)s <action> --help` to get help on the additional
-               arguments that the different actions take.'''))
+               arguments that the different actions take.'''
+        ),
+    )
 
-    pparser = ArgumentParser(add_help=False, epilog=textwrap.dedent('''\
+    pparser = ArgumentParser(
+        add_help=False,
+        epilog=textwrap.dedent(
+            '''\
                Hint: run `%(prog)s --help` to get help on other available actions and
-               optional arguments that can be used with all actions.'''))
+               optional arguments that can be used with all actions.'''
+        ),
+    )
 
-    subparsers = parser.add_subparsers(metavar='<action>', dest='action',
-                                       help='may be either of')
-    subparsers.add_parser("passphrase", help="change file system passphrase",
-                          parents=[pparser])
-    sparser = subparsers.add_parser("clear", help="delete file system and all data",
-                                    parents=[pparser])
-    sparser.add_argument("--threads", type=int, default=20,
-                        help='Number of threads to use')
-    subparsers.add_parser("recover-key", help="Recover master key from offline copy.",
-                          parents=[pparser])
-    sparser = subparsers.add_parser("upgrade", help="upgrade file system to newest revision",
-                          parents=[pparser])
-    sparser.add_argument("--threads", type=int, default=20,
-                        help='Number of threads to use')
+    subparsers = parser.add_subparsers(metavar='<action>', dest='action', help='may be either of')
+    subparsers.add_parser("passphrase", help="change file system passphrase", parents=[pparser])
+    sparser = subparsers.add_parser(
+        "clear", help="delete file system and all data", parents=[pparser]
+    )
+    sparser.add_argument("--threads", type=int, default=20, help='Number of threads to use')
+    subparsers.add_parser(
+        "recover-key", help="Recover master key from offline copy.", parents=[pparser]
+    )
+    sparser = subparsers.add_parser(
+        "upgrade", help="upgrade file system to newest revision", parents=[pparser]
+    )
+    sparser.add_argument("--threads", type=int, default=20, help='Number of threads to use')
 
     parser.add_storage_url()
     parser.add_debug()
@@ -67,6 +75,7 @@ def parse_args(args):
     options = parser.parse_args(args)
 
     return options
+
 
 def main(args=None):
     '''Change or show S3QL file system parameters'''
@@ -104,11 +113,15 @@ def change_passphrase(backend):
 
     data_pw = backend.passphrase
 
-    print(textwrap.dedent('''\
+    print(
+        textwrap.dedent(
+            '''\
        NOTE: If your password has been compromised already, then changing
        it WILL NOT PROTECT YOUR DATA, because an attacker may have already
        retrieved the master key.
-       '''))
+       '''
+        )
+    )
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
         if not wrap_pw == getpass("Confirm new encryption password: "):
@@ -124,6 +137,7 @@ def change_passphrase(backend):
     backend['s3ql_passphrase_bak3'] = data_pw
     backend.passphrase = data_pw
 
+
 def recover(backend, options):
     print("Enter master key (should be 11 blocks of 4 characters each): ")
     data_pw = sys.stdin.readline()
@@ -134,8 +148,7 @@ def recover(backend, options):
         raise QuietError("Malformed master key. Expected valid base64.")
 
     if len(data_pw) != 32:
-        raise QuietError("Malformed master key. Expected length 32, got %d."
-                         % len(data_pw))
+        raise QuietError("Malformed master key. Expected length 32, got %d." % len(data_pw))
 
     if sys.stdin.isatty():
         wrap_pw = getpass("Enter new encryption password: ")
@@ -151,17 +164,23 @@ def recover(backend, options):
     backend['s3ql_passphrase_bak2'] = data_pw
     backend['s3ql_passphrase_bak3'] = data_pw
 
+
 @handle_on_return
 def clear(options, on_return):
     backend_factory = lambda: options.backend_class(options)
     backend = on_return.enter_context(backend_factory())
 
-    print('I am about to DELETE ALL DATA in %s.' % backend,
-          'This includes not just S3QL file systems but *all* stored objects.',
-          'Depending on the storage service, it may be neccessary to run this command',
-          'several times to delete all data, and it may take a while until the ',
-          'removal becomes effective.',
-          'Please enter "yes" to continue.', '> ', sep='\n', end='')
+    print(
+        'I am about to DELETE ALL DATA in %s.' % backend,
+        'This includes not just S3QL file systems but *all* stored objects.',
+        'Depending on the storage service, it may be neccessary to run this command',
+        'several times to delete all data, and it may take a while until the ',
+        'removal becomes effective.',
+        'Please enter "yes" to continue.',
+        '> ',
+        sep='\n',
+        end='',
+    )
     sys.stdout.flush()
 
     if sys.stdin.readline().strip().lower() != 'yes':
@@ -233,7 +252,8 @@ def clear(options, on_return):
 
 
 def get_old_rev_msg(rev, prog):
-    return textwrap.dedent('''\
+    return textwrap.dedent(
+        '''\
         The last S3QL version that supported this file system revision
         was %(version)s. To run this version's %(prog)s, proceed along
         the following steps:
@@ -241,8 +261,9 @@ def get_old_rev_msg(rev, prog):
           $ # retrieve and unpack required release
           $ (cd s3ql-%(version)s; ./setup.py build_ext --inplace)
           $ s3ql-%(version)s/bin/%(prog)s <options>
-        ''' % { 'version': REV_VER_MAP[rev],
-                'prog': prog })
+        '''
+        % {'version': REV_VER_MAP[rev], 'prog': prog}
+    )
 
 
 @handle_on_return

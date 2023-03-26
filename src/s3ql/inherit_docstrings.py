@@ -16,8 +16,12 @@ from functools import partial
 from abc import ABCMeta
 from .calc_mro import calc_mro
 
-__all__ = [ 'copy_ancestor_docstring', 'prepend_ancestor_docstring',
-            'InheritableDocstrings', 'ABCDocstMeta' ]
+__all__ = [
+    'copy_ancestor_docstring',
+    'prepend_ancestor_docstring',
+    'InheritableDocstrings',
+    'ABCDocstMeta',
+]
 
 # This definition is only used to assist static code analyzers
 def copy_ancestor_docstring(fn):
@@ -26,8 +30,10 @@ def copy_ancestor_docstring(fn):
     For this decorator to work, the class has to use the `InheritableDocstrings`
     metaclass.
     '''
-    raise RuntimeError('Decorator can only be used in classes '
-                       'using the `InheritableDocstrings` metaclass')
+    raise RuntimeError(
+        'Decorator can only be used in classes ' 'using the `InheritableDocstrings` metaclass'
+    )
+
 
 def _copy_ancestor_docstring(mro, fn):
     '''Decorator to set docstring for *fn* from *mro*'''
@@ -43,10 +49,12 @@ def _copy_ancestor_docstring(mro, fn):
         fn.__doc__ = super_fn.__doc__
         break
     else:
-        raise RuntimeError("Can't inherit docstring for %s: method does not "
-                           "exist in superclass" % fn.__name__)
+        raise RuntimeError(
+            "Can't inherit docstring for %s: method does not " "exist in superclass" % fn.__name__
+        )
 
     return fn
+
 
 # This definition is only used to assist static code analyzers
 def prepend_ancestor_docstring(fn):
@@ -55,8 +63,10 @@ def prepend_ancestor_docstring(fn):
     For this decorator to work, the class has to use the `InheritableDocstrings`
     metaclass.
     '''
-    raise RuntimeError('Decorator can only be used in classes '
-                       'using the `InheritableDocstrings` metaclass')
+    raise RuntimeError(
+        'Decorator can only be used in classes ' 'using the `InheritableDocstrings` metaclass'
+    )
+
 
 def _prepend_ancestor_docstring(mro, fn):
     '''Decorator to prepend ancestor docstring to *fn*'''
@@ -75,16 +85,21 @@ def _prepend_ancestor_docstring(mro, fn):
             fn.__doc__ = '%s\n%s' % (super_fn.__doc__, fn.__doc__)
         break
     else:
-        raise RuntimeError("Can't find ancestor docstring for %s: method does not "
-                           "exist in superclass" % fn.__name__)
+        raise RuntimeError(
+            "Can't find ancestor docstring for %s: method does not "
+            "exist in superclass" % fn.__name__
+        )
 
     return fn
 
-DECORATORS = (('copy_ancestor_docstring', _copy_ancestor_docstring),
-              ('prepend_ancestor_docstring', _prepend_ancestor_docstring))
+
+DECORATORS = (
+    ('copy_ancestor_docstring', _copy_ancestor_docstring),
+    ('prepend_ancestor_docstring', _prepend_ancestor_docstring),
+)
+
 
 class InheritableDocstrings(type):
-
     @classmethod
     def __prepare__(cls, name, bases, **kwds):
         classdict = super().__prepare__(name, bases, *kwds)
@@ -106,14 +121,16 @@ class InheritableDocstrings(type):
 
             # Make sure that class definition hasn't messed with decorator
             if getattr(classdict[dec_name], 'func', None) is not fn:
-                raise RuntimeError('No %s attribute may be created in classes using '
-                                   'the InheritableDocstrings metaclass' % name)
-
+                raise RuntimeError(
+                    'No %s attribute may be created in classes using '
+                    'the InheritableDocstrings metaclass' % name
+                )
 
             # Delete decorator from class namespace
             del classdict[dec_name]
 
         return super().__new__(cls, name, bases, classdict)
+
 
 # Derive new metaclass to add docstring inheritance
 class ABCDocstMeta(ABCMeta, InheritableDocstrings):

@@ -16,23 +16,31 @@ import textwrap
 
 log = logging.getLogger(__name__)
 
+
 def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description=textwrap.dedent('''\
+        description=textwrap.dedent(
+            '''\
         Recursively delete files and directories in an S3QL file system,
         including immutable entries.
-        '''))
+        '''
+        )
+    )
 
     parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
 
-    parser.add_argument('path', metavar='<path>', nargs='+',
-                        help='Directories to remove',
-                         type=(lambda x: x.rstrip('/')))
+    parser.add_argument(
+        'path',
+        metavar='<path>',
+        nargs='+',
+        help='Directories to remove',
+        type=(lambda x: x.rstrip('/')),
+    )
 
     return parser.parse_args(args)
 
@@ -56,9 +64,9 @@ def main(args=None):
         # Make sure that write cache is flushed
         pyfuse3.syncfs(name)
 
-        cmd = ('(%d, %r)' % (fstat_p.st_ino,
-                             path2bytes(os.path.basename(name)))).encode()
+        cmd = ('(%d, %r)' % (fstat_p.st_ino, path2bytes(os.path.basename(name)))).encode()
         pyfuse3.setxattr(ctrlfile, 'rmtree', cmd)
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

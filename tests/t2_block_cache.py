@@ -10,6 +10,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 if __name__ == '__main__':
     import pytest
     import sys
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from argparse import Namespace
@@ -67,60 +68,82 @@ class DummyQueue:
     def qsize(self):
         return 0
 
+
 def random_data(len_):
     with open("/dev/urandom", "rb") as fh:
         return fh.read(len_)
 
+
 @pytest.yield_fixture
 async def ctx():
-        ctx = Namespace()
-        ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        ctx.backend_pool = BackendPool(lambda: local.Backend(
-            Namespace(storage_url='local://' + ctx.backend_dir)))
+    ctx = Namespace()
+    ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+    ctx.backend_pool = BackendPool(
+        lambda: local.Backend(Namespace(storage_url='local://' + ctx.backend_dir))
+    )
 
-        ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        ctx.max_obj_size = 1024
+    ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
+    ctx.max_obj_size = 1024
 
-        # Destructors are not guaranteed to run, and we can't unlink
-        # the file immediately because apsw refers to it by name.
-        # Therefore, we unlink the file manually in tearDown()
-        ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)
+    # Destructors are not guaranteed to run, and we can't unlink
+    # the file immediately because apsw refers to it by name.
+    # Therefore, we unlink the file manually in tearDown()
+    ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)
 
-        ctx.db = Connection(ctx.dbfile.name)
-        create_tables(ctx.db)
-        init_tables(ctx.db)
+    ctx.db = Connection(ctx.dbfile.name)
+    create_tables(ctx.db)
+    init_tables(ctx.db)
 
-        # Create an inode we can work with
-        ctx.inode = 42
-        now_ns = time_ns()
-        ctx.db.execute("INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
-                        "VALUES (?,?,?,?,?,?,?,?,?)",
-                        (ctx.inode, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR
-                         | stat.S_IRGRP | stat.S_IXGRP | stat.S_IROTH | stat.S_IXOTH,
-                         os.getuid(), os.getgid(), now_ns, now_ns, now_ns, 1, 32))
+    # Create an inode we can work with
+    ctx.inode = 42
+    now_ns = time_ns()
+    ctx.db.execute(
+        "INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        (
+            ctx.inode,
+            stat.S_IFREG
+            | stat.S_IRUSR
+            | stat.S_IWUSR
+            | stat.S_IXUSR
+            | stat.S_IRGRP
+            | stat.S_IXGRP
+            | stat.S_IROTH
+            | stat.S_IXOTH,
+            os.getuid(),
+            os.getgid(),
+            now_ns,
+            now_ns,
+            now_ns,
+            1,
+            32,
+        ),
+    )
 
-        cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache",
-                           ctx.max_obj_size * 100)
-        cache.trio_token = trio.lowlevel.current_trio_token()
-        ctx.cache = cache
+    cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache", ctx.max_obj_size * 100)
+    cache.trio_token = trio.lowlevel.current_trio_token()
+    ctx.cache = cache
 
-        # Monkeypatch around the need for removal and upload threads
-        cache.to_remove = DummyQueue(cache)
-        class DummyChannel:
-            async def send(self, arg):
-                await trio.to_thread.run_sync(cache._do_upload, *arg)
-        cache.to_upload = (DummyChannel(), None)
+    # Monkeypatch around the need for removal and upload threads
+    cache.to_remove = DummyQueue(cache)
 
-        try:
-            yield ctx
-        finally:
-            ctx.cache.backend_pool = ctx.backend_pool
-            if ctx.cache.destroy is not None:
-                await ctx.cache.destroy()
-            shutil.rmtree(ctx.cachedir)
-            shutil.rmtree(ctx.backend_dir)
-            ctx.dbfile.close()
-            os.unlink(ctx.dbfile.name)
+    class DummyChannel:
+        async def send(self, arg):
+            await trio.to_thread.run_sync(cache._do_upload, *arg)
+
+    cache.to_upload = (DummyChannel(), None)
+
+    try:
+        yield ctx
+    finally:
+        ctx.cache.backend_pool = ctx.backend_pool
+        if ctx.cache.destroy is not None:
+            await ctx.cache.destroy()
+        shutil.rmtree(ctx.cachedir)
+        shutil.rmtree(ctx.backend_dir)
+        ctx.dbfile.close()
+        os.unlink(ctx.dbfile.name)
+
 
 async def test_thread_hang(ctx):
     # Make sure that we don't deadlock if uploads threads or removal
@@ -130,18 +153,21 @@ async def test_thread_hang(ctx):
     # in other threads
     upload_exc = False
     removal_exc = False
+
     def _upload_loop(*a, fn=ctx.cache._upload_loop):
         try:
             return fn(*a)
         except NotADirectoryError:
             nonlocal upload_exc
             upload_exc = True
+
     def _removal_loop_multi(*a, fn=ctx.cache._removal_loop_multi):
         try:
             return fn(*a)
         except NotADirectoryError:
             nonlocal removal_exc
             removal_exc = True
+
     ctx.cache._upload_loop = _upload_loop
     ctx.cache._removal_loop_multi = _removal_loop_multi
 
@@ -167,8 +193,9 @@ async def test_thread_hang(ctx):
 
     try:
         # Try to clean-up (implicitly calls expire)
-        with assert_logs('Unable to flush cache, no upload threads left alive',
-                         level=logging.ERROR, count=1):
+        with assert_logs(
+            'Unable to flush cache, no upload threads left alive', level=logging.ERROR, count=1
+        ):
             await ctx.cache.destroy(keep_cache=True)
         assert upload_exc
         assert removal_exc
@@ -181,6 +208,7 @@ async def test_thread_hang(ctx):
         # call into no-op.
         await ctx.cache.remove(ctx.inode, 1)
         ctx.cache.destroy = None
+
 
 async def test_get(ctx):
     inode = ctx.inode
@@ -202,6 +230,7 @@ async def test_get(ctx):
     async with ctx.cache.get(inode, blockno) as fh:
         fh.seek(0)
         assert data == fh.read(len(data))
+
 
 @pytest.mark.trio
 async def test_expire(ctx):
@@ -237,6 +266,7 @@ async def test_expire(ctx):
             assert (inode, i) not in ctx.cache.cache
         else:
             assert (inode, i) in ctx.cache.cache
+
 
 async def test_upload(ctx):
     inode = ctx.inode
@@ -309,6 +339,7 @@ async def test_upload(ctx):
     await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
 
+
 async def test_remove_referenced(ctx):
     inode = ctx.inode
     datalen = int(0.1 * ctx.cache.cache.max_size)
@@ -330,6 +361,7 @@ async def test_remove_referenced(ctx):
     await ctx.cache.remove(inode, blockno1)
     ctx.cache.backend_pool.verify()
 
+
 async def test_remove_cache(ctx):
     inode = ctx.inode
     data1 = random_data(int(0.4 * ctx.max_obj_size))
@@ -341,7 +373,8 @@ async def test_remove_cache(ctx):
     await ctx.cache.remove(inode, 1)
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
-        assert fh.read(42) ==  b''
+        assert fh.read(42) == b''
+
 
 async def test_upload_race(ctx):
     inode = ctx.inode
@@ -356,6 +389,7 @@ async def test_upload_race(ctx):
 
     # Try to upload it, may happen if CommitThread is interrupted
     await ctx.cache.upload_if_dirty(fh)
+
 
 async def test_expire_race(ctx):
     # Create element
@@ -386,7 +420,7 @@ async def test_expire_race(ctx):
 
         assert len(ctx.cache.cache) == 0
     finally:
-            await ctx.cache.mlock.release(inode, blockno, noerror=True)
+        await ctx.cache.mlock.release(inode, blockno, noerror=True)
 
 
 async def test_parallel_expire(ctx):
@@ -417,7 +451,7 @@ async def test_parallel_expire(ctx):
 
         assert len(ctx.cache.cache) == 4
     finally:
-            await ctx.cache.mlock.release(inode, 0, noerror=True)
+        await ctx.cache.mlock.release(inode, 0, noerror=True)
 
 
 async def test_remove_cache_db(ctx):
@@ -439,6 +473,7 @@ async def test_remove_cache_db(ctx):
         fh.seek(0)
         assert fh.read(42) == b''
 
+
 async def test_remove_db(ctx):
     inode = ctx.inode
     data1 = random_data(int(0.4 * ctx.max_obj_size))
@@ -455,7 +490,7 @@ async def test_remove_db(ctx):
     ctx.cache.backend_pool.verify()
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
-        assert fh.read(42) ==  b''
+        assert fh.read(42) == b''
 
 
 class MockMultiLock:
@@ -595,6 +630,7 @@ class MockBackendPool(AbstractBackend):
 
         return self.backend.get_size(key)
 
+
 async def start_flush(cache, inode, block=None):
     """Upload data for `inode`
 
@@ -614,7 +650,7 @@ async def start_flush(cache, inode, block=None):
         await cache.upload_if_dirty(el)
 
 
-class MockLock():
+class MockLock:
     def __call__(self):
         return self
 

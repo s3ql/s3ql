@@ -6,11 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+from ..logging import logging  # Ensure use of custom logger class
 from .. import BUFSIZE
-from ..inherit_docstrings import (copy_ancestor_docstring, ABCDocstMeta)
-from .common import (AbstractBackend, DanglingStorageURLError, NoSuchObject,
-                     CorruptedObjectError)
+from ..inherit_docstrings import copy_ancestor_docstring, ABCDocstMeta
+from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, CorruptedObjectError
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 import _thread
 import struct
@@ -19,6 +18,7 @@ import os
 import shutil
 
 log = logging.getLogger(__name__)
+
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     '''
@@ -32,10 +32,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Initialize local backend'''
 
         # Unused argument
-        #pylint: disable=W0613
+        # pylint: disable=W0613
 
         super().__init__()
-        self.prefix = options.storage_url[len('local://'):].rstrip('/')
+        self.prefix = options.storage_url[len('local://') :].rstrip('/')
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)
@@ -54,7 +54,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return 'local directory %s' % self.prefix
 
     @copy_ancestor_docstring
-    def is_temp_failure(self, exc): #IGNORE:W0613
+    def is_temp_failure(self, exc):  # IGNORE:W0613
         return False
 
     @copy_ancestor_docstring
@@ -153,13 +153,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             # Do not look in wrong directories
             if prefix:
-                rpath = path[len(self.prefix):] # path relative to base
+                rpath = path[len(self.prefix) :]  # path relative to base
                 prefix_l = ''.join(rpath.split('/'))
 
                 dirs_to_walk = list()
                 for name in dirnames:
                     prefix_ll = unescape(prefix_l + name)
-                    if prefix_ll.startswith(prefix[:len(prefix_ll)]):
+                    if prefix_ll.startswith(prefix[: len(prefix_ll)]):
                         dirs_to_walk.append(name)
                 dirnames[:] = dirs_to_walk
 
@@ -235,12 +235,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return os.path.join(self.prefix, key)
 
         no = key[10:]
-        path = [ self.prefix, 's3ql_data_']
+        path = [self.prefix, 's3ql_data_']
         for i in range(0, len(no), 3):
             path.append(no[:i])
         path.append(key)
 
         return os.path.join(*path)
+
 
 def _read_meta(fh):
     buf = fh.read(9)
@@ -253,6 +254,7 @@ def _read_meta(fh):
     except ThawError:
         raise CorruptedObjectError('Invalid metadata')
 
+
 def escape(s):
     '''Escape '/', '=' and '.' in s'''
 
@@ -261,6 +263,7 @@ def escape(s):
     s = s.replace('#', '=23')
 
     return s
+
 
 def unescape(s):
     '''Un-Escape '/', '=' and '.' in s'''
@@ -279,7 +282,6 @@ def unescape(s):
 class ObjectR(io.FileIO):
     '''A local storage object opened for reading'''
 
-
     def __init__(self, name, metadata=None):
         super().__init__(name)
         self.metadata = metadata
@@ -290,6 +292,7 @@ class ObjectR(io.FileIO):
         The *checksum_warning* parameter is ignored.
         '''
         super().close()
+
 
 class ObjectW(object):
     '''A local storage object opened for writing'''

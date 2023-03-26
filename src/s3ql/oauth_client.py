@@ -21,9 +21,12 @@ def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description=textwrap.dedent('''\
+        description=textwrap.dedent(
+            '''\
         Obtain OAuth2 refresh token for Google Storage
-        '''))
+        '''
+        )
+    )
 
     parser.add_log()
     parser.add_debug()
@@ -32,14 +35,14 @@ def parse_args(args):
 
     return parser.parse_args(args)
 
+
 def _log_response(r):
     '''Log server response'''
 
     if not log.isEnabledFor(logging.DEBUG):
         return
 
-    s = [ 'Server response:',
-          '%03d %s' % (r.status_code, r.reason) ]
+    s = ['Server response:', '%03d %s' % (r.status_code, r.reason)]
     for tup in r.headers.items():
         s.append('%s: %s' % tup)
 
@@ -48,14 +51,15 @@ def _log_response(r):
 
     log.debug('\n'.join(s))
 
+
 def _parse_response(r):
 
     _log_response(r)
     if r.status_code != requests.codes.ok:
-        raise QuietError('Connection failed with: %d %s'
-                         % (r.status_code, r.reason))
+        raise QuietError('Connection failed with: %d %s' % (r.status_code, r.reason))
 
     return r.json()
+
 
 def main(args=None):
 
@@ -69,15 +73,16 @@ def main(args=None):
     # cf. https://stackoverflow.com/questions/24718787
     flow = InstalledAppFlow.from_client_config(
         client_config={
-              "installed": {
-                  "client_id": OAUTH_CLIENT_ID,
-                  "client_secret": OAUTH_CLIENT_SECRET,
-                  "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"],
-                  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                  "token_uri": "https://accounts.google.com/o/oauth2/token"
-              }
+            "installed": {
+                "client_id": OAUTH_CLIENT_ID,
+                "client_secret": OAUTH_CLIENT_SECRET,
+                "redirect_uris": ["http://localhost", "urn:ietf:wg:oauth:2.0:oob"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://accounts.google.com/o/oauth2/token",
+            }
         },
-        scopes=['https://www.googleapis.com/auth/devstorage.full_control'])
+        scopes=['https://www.googleapis.com/auth/devstorage.full_control'],
+    )
 
     credentials = flow.run_local_server(open_browser=True)
 

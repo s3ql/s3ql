@@ -11,6 +11,7 @@ import logging.handlers
 import sys
 import os.path
 
+
 class QuietError(Exception):
     '''
     QuietError is the base class for exceptions that should not result
@@ -40,6 +41,7 @@ SYSTEMD_LOG_LEVEL_MAP = {
     logging.DEBUG: 7,
 }
 
+
 class SystemdFormatter(logging.Formatter):
     def format(self, record):
         s = super().format(record)
@@ -47,6 +49,7 @@ class SystemdFormatter(logging.Formatter):
         if prefix:
             s = '<%d>%s' % (prefix, s)
         return s
+
 
 class MyFormatter(logging.Formatter):
     '''Prepend severity to log message if it exceeds threshold'''
@@ -57,14 +60,17 @@ class MyFormatter(logging.Formatter):
             s = '%s: %s' % (record.levelname, s)
         return s
 
+
 def create_handler(target):
     '''Create logging handler for given target'''
 
     if target.lower() == 'syslog':
         handler = logging.handlers.SysLogHandler('/dev/log')
-        formatter = logging.Formatter(os.path.basename(sys.argv[0])
-                                       + '[%(process)s:%(threadName)s] '
-                                       + '%(name)s.%(funcName)s: %(message)s')
+        formatter = logging.Formatter(
+            os.path.basename(sys.argv[0])
+            + '[%(process)s:%(threadName)s] '
+            + '%(name)s.%(funcName)s: %(message)s'
+        )
 
     else:
         fullpath = os.path.expanduser(target)
@@ -73,22 +79,24 @@ def create_handler(target):
             try:
                 os.makedirs(dirname)
             except PermissionError:
-                raise QuietError('No permission to create log file %s' % fullpath,
-                                 exitcode=10)
+                raise QuietError('No permission to create log file %s' % fullpath, exitcode=10)
 
         try:
-            handler = logging.handlers.RotatingFileHandler(fullpath,
-                                                           maxBytes=10 * 1024**2, backupCount=5)
+            handler = logging.handlers.RotatingFileHandler(
+                fullpath, maxBytes=10 * 1024**2, backupCount=5
+            )
         except PermissionError:
-            raise QuietError('No permission to write log file %s' % fullpath,
-                             exitcode=10)
+            raise QuietError('No permission to write log file %s' % fullpath, exitcode=10)
 
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s:%(threadName)s '
-                                      '%(name)s.%(funcName)s: %(message)s',
-                                      datefmt="%Y-%m-%d %H:%M:%S")
+        formatter = logging.Formatter(
+            '%(asctime)s.%(msecs)03d %(process)s:%(threadName)s '
+            '%(name)s.%(funcName)s: %(message)s',
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
 
     handler.setFormatter(formatter)
     return handler
+
 
 def setup_logging(options):
 
@@ -108,9 +116,11 @@ def setup_logging(options):
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
-        formatter = logging.Formatter('%(asctime)s.%(msecs)03d %(process)s %(levelname)-8s '
-                                      '%(threadName)s %(name)s.%(funcName)s: %(message)s',
-                                      datefmt="%Y-%m-%d %H:%M:%S")
+        formatter = logging.Formatter(
+            '%(asctime)s.%(msecs)03d %(process)s %(levelname)-8s '
+            '%(threadName)s %(name)s.%(funcName)s: %(message)s',
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
         stdout_handler.setFormatter(formatter)
         stdout_handler.setLevel(logging.NOTSET)
 
@@ -132,6 +142,7 @@ def setup_logging(options):
 
     return stdout_handler
 
+
 def setup_excepthook():
     '''Modify sys.excepthook to log exceptions
 
@@ -147,11 +158,11 @@ def setup_excepthook():
             root_logger.error(val.msg)
             sys.exit(val.exitcode)
         else:
-            root_logger.error('Uncaught top-level exception:',
-                              exc_info=(type_, val, tb))
+            root_logger.error('Uncaught top-level exception:', exc_info=(type_, val, tb))
             sys.exit(1)
 
     sys.excepthook = excepthook
+
 
 def add_stdout_logging(quiet=False, systemd=False):
     '''Add stdout logging handler to root logger'''
@@ -170,6 +181,7 @@ def add_stdout_logging(quiet=False, systemd=False):
     root_logger.addHandler(handler)
     return handler
 
+
 class Logger(logging.getLoggerClass()):
     '''
     This class has the following features in addition to `logging.Logger`:
@@ -184,15 +196,16 @@ class Logger(logging.getLoggerClass()):
 
     def handle(self, record):
         if hasattr(record, 'log_once') and record.log_once:
-            id_ = hash((record.name, record.levelno, record.msg,
-                        record.args, record.exc_info))
+            id_ = hash((record.name, record.levelno, record.msg, record.args, record.exc_info))
             if id_ in self.log_cache:
                 return
             self.log_cache.add(id_)
 
         return super().handle(record)
+
+
 logging.setLoggerClass(Logger)
 
 # Convenience object for use in logging calls, e.g.
 # log.warning('This will be printed only once', extra=LOG_ONCE)
-LOG_ONCE = { 'log_once': True }
+LOG_ONCE = {'log_once': True}

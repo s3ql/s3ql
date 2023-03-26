@@ -6,17 +6,29 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-                     AuthenticationError, DanglingStorageURLError,
-                     get_proxy, get_ssl_context, CorruptedObjectError,
-                     checksum_basic_mapping)
+from ..logging import logging, QuietError  # Ensure use of custom logger class
+from .common import (
+    AbstractBackend,
+    NoSuchObject,
+    retry,
+    AuthorizationError,
+    AuthenticationError,
+    DanglingStorageURLError,
+    get_proxy,
+    get_ssl_context,
+    CorruptedObjectError,
+    checksum_basic_mapping,
+)
 from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from .. import BUFSIZE
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
-from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict,
-                    ConnectionClosed)
+from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
+from dugong import (
+    HTTPConnection,
+    is_temp_network_error,
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+)
 from base64 import b64encode, b64decode
 from itertools import count
 from ast import literal_eval
@@ -41,7 +53,7 @@ except ModuleNotFoundError:
 log = logging.getLogger(__name__)
 
 # Used only by adm.py
-UPGRADE_MODE=False
+UPGRADE_MODE = False
 
 
 class ServerResponseError(Exception):
@@ -52,8 +64,7 @@ class ServerResponseError(Exception):
     not be expected to have any specific format).
     '''
 
-    def __init__(self, resp: dugong.HTTPResponse, error: str,
-                 body: str):
+    def __init__(self, resp: dugong.HTTPResponse, error: str, body: str):
         self.resp = resp
         self.error = error
         self.body = body
@@ -67,8 +78,9 @@ class RequestError(Exception):
     An error returned by the server.
     '''
 
-    def __init__(self, code: str, reason: str, message: Optional[str] = None,
-                 body: Optional[str] = None):
+    def __init__(
+        self, code: str, reason: str, message: Optional[str] = None, body: Optional[str] = None
+    ):
         super().__init__()
         self.code = code
         self.reason = reason
@@ -78,13 +90,14 @@ class RequestError(Exception):
     def __str__(self) -> str:
         if self.message:
             return '<RequestError, code=%d, reason=%r, message=%r>' % (
-                self.code, self.reason, self.message)
+                self.code,
+                self.reason,
+                self.message,
+            )
         elif self.body:
-            return '<RequestError, code=%d, reason=%r, with body data>' % (
-                self.code, self.reason)
+            return '<RequestError, code=%d, reason=%r, with body data>' % (self.code, self.reason)
         else:
-            return '<RequestError, code=%d, reason=%r>' % (
-                self.code, self.reason)
+            return '<RequestError, code=%d, reason=%r>' % (self.code, self.reason)
 
 
 class AccessTokenExpired(Exception):
@@ -110,11 +123,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         super().__init__()
 
         self.ssl_context = get_ssl_context(
-            options.backend_options.get('ssl-ca-path', None)) # type: Optional[ssl.Context]
+            options.backend_options.get('ssl-ca-path', None)
+        )  # type: Optional[ssl.Context]
         self.options = options.backend_options  # type: Dict[str, str]
-        self.proxy = get_proxy(ssl=True) # type: str
+        self.proxy = get_proxy(ssl=True)  # type: str
         self.login = options.backend_login  # type: str
-        self.refresh_token = options.backend_password # type: str
+        self.refresh_token = options.backend_password  # type: str
 
         if self.login == 'adc':
             if g_auth is None:
@@ -125,12 +139,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 # Deliberately ignore proxy and SSL context when attemping
                 # to connect to Compute Engine Metadata server.
-                requestor = google.auth.transport.urllib3.Request(
-                    urllib3.PoolManager())
+                requestor = google.auth.transport.urllib3.Request(urllib3.PoolManager())
                 try:
                     credentials, _ = g_auth.default(
                         request=requestor,
-                        scopes=['https://www.googleapis.com/auth/devstorage.full_control'])
+                        scopes=['https://www.googleapis.com/auth/devstorage.full_control'],
+                    )
                 except g_auth.exceptions.DefaultCredentialsError as exc:
                     raise QuietError('ADC found no valid credential sources: ' + str(exc))
                 type(self).adc = (credentials, requestor)
@@ -138,12 +152,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise QuietError("Google Storage backend requires OAuth2 or ADC authentication")
 
         # Special case for unit testing against local mock server
-        hit = re.match(r'^gs://!unittest!'
-                       r'([^/:]+)' # Hostname
-                       r':([0-9]+)' # Port
-                       r'/([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       options.storage_url)
+        hit = re.match(
+            r'^gs://!unittest!'
+            r'([^/:]+)'  # Hostname
+            r':([0-9]+)'  # Port
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            options.storage_url,
+        )
         if hit:
             self.hostname = hit.group(1)
             self.port = int(hit.group(2))
@@ -171,8 +187,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp = self._do_request('GET', path)
         except RequestError as exc:
             if exc.code == 404:
-                raise DanglingStorageURLError("Bucket '%s' does not exist" %
-                                              self.bucket_name)
+                raise DanglingStorageURLError("Bucket '%s' does not exist" % self.bucket_name)
             exc = _map_request_error(exc, None)
             if exc:
                 raise exc
@@ -186,30 +201,28 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @copy_ancestor_docstring
     def reset(self):
-        if (self.conn is not None and
-            (self.conn.response_pending() or self.conn._out_remaining)):
+        if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
     def _get_conn(self):
         '''Return connection to server'''
 
-        conn =  HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                               ssl_context=self.ssl_context)
+        conn = HTTPConnection(
+            self.hostname, self.port, proxy=self.proxy, ssl_context=self.ssl_context
+        )
         conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
-
     @copy_ancestor_docstring
-    def is_temp_failure(self, exc): #IGNORE:W0613
+    def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so use this
             # opportunity to reset it
             self.conn.reset()
             return True
 
-        elif isinstance(exc, RequestError) and (
-                500 <= exc.code <= 599 or exc.code == 408):
+        elif isinstance(exc, RequestError) and (500 <= exc.code <= 599 or exc.code == 408):
             return True
 
         elif isinstance(exc, AccessTokenExpired):
@@ -231,20 +244,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         buf = self.conn.read(2048)
         if not buf:
-            return # expected
+            return  # expected
 
         body = '\n'.join('%s: %s' % x for x in resp.headers.items())
 
-        hit = re.search(r'; charset="(.+)"$',
-                        resp.headers.get('Content-Type', ''),
-                        re.IGNORECASE)
+        hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
         if hit:
             charset = hit.group(1)
             body += '\n' + buf.decode(charset, errors='backslashreplace')
 
         log.warning('Expected empty response body, but got data - this is odd.')
-        raise ServerResponseError(resp, error='expected empty response',
-                                  body=body)
+        raise ServerResponseError(resp, error='expected empty response', body=body)
 
     @retry
     @copy_ancestor_docstring
@@ -252,7 +262,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s', key)
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + key, safe=''))
+            urllib.parse.quote(self.prefix + key, safe=''),
+        )
         try:
             resp = self._do_request('DELETE', path)
             self._assert_empty_response(resp)
@@ -264,7 +275,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise exc
             else:
                 raise
-
 
     @copy_ancestor_docstring
     def list(self, prefix=''):
@@ -283,12 +293,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
-        query_string = { 'prefix': prefix, 'maxResults': str(batch_size) }
+        query_string = {'prefix': prefix, 'maxResults': str(batch_size)}
         if page_token:
             query_string['pageToken'] = page_token
 
-        path = '/storage/v1/b/%s/o' % (
-            urllib.parse.quote(self.bucket_name, safe=''),)
+        path = '/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
 
         try:
             resp = self._do_request('GET', path, query_string=query_string)
@@ -304,8 +313,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             assert page_token is None
             return ((), None)
 
-        return ([ x['name'] for x in json_resp['items'] ], page_token)
-
+        return ([x['name'] for x in json_resp['items']], page_token)
 
     @retry
     @copy_ancestor_docstring
@@ -317,7 +325,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + key, safe=''))
+            urllib.parse.quote(self.prefix + key, safe=''),
+        )
         try:
             resp = self._do_request('GET', path)
         except RequestError as exc:
@@ -340,7 +349,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + key, safe=''))
+            urllib.parse.quote(self.prefix + key, safe=''),
+        )
         try:
             resp = self._do_request('GET', path, query_string={'alt': 'media'})
         except RequestError as exc:
@@ -361,9 +371,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ObjectW(key, self, metadata)
 
     @retry
-    def write_fh(self, fh, key: str, md5: bytes,
-                 metadata: Optional[Dict[str, Any]] = None,
-                 size: Optional[int] = None):
+    def write_fh(
+        self,
+        fh,
+        key: str,
+        md5: bytes,
+        metadata: Optional[Dict[str, Any]] = None,
+        size: Optional[int] = None,
+    ):
         '''Write data from byte stream *fh* into *key*.
 
         *fh* must be seekable. If *size* is None, *fh* must also implement
@@ -372,11 +387,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         *md5* must be the (binary) md5 checksum of the data.
         '''
 
-        metadata = json.dumps({
-            'metadata': _wrap_user_meta(metadata if metadata else {}),
-            'md5Hash': b64encode(md5).decode(),
-            'name': self.prefix + key,
-        })
+        metadata = json.dumps(
+            {
+                'metadata': _wrap_user_meta(metadata if metadata else {}),
+                'md5Hash': b64encode(md5).decode(),
+                'name': self.prefix + key,
+            }
+        )
 
         # Google Storage uses Content-Length to read the object data, so we
         # don't have to worry about the boundary occurring in the object data.
@@ -384,12 +401,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'multipart/related; boundary=%s' % boundary
 
-        body_prefix = '\n'.join(('--' + boundary,
-                                 'Content-Type: application/json; charset=UTF-8',
-                                 '', metadata,
-                                 '--' + boundary,
-                                 'Content-Type: application/octet-stream',
-                                 '', '')).encode()
+        body_prefix = '\n'.join(
+            (
+                '--' + boundary,
+                'Content-Type: application/json; charset=UTF-8',
+                '',
+                metadata,
+                '--' + boundary,
+                'Content-Type: application/octet-stream',
+                '',
+                '',
+            )
+        ).encode()
         body_suffix = ('\n--%s--\n' % boundary).encode()
 
         body_size = len(body_prefix) + len(body_suffix)
@@ -398,12 +421,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             body_size += os.fstat(fh.fileno()).st_size
 
-        path = '/upload/storage/v1/b/%s/o' % (
-            urllib.parse.quote(self.bucket_name, safe=''),)
+        path = '/upload/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
         query_string = {'uploadType': 'multipart'}
         try:
-            resp = self._do_request('POST', path, query_string=query_string,
-                                    headers=headers, body=BodyFollowing(body_size))
+            resp = self._do_request(
+                'POST',
+                path,
+                query_string=query_string,
+                headers=headers,
+                body=BodyFollowing(body_size),
+            )
         except RequestError as exc:
             exc = _map_request_error(exc, key)
             if exc:
@@ -428,11 +455,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # but we may still be able to read an error response
             try:
                 resp = self.conn.read_response()
-            except ConnectionClosed: # No server response available
+            except ConnectionClosed:  # No server response available
                 pass
             else:
-                log.warning('Server broke connection during upload, signaled '
-                            '%d %s', resp.status, resp.reason)
+                log.warning(
+                    'Server broke connection during upload, signaled ' '%d %s',
+                    resp.status,
+                    resp.reason,
+                )
             # Re-raise first ConnectionClosed exception
             raise
 
@@ -455,12 +485,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/json; charset="utf-8"'
-        body = json.dumps({ 'metadata': _wrap_user_meta(metadata),
-                            'acl': [] }).encode()
+        body = json.dumps({'metadata': _wrap_user_meta(metadata), 'acl': []}).encode()
 
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + key, safe=''))
+            urllib.parse.quote(self.prefix + key, safe=''),
+        )
         try:
             resp = self._do_request('PUT', path, headers=headers, body=body)
         except RequestError as exc:
@@ -470,7 +500,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise
 
         self._parse_json_response(resp)
-
 
     @copy_ancestor_docstring
     def close(self):
@@ -491,26 +520,28 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             try:
                 self.adc[0].refresh(self.adc[1])
             except g_auth.exceptions.RefreshError as exc:
-                raise AuthenticationError(
-                    'Failed to refresh credentials: '  + str(exc))
+                raise AuthenticationError('Failed to refresh credentials: ' + str(exc))
             self.access_token[self.refresh_token] = self.adc[0].token
             return
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
 
-        body = urllib.parse.urlencode({
-            'client_id': OAUTH_CLIENT_ID,
-            'client_secret': OAUTH_CLIENT_SECRET,
-            'refresh_token': self.refresh_token,
-            'grant_type': 'refresh_token' })
+        body = urllib.parse.urlencode(
+            {
+                'client_id': OAUTH_CLIENT_ID,
+                'client_secret': OAUTH_CLIENT_SECRET,
+                'refresh_token': self.refresh_token,
+                'grant_type': 'refresh_token',
+            }
+        )
 
-        conn = HTTPConnection('accounts.google.com', 443, proxy=self.proxy,
-                              ssl_context=self.ssl_context)
+        conn = HTTPConnection(
+            'accounts.google.com', 443, proxy=self.proxy, ssl_context=self.ssl_context
+        )
         try:
 
-            conn.send_request('POST', '/o/oauth2/token', headers=headers,
-                              body=body.encode('utf-8'))
+            conn.send_request('POST', '/o/oauth2/token', headers=headers, body=body.encode('utf-8'))
             resp = conn.read_response()
             json_resp = self._parse_json_response(resp, conn)
 
@@ -532,21 +563,19 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # Error messages may come from intermediate proxies and thus may not
             # be in JSON.
             log.debug('Server response not JSON - intermediate proxy failure?')
-            return RequestError(code=resp.status, reason=resp.reason,
-                                body=exc.body)
+            return RequestError(code=resp.status, reason=resp.reason, body=exc.body)
 
         try:
             message = json_resp['error']['message']
             body = None
         except KeyError:
-            log.warning('Did not find error.message element in JSON '
-                        'error response. This is odd.')
+            log.warning(
+                'Did not find error.message element in JSON ' 'error response. This is odd.'
+            )
             message = None
             body = str(json_resp)
 
-        return RequestError(code=resp.status, reason=resp.reason, message=message,
-                            body=body)
-
+        return RequestError(code=resp.status, reason=resp.reason, message=message, body=body)
 
     def _parse_json_response(self, resp, conn=None):
 
@@ -558,21 +587,27 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # also get errors from intermediate proxies.
         content_type = resp.headers.get('Content-Type', None)
         if content_type:
-            hit = re.match(r'application/json(?:; charset="(.+)")?$',
-                           resp.headers['Content-Type'], re.IGNORECASE)
+            hit = re.match(
+                r'application/json(?:; charset="(.+)")?$',
+                resp.headers['Content-Type'],
+                re.IGNORECASE,
+            )
         if not content_type or not hit:
-            raise ServerResponseError(resp, error='expected json, got %s' % content_type,
-                                      body=self._dump_body(resp))
+            raise ServerResponseError(
+                resp, error='expected json, got %s' % content_type, body=self._dump_body(resp)
+            )
         charset = hit.group(1)
 
         body = conn.readall()
         try:
             body_text = body.decode(charset)
         except UnicodeDecodeError as exc:
-            log.warning('Unable to decode JSON response as Unicode (%s) '
-                        '- this is odd.', str(exc))
-            raise ServerResponseError(resp, error=str(exc),
-                                      body=body.decode(charset, errors='backslashreplace'))
+            log.warning(
+                'Unable to decode JSON response as Unicode (%s) ' '- this is odd.', str(exc)
+            )
+            raise ServerResponseError(
+                resp, error=str(exc), body=body.decode(charset, errors='backslashreplace')
+            )
 
         try:
             resp_json = json.loads(body_text)
@@ -596,9 +631,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             body = self.conn.read_raw(2048)
             self.conn.close()
 
-        hit = re.search(r'; charset="(.+)"$',
-                        resp.headers.get('Content-Type', ''),
-                        re.IGNORECASE)
+        hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
         if hit:
             charset = hit.group(1)
         else:
@@ -629,11 +662,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         token = self.access_token.get(self.refresh_token, None)
         if token is not None:
             headers['Authorization'] = 'Bearer ' + token
-            self.conn.send_request(method, path, body=body, headers=headers,
-                                   expect100=expect100)
+            self.conn.send_request(method, path, body=body, headers=headers, expect100=expect100)
             resp = self.conn.read_response()
-            if ((expect100 and resp.status == 100) or
-                (not expect100 and 200 <= resp.status <= 299)):
+            if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
                 return resp
             elif resp.status != 401:
                 raise self._parse_error_response(resp)
@@ -653,11 +684,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # FIXME: We can't rely on this if e.g. the system hibernated
         # after refreshing the token, but before reaching this line.
         headers['Authorization'] = 'Bearer ' + self.access_token[self.refresh_token]
-        self.conn.send_request(method, path, body=body, headers=headers,
-                               expect100=expect100)
+        self.conn.send_request(method, path, body=body, headers=headers, expect100=expect100)
         resp = self.conn.read_response()
-        if ((expect100 and resp.status == 100) or
-            (not expect100 and 200 <= resp.status <= 299)):
+        if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
             return resp
         else:
             raise self._parse_error_response(resp)
@@ -682,7 +711,8 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             urllib.parse.quote(self.bucket_name, safe=''),
             urllib.parse.quote(self.prefix + src, safe=''),
             urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + dest, safe=''))
+            urllib.parse.quote(self.prefix + dest, safe=''),
+        )
         try:
             resp = self._do_request('POST', path, headers=headers, body=body)
         except RequestError as exc:
@@ -715,8 +745,7 @@ def _wrap_user_meta(user_meta):
     for (key, val) in user_meta.items():
         if not isinstance(key, str):
             raise TypeError('metadata keys must be str, not %s' % type(key))
-        if (not isinstance(val, (str, bytes, int, float, complex, bool))
-            and val is not None):
+        if not isinstance(val, (str, bytes, int, float, complex, bool)) and val is not None:
             raise TypeError('value for key %s (%s) is not elementary' % (key, val))
         if isinstance(val, (bytes, bytearray)):
             val = b64encode(val)
@@ -734,10 +763,11 @@ def _unwrap_user_meta(json_resp):
         return {}
 
     # Detect Legacy format.
-    if (meta_raw.get('format', None) == 'raw2' and
-        'md5' in meta_raw and
-        all(key in ('format', 'md5') or re.match(r'^\d\d\d$', key)
-            for key in meta_raw.keys())):
+    if (
+        meta_raw.get('format', None) == 'raw2'
+        and 'md5' in meta_raw
+        and all(key in ('format', 'md5') or re.match(r'^\d\d\d$', key) for key in meta_raw.keys())
+    ):
         parts = []
         for i in count():
             part = meta_raw.get('%03d' % i, None)
@@ -746,14 +776,14 @@ def _unwrap_user_meta(json_resp):
             parts.append(part)
         buf = ''.join(parts)
         meta = literal_eval('{ %s }' % buf)
-        for (k,v) in meta.items():
+        for (k, v) in meta.items():
             if isinstance(v, bytes):
                 meta[k] = b64decode(v)
 
         return meta
 
     meta = {}
-    for (k,v) in meta_raw.items():
+    for (k, v) in meta_raw.items():
         try:
             v2 = literal_eval(v)
         except ValueError as exc:
@@ -800,12 +830,15 @@ class ObjectR(object):
         if (not buf or size is None) and not self.md5_checked:
             self.md5_checked = True
             if self.md5_want != self.md5.digest():
-                log.warning('MD5 mismatch for %s: %s vs %s',
-                            self.key, b64encode(self.md5_want),
-                            b64encode(self.md5.digest()))
-                raise ServerResponseError(error='md5Hash mismatch',
-                                          body=b'<binary blob>',
-                                          resp=self.resp)
+                log.warning(
+                    'MD5 mismatch for %s: %s vs %s',
+                    self.key,
+                    b64encode(self.md5_want),
+                    b64encode(self.md5.digest()),
+                )
+                raise ServerResponseError(
+                    error='md5Hash mismatch', body=b'<binary blob>', resp=self.resp
+                )
 
         return buf
 
@@ -832,8 +865,9 @@ class ObjectR(object):
         # connection (otherwise we loose synchronization)
         if not self.md5_checked:
             if checksum_warning:
-                log.warning("Object closed prematurely, can't check MD5, and have to "
-                            "reset connection")
+                log.warning(
+                    "Object closed prematurely, can't check MD5, and have to " "reset connection"
+                )
             self.backend.conn.disconnect()
 
 
@@ -870,8 +904,9 @@ class ObjectW(object):
         if self.closed:
             return
 
-        self.backend.write_fh(self.fh, self.key, self.md5.digest(),
-                              self.metadata, size=self.obj_size)
+        self.backend.write_fh(
+            self.fh, self.key, self.md5.digest(), self.metadata, size=self.obj_size
+        )
         self.closed = True
         self.fh.close()
 
