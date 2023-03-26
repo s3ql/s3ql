@@ -6,17 +6,31 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
+from ..logging import logging, QuietError  # Ensure use of custom logger class
 from .. import BUFSIZE
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-                     AuthenticationError, DanglingStorageURLError, get_proxy,
-                     get_ssl_context, CorruptedObjectError, checksum_basic_mapping)
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
+from .common import (
+    AbstractBackend,
+    NoSuchObject,
+    retry,
+    AuthorizationError,
+    AuthenticationError,
+    DanglingStorageURLError,
+    get_proxy,
+    get_ssl_context,
+    CorruptedObjectError,
+    checksum_basic_mapping,
+)
+from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 from io import BytesIO
 from shutil import copyfileobj
-from dugong import (HTTPConnection, is_temp_network_error, BodyFollowing, CaseInsensitiveDict,
-                    UnsupportedResponse, ConnectionClosed)
+from dugong import (
+    HTTPConnection,
+    is_temp_network_error,
+    BodyFollowing,
+    CaseInsensitiveDict,
+    UnsupportedResponse,
+    ConnectionClosed,
+)
 from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from ast import literal_eval
@@ -33,13 +47,14 @@ import time
 import ssl
 import urllib.parse
 
-C_DAY_NAMES = [ 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun' ]
-C_MONTH_NAMES = [ 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec' ]
+C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+C_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 
 
 log = logging.getLogger(__name__)
+
 
 class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     """A backend to stored data in some S3 compatible storage service.
@@ -49,8 +64,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'dumb-copy', 'disable-expect100'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'dumb-copy', 'disable-expect100'}
 
     def __init__(self, options):
         '''Initialize backend object
@@ -63,11 +77,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if 'no-ssl' in options.backend_options:
             self.ssl_context = None
         else:
-            self.ssl_context = get_ssl_context(
-                options.backend_options.get('ssl-ca-path', None))
+            self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(
-            options.storage_url, self.ssl_context)
+            options.storage_url, self.ssl_context
+        )
 
         self.options = options.backend_options
         self.bucket_name = bucket_name
@@ -87,8 +101,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # NOTE: ! This function is also used by the swift backend !
     @copy_ancestor_docstring
     def reset(self):
-        if (self.conn is not None and
-            (self.conn.response_pending() or self.conn._out_remaining)):
+        if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
@@ -99,12 +112,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         Return a tuple * (host, port, bucket_name, prefix) * .
         '''
 
-        hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
-                       r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port
-                       r'/([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       storage_url)
+        hit = re.match(
+            r'^[a-zA-Z0-9]+://'  # Backend
+            r'([^/:]+)'  # Hostname
+            r'(?::([0-9]+))?'  # Port
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            storage_url,
+        )
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 
@@ -123,8 +138,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _get_conn(self):
         '''Return connection to server'''
 
-        conn =  HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                               ssl_context=self.ssl_context)
+        conn = HTTPConnection(
+            self.hostname, self.port, proxy=self.proxy, ssl_context=self.ssl_context
+        )
         conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
@@ -133,16 +149,25 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # to check if this makes it unsuitable for use by `_get_access_token` (in
     # that case we will have to implement a custom retry logic there).
     @copy_ancestor_docstring
-    def is_temp_failure(self, exc): #IGNORE:W0613
+    def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so use this
             # opportunity to reset it
             self.conn.reset()
 
-        if isinstance(exc, (InternalError, BadDigestError, IncompleteBodyError,
-                            RequestTimeoutError, OperationAbortedError,
-                            SlowDownError, ServiceUnavailableError,
-                            TemporarilyUnavailableError)):
+        if isinstance(
+            exc,
+            (
+                InternalError,
+                BadDigestError,
+                IncompleteBodyError,
+                RequestTimeoutError,
+                OperationAbortedError,
+                SlowDownError,
+                ServiceUnavailableError,
+                TemporarilyUnavailableError,
+            ),
+        ):
             return True
 
         elif is_temp_network_error(exc):
@@ -153,10 +178,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
         # modifications. We also retry on 429 (Too Many Requests).
-        elif (isinstance(exc, HTTPError) and
-              ((500 <= exc.status <= 599
-                and exc.status not in (501,505,508,510,511,523))
-               or exc.status in (408,429))):
+        elif isinstance(exc, HTTPError) and (
+            (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
+            or exc.status in (408, 429)
+        ):
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
@@ -189,9 +214,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             body = body[:2048]
 
-        return '%d %s\n%s\n\n%s' % (resp.status, resp.reason,
-                                    '\n'.join('%s: %s' % x for x in resp.headers.items()),
-                                    body.decode('utf-8', errors='backslashreplace'))
+        return '%d %s\n%s\n\n%s' % (
+            resp.status,
+            resp.reason,
+            '\n'.join('%s: %s' % x for x in resp.headers.items()),
+            body.decode('utf-8', errors='backslashreplace'),
+        )
 
     # NOTE: ! This function is also used by the swift backend. !
     def _assert_empty_response(self, resp):
@@ -199,14 +227,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         buf = self.conn.read(2048)
         if not buf:
-            return # expected
+            return  # expected
 
         # Log the problem
         self.conn.discard()
-        log.error('Unexpected server response. Expected nothing, got:\n'
-                  '%d %s\n%s\n\n%s', resp.status, resp.reason,
-                  '\n'.join('%s: %s' % x for x in resp.headers.items()),
-                  buf)
+        log.error(
+            'Unexpected server response. Expected nothing, got:\n' '%d %s\n%s\n\n%s',
+            resp.status,
+            resp.reason,
+            '\n'.join('%s: %s' % x for x in resp.headers.items()),
+            buf,
+        )
         raise RuntimeError('Unexpected server response')
 
     @retry
@@ -241,15 +272,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # We can get at most 1000 keys at a time, so there's no need
         # to bother with streaming.
-        query_string = { 'prefix': prefix, 'max-keys': str(batch_size) }
+        query_string = {'prefix': prefix, 'max-keys': str(batch_size)}
         if page_token:
             query_string['marker'] = page_token
 
         resp = self._do_request('GET', '/', query_string=query_string)
 
         if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
-            raise RuntimeError('unexpected content type: %s' %
-                               resp.headers['Content-Type'])
+            raise RuntimeError('unexpected content type: %s' % resp.headers['Content-Type'])
 
         body = self.conn.readall()
         etree = ElementTree.fromstring(body)
@@ -258,14 +288,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             root_xmlns_prefix = ''
         else:
             # Validate the XML namespace
-            root_xmlns_prefix = '{%s}' % (root_xmlns_uri, )
+            root_xmlns_prefix = '{%s}' % (root_xmlns_uri,)
             if root_xmlns_prefix != self.xml_ns_prefix:
-                log.error('Unexpected server reply to list operation:\n%s',
-                          self._dump_response(resp, body=body))
+                log.error(
+                    'Unexpected server reply to list operation:\n%s',
+                    self._dump_response(resp, body=body),
+                )
                 raise RuntimeError('List response has unknown namespace')
 
-        names = [ x.findtext(root_xmlns_prefix + 'Key')
-                  for x in etree.findall(root_xmlns_prefix + 'Contents') ]
+        names = [
+            x.findtext(root_xmlns_prefix + 'Key')
+            for x in etree.findall(root_xmlns_prefix + 'Contents')
+        ]
 
         is_truncated = etree.find(root_xmlns_prefix + 'IsTruncated')
         if is_truncated.text == 'false':
@@ -277,7 +311,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             page_token = names[-1]
 
         return (names, page_token)
-
 
     @retry
     @copy_ancestor_docstring
@@ -314,7 +347,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-
     @retry
     @copy_ancestor_docstring
     def open_read(self, key):
@@ -328,7 +360,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except (BadDigestError, CorruptedObjectError):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
-            if resp.length is not None and resp.length < 64*1024:
+            if resp.length is not None and resp.length < 64 * 1024:
                 self.conn.discard()
             else:
                 self.conn.disconnect()
@@ -363,14 +395,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if not isinstance(key, str):
                 raise ValueError('dict keys must be str, not %s' % type(key))
             val = metadata[key]
-            if (not isinstance(val, (str, bytes, int, float, complex, bool))
-                and val is not None):
+            if not isinstance(val, (str, bytes, int, float, complex, bool)) and val is not None:
                 raise ValueError('value for key %s (%s) is not elementary' % (key, val))
 
             if isinstance(val, (bytes, bytearray)):
                 val = b64encode(val)
 
-            buf = ('%s: %s,' % (repr(key), repr(val)))
+            buf = '%s: %s,' % (repr(key), repr(val))
             buf = quote(buf, safe='!@#$^*()=+/?-_\'"><\\| `.,;:~')
             if len(buf) < chunksize:
                 headers['%smeta-%03d' % (self.hdr_prefix, hdr_count)] = buf
@@ -378,9 +409,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 length += 4 + len(buf)
             else:
                 i = 0
-                while i*chunksize < len(buf):
+                while i * chunksize < len(buf):
                     k = '%smeta-%03d' % (self.hdr_prefix, hdr_count)
-                    v = buf[i*chunksize:(i+1)*chunksize]
+                    v = buf[i * chunksize : (i + 1) * chunksize]
                     headers[k] = v
                     i += 1
                     hdr_count += 1
@@ -402,8 +433,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers = CaseInsensitiveDict()
         if extra_headers is not None:
             headers.update(extra_headers)
-        headers[self.hdr_prefix + 'copy-source'] = \
-            urllib.parse.quote('/%s/%s%s' % (self.bucket_name, self.prefix, src))
+        headers[self.hdr_prefix + 'copy-source'] = urllib.parse.quote(
+            '/%s/%s%s' % (self.bucket_name, self.prefix, src)
+        )
 
         if metadata is None:
             headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
@@ -430,19 +462,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if root.tag in [self.xml_ns_prefix + 'CopyObjectResult', 'CopyObjectResult']:
             return
         elif root.tag in [self.xml_ns_prefix + 'Error', 'Error']:
-            raise get_S3Error(root.findtext('Code'), root.findtext('Message'),
-                              resp.headers)
+            raise get_S3Error(root.findtext('Code'), root.findtext('Message'), resp.headers)
         else:
-            log.error('Unexpected server reply to copy operation:\n%s',
-                      self._dump_response(resp, body))
+            log.error(
+                'Unexpected server reply to copy operation:\n%s', self._dump_response(resp, body)
+            )
             raise RuntimeError('Copy response has %s as root tag' % root.tag)
 
     @copy_ancestor_docstring
     def update_meta(self, key, metadata):
         self.copy(key, key, metadata)
 
-    def _do_request(self, method, path, subres=None, query_string=None,
-                    headers=None, body=None):
+    def _do_request(self, method, path, subres=None, query_string=None, headers=None, body=None):
         '''Send request, read and return response object'''
 
         log.debug('started with %s %s?%s, qs=%s', method, path, subres, query_string)
@@ -456,10 +487,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         redirect_count = 0
         this_method = method
         while True:
-            resp = self._send_request(this_method, path, headers=headers, subres=subres,
-                                      query_string=query_string, body=body)
+            resp = self._send_request(
+                this_method,
+                path,
+                headers=headers,
+                subres=subres,
+                query_string=query_string,
+                body=body,
+            )
 
-            if (resp.status < 300 or resp.status > 399):
+            if resp.status < 300 or resp.status > 399:
                 break
 
             # Assume redirect
@@ -474,7 +511,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self.conn.discard()
 
                 # Pylint can't infer SplitResult Types
-                #pylint: disable=E1103
+                # pylint: disable=E1103
                 o = urlsplit(new_url)
                 if o.scheme:
                     if self.ssl_context and o.scheme != 'https':
@@ -502,8 +539,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 new_url = tree.findtext('Endpoint')
 
                 if not new_url:
-                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'),
-                                      resp.headers)
+                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
                 self.hostname = new_url
                 self.conn.disconnect()
@@ -557,8 +593,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
-            log.error('Unable to parse server response as XML:\n%s',
-                      self._dump_response(resp, body))
+            log.error(
+                'Unable to parse server response as XML:\n%s', self._dump_response(resp, body)
+            )
             raise
 
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
@@ -574,8 +611,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if content_type is None:
             log.error('Server did not provide Content-Type, assuming XML')
         elif not XML_CONTENT_RE.match(content_type):
-            log.error('Unexpected server reply: expected XML, got:\n%s',
-                      self._dump_response(resp))
+            log.error('Unexpected server reply: expected XML, got:\n%s', self._dump_response(resp))
             raise RuntimeError('Unexpected server response')
 
         # We don't stream the data into the parser because we want
@@ -585,8 +621,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
-            log.error('Unable to parse server response as XML:\n%s',
-                      self._dump_response(resp, body))
+            log.error(
+                'Unable to parse server response as XML:\n%s', self._dump_response(resp, body)
+            )
             raise
 
         return tree
@@ -601,12 +638,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         # Date, can't use strftime because it's locale dependent
         now = time.gmtime()
-        headers['Date'] = ('%s, %02d %s %04d %02d:%02d:%02d GMT'
-                           % (C_DAY_NAMES[now.tm_wday],
-                              now.tm_mday,
-                              C_MONTH_NAMES[now.tm_mon - 1],
-                              now.tm_year, now.tm_hour,
-                              now.tm_min, now.tm_sec))
+        headers['Date'] = '%s, %02d %s %04d %02d:%02d:%02d GMT' % (
+            C_DAY_NAMES[now.tm_wday],
+            now.tm_mday,
+            C_MONTH_NAMES[now.tm_mon - 1],
+            now.tm_year,
+            now.tm_hour,
+            now.tm_min,
+            now.tm_sec,
+        )
 
         auth_strs = [method, '\n']
 
@@ -628,10 +668,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             auth_strs.append('?%s' % subres)
 
         # False positive, hashlib *does* have sha1 member
-        #pylint: disable=E1101
+        # pylint: disable=E1101
         auth_str = ''.join(auth_strs).encode()
-        signature = b64encode(hmac.new(self.password.encode(), auth_str,
-                                       hashlib.sha1).digest()).decode()
+        signature = b64encode(
+            hmac.new(self.password.encode(), auth_str, hashlib.sha1).digest()
+        ).decode()
 
         headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
 
@@ -674,12 +715,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.conn.send_request(method, path, body=body, headers=headers)
         else:
             body_len = os.fstat(body.fileno()).st_size
-            self.conn.send_request(method, path, expect100=use_expect_100c,
-                                   headers=headers, body=BodyFollowing(body_len))
+            self.conn.send_request(
+                method,
+                path,
+                expect100=use_expect_100c,
+                headers=headers,
+                body=BodyFollowing(body_len),
+            )
 
             if use_expect_100c:
                 resp = read_response()
-                if resp.status != 100: # Error
+                if resp.status != 100:  # Error
                     return resp
 
             try:
@@ -689,13 +735,16 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 # but we may still be able to read an error response
                 try:
                     resp = read_response()
-                except ConnectionClosed: # No server response available
+                except ConnectionClosed:  # No server response available
                     pass
                 else:
-                    if resp.status >= 400: # Got error response
+                    if resp.status >= 400:  # Got error response
                         return resp
-                    log.warning('Server broke connection during upload, but signaled '
-                                '%d %s', resp.status, resp.reason)
+                    log.warning(
+                        'Server broke connection during upload, but signaled ' '%d %s',
+                        resp.status,
+                        resp.reason,
+                    )
 
                 # Re-raise first ConnectionClosed exception
                 raise
@@ -711,7 +760,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         '''Extract metadata from HTTP response object'''
 
         format_ = resp.headers.get('%smeta-format' % self.hdr_prefix, 'raw')
-        if format_ != 'raw2': # Current
+        if format_ != 'raw2':  # Current
             raise CorruptedObjectError('Invalid metadata format: %s' % format_)
 
         parts = []
@@ -726,7 +775,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         meta = literal_eval('{ %s }' % buf)
 
         # Decode bytes values
-        for (k,v) in meta.items():
+        for (k, v) in meta.items():
             if not isinstance(v, bytes):
                 continue
             try:
@@ -783,7 +832,7 @@ class ObjectR(object):
         self.metadata = metadata
 
         # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101
+        # pylint: disable=E1101
         self.md5 = hashlib.md5()
 
     def read(self, size=None):
@@ -810,10 +859,8 @@ class ObjectR(object):
             etag = self.resp.headers['ETag'].strip('"')
             self.md5_checked = True
             if etag != self.md5.hexdigest():
-                log.warning('MD5 mismatch for %s: %s vs %s',
-                            self.key, etag, self.md5.hexdigest())
-                raise BadDigestError('BadDigest',
-                                     'ETag header does not agree with calculated MD5')
+                log.warning('MD5 mismatch for %s: %s vs %s', self.key, etag, self.md5.hexdigest())
+                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
         return buf
 
     def __enter__(self):
@@ -839,8 +886,9 @@ class ObjectR(object):
         # connection (otherwise we loose synchronization)
         if not self.md5_checked:
             if checksum_warning:
-                log.warning("Object closed prematurely, can't check MD5, and have to "
-                            "reset connection")
+                log.warning(
+                    "Object closed prematurely, can't check MD5, and have to " "reset connection"
+                )
             self.backend.conn.disconnect()
 
 
@@ -868,7 +916,7 @@ class ObjectW(object):
         self.fh = tempfile.TemporaryFile(buffering=0)
 
         # False positive, hashlib *does* have md5 member
-        #pylint: disable=E1101
+        # pylint: disable=E1101
         self.md5 = hashlib.md5()
 
     def write(self, buf):
@@ -886,7 +934,7 @@ class ObjectW(object):
         '''Close object and upload data'''
 
         # Access to protected member ok
-        #pylint: disable=W0212
+        # pylint: disable=W0212
 
         log.debug('started with %s', self.key)
 
@@ -897,8 +945,9 @@ class ObjectW(object):
 
         self.fh.seek(0)
         self.headers['Content-Type'] = 'application/octet-stream'
-        resp = self.backend._do_request('PUT', '/%s%s' % (self.backend.prefix, self.key),
-                                        headers=self.headers, body=self.fh)
+        resp = self.backend._do_request(
+            'PUT', '/%s%s' % (self.backend.prefix, self.key), headers=self.headers, body=self.fh
+        )
         etag = resp.headers['ETag'].strip('"')
         self.backend._assert_empty_response(resp)
 
@@ -907,8 +956,11 @@ class ObjectW(object):
             try:
                 self.backend.delete(self.key)
             finally:
-                raise BadDigestError('BadDigest', 'MD5 mismatch for %s (received: %s, sent: %s)' %
-                                     (self.key, etag, self.md5.hexdigest()))
+                raise BadDigestError(
+                    'BadDigest',
+                    'MD5 mismatch for %s (received: %s, sent: %s)'
+                    % (self.key, etag, self.md5.hexdigest()),
+                )
 
         self.closed = True
         self.fh.close()
@@ -945,10 +997,12 @@ def get_S3Error(code, msg, headers=None):
 
     return class_(code, msg, headers)
 
+
 def md5sum_b64(buf):
     '''Return base64 encoded MD5 sum'''
 
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')
+
 
 def _parse_retry_after(header):
     '''Parse headers for Retry-After value'''
@@ -1010,18 +1064,62 @@ class S3Error(Exception):
     def __str__(self):
         return '%s: %s' % (self.code, self.msg)
 
-class NoSuchKeyError(S3Error): pass
-class AccessDeniedError(S3Error, AuthorizationError): pass
-class BadDigestError(S3Error): pass
-class IncompleteBodyError(S3Error): pass
-class InternalError(S3Error): pass
-class InvalidAccessKeyIdError(S3Error, AuthenticationError): pass
-class InvalidSecurityError(S3Error, AuthenticationError): pass
-class SignatureDoesNotMatchError(S3Error, AuthenticationError): pass
-class OperationAbortedError(S3Error): pass
-class RequestTimeoutError(S3Error): pass
-class SlowDownError(S3Error): pass
-class ServiceUnavailableError(S3Error): pass
-class TemporarilyUnavailableError(S3Error): pass
-class RequestTimeTooSkewedError(S3Error): pass
-class NoSuchBucketError(S3Error, DanglingStorageURLError): pass
+
+class NoSuchKeyError(S3Error):
+    pass
+
+
+class AccessDeniedError(S3Error, AuthorizationError):
+    pass
+
+
+class BadDigestError(S3Error):
+    pass
+
+
+class IncompleteBodyError(S3Error):
+    pass
+
+
+class InternalError(S3Error):
+    pass
+
+
+class InvalidAccessKeyIdError(S3Error, AuthenticationError):
+    pass
+
+
+class InvalidSecurityError(S3Error, AuthenticationError):
+    pass
+
+
+class SignatureDoesNotMatchError(S3Error, AuthenticationError):
+    pass
+
+
+class OperationAbortedError(S3Error):
+    pass
+
+
+class RequestTimeoutError(S3Error):
+    pass
+
+
+class SlowDownError(S3Error):
+    pass
+
+
+class ServiceUnavailableError(S3Error):
+    pass
+
+
+class TemporarilyUnavailableError(S3Error):
+    pass
+
+
+class RequestTimeTooSkewedError(S3Error):
+    pass
+
+
+class NoSuchBucketError(S3Error, DanglingStorageURLError):
+    pass

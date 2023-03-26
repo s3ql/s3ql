@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
+from ..logging import logging, QuietError, LOG_ONCE  # Ensure use of custom logger class
 from abc import abstractmethod, ABCMeta
 from functools import wraps
 from typing import BinaryIO
@@ -24,6 +24,7 @@ import re
 import threading
 
 log = logging.getLogger(__name__)
+
 
 class RateTracker:
     '''
@@ -50,7 +51,7 @@ class RateTracker:
         bucket_count = len(self.buckets)
         now = int(time.monotonic())
 
-        elapsed =  min(now - self.last_update, bucket_count)
+        elapsed = min(now - self.last_update, bucket_count)
         for i in range(elapsed):
             buckets[(now - i) % bucket_count] = 0
 
@@ -80,6 +81,8 @@ class RateTracker:
 # multiple threads all have to retry after a long period of
 # inactivity.
 RETRY_TIMEOUT = 60 * 60 * 24
+
+
 def retry(method, _tracker=RateTracker(60)):
     '''Wrap *method* for retrying on some exceptions
 
@@ -105,27 +108,34 @@ def retry(method, _tracker=RateTracker(60)):
         retries = 0
         while True:
             if has_is_retry:
-                kw['is_retry'] = (retries > 0)
+                kw['is_retry'] = retries > 0
             try:
                 return method(*a, **kw)
             except Exception as exc:
                 # Access to protected member ok
-                #pylint: disable=W0212
+                # pylint: disable=W0212
                 if not self.is_temp_failure(exc):
                     raise
 
                 _tracker.register()
                 rate = _tracker.get_rate()
-                if  rate > 5:
-                    log.warning('Had to retry %d times over the last %d seconds, '
-                                'server or network problem?',
-                                rate * _tracker.window_length, _tracker.window_length)
+                if rate > 5:
+                    log.warning(
+                        'Had to retry %d times over the last %d seconds, '
+                        'server or network problem?',
+                        rate * _tracker.window_length,
+                        _tracker.window_length,
+                    )
                 else:
                     log.debug('Average retry rate: %.2f Hz', rate)
 
                 if waited > RETRY_TIMEOUT:
-                    log.error('%s.%s(*): Timeout exceeded, re-raising %r exception',
-                            self.__class__.__name__, method.__name__, exc)
+                    log.error(
+                        '%s.%s(*): Timeout exceeded, re-raising %r exception',
+                        self.__class__.__name__,
+                        method.__name__,
+                        exc,
+                    )
                     raise
 
                 retries += 1
@@ -136,9 +146,14 @@ def retry(method, _tracker=RateTracker(60)):
                 else:
                     log_fn = log.warning
 
-                log_fn('Encountered %s (%s), retrying %s.%s (attempt %d)...',
-                       type(exc).__name__, exc, self.__class__.__name__, method.__name__,
-                       retries)
+                log_fn(
+                    'Encountered %s (%s), retrying %s.%s (attempt %d)...',
+                    type(exc).__name__,
+                    exc,
+                    self.__class__.__name__,
+                    method.__name__,
+                    retries,
+                )
 
                 if hasattr(exc, 'retry_after') and exc.retry_after:
                     log.debug('retry_after is %.2f seconds', exc.retry_after)
@@ -148,15 +163,18 @@ def retry(method, _tracker=RateTracker(60)):
             # server with too many concurrent requests.
             time.sleep(interval * random.uniform(1, 1.5))
             waited += interval
-            interval = min(5*60, 2*interval)
+            interval = min(5 * 60, 2 * interval)
 
-    extend_docstring(wrapped,
-                     'This method has been wrapped and will automatically re-execute in '
-                     'increasing intervals for up to `s3ql.backends.common.RETRY_TIMEOUT` '
-                     'seconds if it raises an exception for which the instance\'s '
-                     '`is_temp_failure` method returns True.')
+    extend_docstring(
+        wrapped,
+        'This method has been wrapped and will automatically re-execute in '
+        'increasing intervals for up to `s3ql.backends.common.RETRY_TIMEOUT` '
+        'seconds if it raises an exception for which the instance\'s '
+        '`is_temp_failure` method returns True.',
+    )
 
     return wrapped
+
 
 def extend_docstring(fun, s):
     '''Append *s* to *fun*'s docstring with proper wrapping and indentation'''
@@ -172,9 +190,9 @@ def extend_docstring(fun, s):
             indent = min(indent, len(line) - len(stripped))
 
     indent_s = '\n' + ' ' * indent
-    fun.__doc__ += ''.join(indent_s + line
-                               for line in textwrap.wrap(s, width=80 - indent))
+    fun.__doc__ += ''.join(indent_s + line for line in textwrap.wrap(s, width=80 - indent))
     fun.__doc__ += '\n'
+
 
 class AbstractBackend(object, metaclass=ABCMeta):
     '''Functionality shared between all backends.
@@ -200,7 +218,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def __iter__(self):
         return self.list()
 
-    def  __contains__(self, key):
+    def __contains__(self, key):
         return self.contains(key)
 
     def __enter__(self):
@@ -294,6 +312,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         """Read data stored under `key` into *fh*, return metadata."""
 
         off = ofh.tell()
+
         def do_read(ifh: BinaryIO):
             ofh.seek(off)
             while True:
@@ -473,6 +492,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         pass
 
+
 class NoSuchObject(Exception):
     '''Raised if the requested object does not exist in the backend'''
 
@@ -482,6 +502,7 @@ class NoSuchObject(Exception):
 
     def __str__(self):
         return 'Backend does not have anything stored under key %r' % self.key
+
 
 class DanglingStorageURLError(Exception):
     '''Raised if the backend can't store data at the given location'''
@@ -497,6 +518,7 @@ class DanglingStorageURLError(Exception):
         else:
             return self.msg
 
+
 class AuthorizationError(Exception):
     '''Raised if the credentials don't give access to the requested backend'''
 
@@ -507,6 +529,7 @@ class AuthorizationError(Exception):
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
 
+
 class AuthenticationError(Exception):
     '''Raised if the credentials are invalid'''
 
@@ -516,6 +539,7 @@ class AuthenticationError(Exception):
 
     def __str__(self):
         return 'Access denied. Server said: %s' % self.msg
+
 
 class CorruptedObjectError(Exception):
     """
@@ -531,6 +555,7 @@ class CorruptedObjectError(Exception):
 
     def __str__(self):
         return self.str
+
 
 def get_ssl_context(path):
     '''Construct SSLContext object'''
@@ -552,6 +577,7 @@ def get_ssl_context(path):
 
     return context
 
+
 def get_proxy(ssl):
     '''Read system proxy settings
 
@@ -569,12 +595,16 @@ def get_proxy(ssl):
         proxy = os.environ[proxy_env]
         hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
         if not hit:
-            raise QuietError('Unable to parse proxy setting %s=%r' %
-                             (proxy_env, proxy), exitcode=13)
+            raise QuietError(
+                'Unable to parse proxy setting %s=%r' % (proxy_env, proxy), exitcode=13
+            )
 
         if hit.group(1) == 'https://':
-            log.warning('HTTPS connection to proxy is probably pointless and not supported, '
-                        'will use standard HTTP', extra=LOG_ONCE)
+            log.warning(
+                'HTTPS connection to proxy is probably pointless and not supported, '
+                'will use standard HTTP',
+                extra=LOG_ONCE,
+            )
 
         if hit.group(3):
             proxy_port = int(hit.group(3)[1:])
@@ -582,13 +612,13 @@ def get_proxy(ssl):
             proxy_port = 80
 
         proxy_host = hit.group(2)
-        log.info('Using proxy %s:%d', proxy_host, proxy_port,
-                 extra=LOG_ONCE)
+        log.info('Using proxy %s:%d', proxy_host, proxy_port, extra=LOG_ONCE)
         proxy = (proxy_host, proxy_port)
     else:
         proxy = None
 
     return proxy
+
 
 def checksum_basic_mapping(metadata, key=None):
     '''Compute checksum for mapping of elementary types

@@ -31,9 +31,9 @@ are:
 '''
 
 # Pylint really gets confused by this module
-#pylint: disable-all
+# pylint: disable-all
 
-from .logging import logging # Ensure use of custom logger class
+from .logging import logging  # Ensure use of custom logger class
 from . import RELEASE
 from .backends import prefix_map
 from .common import _escape
@@ -49,8 +49,8 @@ import re
 DEFAULT_USAGE = object()
 log = logging.getLogger(__name__)
 
-class HelpFormatter(argparse.HelpFormatter):
 
+class HelpFormatter(argparse.HelpFormatter):
     def _format_usage(self, usage, actions, groups, prefix):
         '''Special handling for usage lists
 
@@ -62,7 +62,7 @@ class HelpFormatter(argparse.HelpFormatter):
 
         if isinstance(usage, list):
             # Omit help argument
-            actions = [ x for x in actions if not isinstance(x, argparse._HelpAction) ]
+            actions = [x for x in actions if not isinstance(x, argparse._HelpAction)]
             res = []
             for s in usage:
                 if not res:
@@ -106,8 +106,7 @@ class SubParsersAction(argparse._SubParsersAction):
             usage = self.parent.usage
             repl = dict(prog=self.parent.prog)
             if isinstance(usage, list):
-                usage = [ (x % repl if isinstance(x, str) else x)
-                           for x in usage ]
+                usage = [(x % repl if isinstance(x, str) else x) for x in usage]
             elif usage:
                 usage = usage % repl
             kwargs['usage'] = usage
@@ -127,7 +126,6 @@ class SubParsersAction(argparse._SubParsersAction):
 
 
 class ArgumentParser(argparse.ArgumentParser):
-
     def __init__(self, *a, **kw):
         if 'formatter_class' not in kw:
             kw['formatter_class'] = HelpFormatter
@@ -136,54 +134,81 @@ class ArgumentParser(argparse.ArgumentParser):
         self.register('action', 'parsers', SubParsersAction)
 
     def add_version(self):
-        self.add_argument('--version', action='version',
-                          help="just print program version and exit",
-                          version='S3QL %s' % RELEASE)
+        self.add_argument(
+            '--version',
+            action='version',
+            help="just print program version and exit",
+            version='S3QL %s' % RELEASE,
+        )
 
     def add_quiet(self):
-        self.add_argument("--quiet", action="store_true", default=False,
-                          help="be really quiet")
+        self.add_argument("--quiet", action="store_true", default=False, help="be really quiet")
 
     def add_backend_options(self):
-        self.add_argument("--backend-options", default={}, type=suboptions_type,
-                          metavar='<options>',
-                          help="Backend specific options (separate by commas). See "
-                               "backend documentation for available options.")
+        self.add_argument(
+            "--backend-options",
+            default={},
+            type=suboptions_type,
+            metavar='<options>',
+            help="Backend specific options (separate by commas). See "
+            "backend documentation for available options.",
+        )
 
     def add_debug(self):
-        destnote = ('Debug messages will be written to the target '
-                    'specified by the ``--log`` option.')
-        self.add_argument("--debug-modules", metavar='<modules>',
-                          type=lambda s: s.split(','), dest='debug',
-                          help="Activate debugging output from specified modules "
-                               "(use commas to separate multiple modules). "
-                               + destnote)
-        self.add_argument("--debug", action='append_const', const='s3ql',
-                          help="Activate debugging output from all S3QL modules. "
-                               + destnote)
+        destnote = (
+            'Debug messages will be written to the target ' 'specified by the ``--log`` option.'
+        )
+        self.add_argument(
+            "--debug-modules",
+            metavar='<modules>',
+            type=lambda s: s.split(','),
+            dest='debug',
+            help="Activate debugging output from specified modules "
+            "(use commas to separate multiple modules). " + destnote,
+        )
+        self.add_argument(
+            "--debug",
+            action='append_const',
+            const='s3ql',
+            help="Activate debugging output from all S3QL modules. " + destnote,
+        )
 
     def add_cachedir(self):
-        self.add_argument("--cachedir", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql"),
-                      help='Store cached data in this directory '
-                           '(default: `~/.s3ql)`')
+        self.add_argument(
+            "--cachedir",
+            type=str,
+            metavar='<path>',
+            default=os.path.expanduser("~/.s3ql"),
+            help='Store cached data in this directory ' '(default: `~/.s3ql)`',
+        )
 
     def add_log(self, default=None):
-        self.add_argument("--log", type=str_or_None_type, metavar='<target>', default=default,
-                      help='Destination for log messages. Specify ``none`` for standard '
-                          'output or ``syslog`` for the system logging daemon. '
-                          'Anything else will be interpreted as a file name. Log files '
-                          'will be rotated when they reach 1 MiB, and at most 5 old log '
-                          'files will be kept. Default: ``%(default)s``')
+        self.add_argument(
+            "--log",
+            type=str_or_None_type,
+            metavar='<target>',
+            default=default,
+            help='Destination for log messages. Specify ``none`` for standard '
+            'output or ``syslog`` for the system logging daemon. '
+            'Anything else will be interpreted as a file name. Log files '
+            'will be rotated when they reach 1 MiB, and at most 5 old log '
+            'files will be kept. Default: ``%(default)s``',
+        )
 
     def add_storage_url(self):
-        self.add_argument("storage_url", metavar='<storage-url>',
-                          type=storage_url_type,
-                          help='Storage URL of the backend that contains the file system')
-        self.add_argument("--authfile", type=str, metavar='<path>',
-                      default=os.path.expanduser("~/.s3ql/authinfo2"),
-                      help='Read authentication credentials from this file '
-                           '(default: `~/.s3ql/authinfo2)`')
+        self.add_argument(
+            "storage_url",
+            metavar='<storage-url>',
+            type=storage_url_type,
+            help='Storage URL of the backend that contains the file system',
+        )
+        self.add_argument(
+            "--authfile",
+            type=str,
+            metavar='<path>',
+            default=os.path.expanduser("~/.s3ql/authinfo2"),
+            help='Read authentication credentials from this file ' '(default: `~/.s3ql/authinfo2)`',
+        )
 
     def add_compress(self):
         def compression_type(s):
@@ -201,12 +226,18 @@ class ArgumentParser(argparse.ArgumentParser):
             if alg == 'none':
                 alg = None
             return (alg, lvl)
-        self.add_argument("--compress", action="store", default='lzma-6',
-                            metavar='<algorithm-lvl>', type=compression_type,
-                            help="Compression algorithm and compression level to use when "
-                                 "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
-                                 "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
-                                 "to 9 (slowest). Default: `%(default)s`")
+
+        self.add_argument(
+            "--compress",
+            action="store",
+            default='lzma-6',
+            metavar='<algorithm-lvl>',
+            type=compression_type,
+            help="Compression algorithm and compression level to use when "
+            "storing new data. *algorithm* may be any of `lzma`, `bzip2`, "
+            "`zlib`, or none. *lvl* may be any integer from 0 (fastest) "
+            "to 9 (slowest). Default: `%(default)s`",
+        )
 
     def add_subparsers(self, **kw):
         '''Pass parent and set prog to default usage message'''
@@ -257,19 +288,19 @@ class ArgumentParser(argparse.ArgumentParser):
             ini_config = self._read_authinfo(options.authfile, storage_url)
 
             # Validate configuration file
-            fixed_keys = { 'backend-login', 'backend-password', 'fs-passphrase',
-                           'storage-url' }
-            unknown_keys = (set(ini_config.keys())
-                            - { x.replace('_', '-') for x in options.__dict__.keys() }
-                            - fixed_keys)
+            fixed_keys = {'backend-login', 'backend-password', 'fs-passphrase', 'storage-url'}
+            unknown_keys = (
+                set(ini_config.keys())
+                - {x.replace('_', '-') for x in options.__dict__.keys()}
+                - fixed_keys
+            )
             if unknown_keys:
-                            self.exit(2, 'Unknown keys(s) in configuration file: ' +
-                                      ', '.join(unknown_keys))
+                self.exit(2, 'Unknown keys(s) in configuration file: ' + ', '.join(unknown_keys))
 
             # Update defaults and re-parse arguments
-            defaults = { k.replace('-', '_'): v
-                         for (k,v) in ini_config.items()
-                         if k != 'storage_url' }
+            defaults = {
+                k.replace('-', '_'): v for (k, v) in ini_config.items() if k != 'storage_url'
+            }
             self.set_defaults(**defaults)
             options = super().parse_args(*args, **kwargs)
 
@@ -334,7 +365,7 @@ def storage_url_type(s):
     if s.startswith('local://'):
         # Append trailing slash so that we can match patterns with
         # trailing slash in authinfo2 file.
-        return 'local://%s/' % os.path.abspath(s[len('local://'):])
+        return 'local://%s/' % os.path.abspath(s[len('local://') :])
 
     # If there is no prefix specified, then e.g. s3://foo and s3://foo/ point to
     # the same location (even though s3://foo/bar and s3://foo/bar/ are pointing
@@ -344,16 +375,19 @@ def storage_url_type(s):
     # line. In retrospect, it would have been better to always add an implicit
     # slash (even when using a prefix), but we can't do that now because it
     # would make file systems created without trailing slash inaccessible.
-    if (re.match(r'^(s3|gs)://[^/]+$', s)
-        or re.match(r'^(s3c|swift(ks)?|rackspace)://[^/]+/[^/]+$', s)):
+    if re.match(r'^(s3|gs)://[^/]+$', s) or re.match(
+        r'^(s3c|swift(ks)?|rackspace)://[^/]+/[^/]+$', s
+    ):
         s += '/'
 
     return s
+
 
 def str_or_None_type(s):
     if s.lower() == 'none':
         return None
     return s
+
 
 def suboptions_type(s):
     '''An argument converter for suboptions

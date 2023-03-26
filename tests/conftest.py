@@ -38,72 +38,88 @@ def pytest_pyfunc_call(pyfuncitem):
     if failed:
         time.sleep(1)
 
+
 @pytest.fixture(scope="class")
 def s3ql_cmd_argv(request):
     '''Provide argument list to execute s3ql commands in tests'''
 
     if request.config.getoption('installed'):
-        yield lambda cmd: [ cmd ]
+        yield lambda cmd: [cmd]
     else:
         basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        yield lambda cmd: [ sys.executable,
-                            os.path.join(basedir, 'bin', cmd) ]
+        yield lambda cmd: [sys.executable, os.path.join(basedir, 'bin', cmd)]
+
 
 # Enable output checks
 pytest_plugins = ('pytest_checklogs',)
+
 
 @pytest.fixture()
 def pass_reg_output(request, reg_output):
     '''Provide reg_output function to UnitTest instances'''
     request.instance.reg_output = reg_output
 
+
 @pytest.fixture()
 def pass_s3ql_cmd_argv(request, s3ql_cmd_argv):
     '''Provide s3ql_cmd_argv function to UnitTest instances'''
     request.instance.s3ql_cmd_argv = s3ql_cmd_argv
 
+
 def pytest_addoption(parser):
     group = parser.getgroup("terminal reporting")
-    group._addoption("--logdebug", action="append", metavar='<module>',
-                     help="Activate debugging output from <module> for tests. Use `all` "
-                          "to get debug messages from all modules. This option can be "
-                          "specified multiple times.")
+    group._addoption(
+        "--logdebug",
+        action="append",
+        metavar='<module>',
+        help="Activate debugging output from <module> for tests. Use `all` "
+        "to get debug messages from all modules. This option can be "
+        "specified multiple times.",
+    )
 
     group = parser.getgroup("general")
-    group._addoption("--installed", action="store_true", default=False,
-                     help="Test the installed package.")
+    group._addoption(
+        "--installed", action="store_true", default=False, help="Test the installed package."
+    )
+
 
 def pytest_configure(config):
     # If we are running from the S3QL source directory, make sure that we
     # load modules from here
     basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
     if not config.getoption('installed'):
-        if (os.path.exists(os.path.join(basedir, 'setup.py')) and
-            os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+        if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
+            os.path.join(basedir, 'src', 's3ql', '__init__.py')
+        ):
             sys.path = [os.path.join(basedir, 'src')] + sys.path
 
     # When running from VCS repo, enable warnings
     if os.path.exists(os.path.join(basedir, '.git')):
         import warnings
+
         warnings.resetwarnings()
 
         # Not sure what this is or what causes it, bug the internet
         # is full of similar reports so probably a false positive.
         warnings.filterwarnings(
-            action='ignore', category=ImportWarning,
+            action='ignore',
+            category=ImportWarning,
             message="can't resolve package from __spec__ or __package__, falling "
-            "back on __name__ and __path__")
+            "back on __name__ and __path__",
+        )
 
         for cat in (DeprecationWarning, PendingDeprecationWarning):
-            warnings.filterwarnings(action='default', category=cat,
-                                    module='s3ql', append=True)
+            warnings.filterwarnings(action='default', category=cat, module='s3ql', append=True)
             warnings.filterwarnings(action='ignore', category=cat, append=True)
         warnings.filterwarnings(action='default', append=True)
         os.environ['S3QL_ENABLE_WARNINGS'] = '1'
 
     # Enable faulthandler
-    faultlog_fd = os.open(os.path.join(basedir, 'tests', 'test_crit.log'),
-                          flags=os.O_APPEND|os.O_CREAT|os.O_WRONLY, mode=0o644)
+    faultlog_fd = os.open(
+        os.path.join(basedir, 'tests', 'test_crit.log'),
+        flags=os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+        mode=0o644,
+    )
     faulthandler.enable(faultlog_fd)
     faulthandler.register(signal.SIGUSR1, file=faultlog_fd)
 
@@ -120,6 +136,7 @@ def pytest_configure(config):
     else:
         root_logger.setLevel(logging.INFO)
     logging.captureWarnings(capture=True)
+
 
 # Run gc.collect() at the end of every test, so that we get ResourceWarnings
 # as early as possible.

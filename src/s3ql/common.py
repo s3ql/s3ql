@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, QuietError # Ensure use of custom logger class
+from .logging import logging, QuietError  # Ensure use of custom logger class
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from dugong import HostnameNotResolvable
 from getpass import getpass
@@ -34,10 +34,15 @@ OAUTH_CLIENT_ID = '381875429714-6pch5vnnmqab454c68pkt8ugm86ef95v.apps.googleuser
 OAUTH_CLIENT_SECRET = 'HGl8fJeVML-gZ-1HSZRNZPz_'
 
 file_system_encoding = sys.getfilesystemencoding()
+
+
 def path2bytes(s):
     return s.encode(file_system_encoding, 'surrogateescape')
+
+
 def bytes2path(s):
     return s.decode(file_system_encoding, 'surrogateescape')
+
 
 def is_mounted(storage_url):
     '''Try to determine if *storage_url* is mounted
@@ -55,20 +60,24 @@ def is_mounted(storage_url):
             return False
 
     try:
-        for line in subprocess.check_output(['mount'], stderr=subprocess.STDOUT,
-                                            universal_newlines=True):
+        for line in subprocess.check_output(
+            ['mount'], stderr=subprocess.STDOUT, universal_newlines=True
+        ):
             if line.startswith(match):
                 return True
     except subprocess.CalledProcessError:
-        log.warning('Warning! Unable to check if file system is mounted '
-                    '(/proc/mounts missing and mount call failed)')
+        log.warning(
+            'Warning! Unable to check if file system is mounted '
+            '(/proc/mounts missing and mount call failed)'
+        )
 
     return False
+
 
 def inode_for_path(path, conn):
     """Return inode of directory entry at `path`
 
-     Raises `KeyError` if the path does not exist.
+    Raises `KeyError` if the path does not exist.
     """
     from .database import NoSuchRowError
 
@@ -82,12 +91,14 @@ def inode_for_path(path, conn):
     inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
-            inode = conn.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
-                                 (el, inode))
+            inode = conn.get_val(
+                "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (el, inode)
+            )
         except NoSuchRowError:
             raise KeyError('Path %s does not exist' % path)
 
     return inode
+
 
 def get_path(id_, conn, name=None):
     """Return a full path for inode `id_`.
@@ -102,18 +113,18 @@ def get_path(id_, conn, name=None):
     else:
         if not isinstance(name, bytes):
             raise TypeError('name must be of type bytes')
-        path = [ name ]
+        path = [name]
 
     maxdepth = 255
     while id_ != ROOT_INODE:
         # This can be ambiguous if directories are hardlinked
-        (name2, id_) = conn.get_row("SELECT name, parent_inode FROM contents_v "
-                                    "WHERE inode=? LIMIT 1", (id_,))
+        (name2, id_) = conn.get_row(
+            "SELECT name, parent_inode FROM contents_v " "WHERE inode=? LIMIT 1", (id_,)
+        )
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
-            raise RuntimeError('Failed to resolve name "%s" at inode %d to path',
-                               name, id_)
+            raise RuntimeError('Failed to resolve name "%s" at inode %d to path', name, id_)
 
     path.append(b'')
     path.reverse()
@@ -129,6 +140,7 @@ def _escape(s):
     s = s.replace('\0', '=00')
 
     return s
+
 
 def sha256_fh(fh) -> hashlib.sha256:
     sha = hashlib.sha256()
@@ -157,8 +169,7 @@ def assert_s3ql_fs(path):
         raise
 
     ctrlfile = os.path.join(path, CTRL_NAME)
-    if not (CTRL_NAME not in pyfuse3.listdir(path)
-            and os.path.exists(ctrlfile)):
+    if not (CTRL_NAME not in pyfuse3.listdir(path) and os.path.exists(ctrlfile)):
         raise QuietError('%s is not on an S3QL file system' % path)
 
     return ctrlfile
@@ -180,10 +191,12 @@ def assert_fs_owner(path, mountpoint=False):
         ctrlfile = assert_s3ql_fs(path)
 
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
-        raise QuietError('Permission denied. %s is was not mounted by you '
-                         'and you are not root.' % path)
+        raise QuietError(
+            'Permission denied. %s is was not mounted by you ' 'and you are not root.' % path
+        )
 
     return ctrlfile
+
 
 def assert_s3ql_mountpoint(mountpoint):
     '''Raise QuietError if *mountpoint* is not an S3QL mountpoint
@@ -198,6 +211,7 @@ def assert_s3ql_mountpoint(mountpoint):
 
     return ctrlfile
 
+
 def get_backend(options, raw=False):
     '''Return backend for given storage-url
 
@@ -210,11 +224,17 @@ def get_backend(options, raw=False):
     else:
         return get_backend_factory(options)()
 
+
 def get_backend_factory(options):
     '''Return factory producing backend objects'''
 
-    from .backends.common import (CorruptedObjectError, NoSuchObject, AuthenticationError,
-                                  DanglingStorageURLError, AuthorizationError)
+    from .backends.common import (
+        CorruptedObjectError,
+        NoSuchObject,
+        AuthenticationError,
+        DanglingStorageURLError,
+        AuthorizationError,
+    )
     from .backends.comprenc import ComprencBackend
 
     backend = None
@@ -228,23 +248,21 @@ def get_backend_factory(options):
             backend.fetch('s3ql_passphrase')
 
         except AuthenticationError:
-            raise QuietError('Invalid credentials (or skewed system clock?).',
-                             exitcode=14)
+            raise QuietError('Invalid credentials (or skewed system clock?).', exitcode=14)
 
         except AuthorizationError:
-            raise QuietError('No permission to access backend.',
-                             exitcode=15)
+            raise QuietError('No permission to access backend.', exitcode=15)
 
         except HostnameNotResolvable:
-            raise QuietError("Can't connect to backend: unable to resolve hostname",
-                             exitcode=19)
+            raise QuietError("Can't connect to backend: unable to resolve hostname", exitcode=19)
 
         except DanglingStorageURLError as exc:
             raise QuietError(str(exc), exitcode=16)
 
         except CorruptedObjectError:
-            raise QuietError('File system revision needs upgrade '
-                             '(or backend data is corrupted)', exitcode=32)
+            raise QuietError(
+                'File system revision needs upgrade ' '(or backend data is corrupted)', exitcode=32
+            )
 
         except NoSuchObject:
             encrypted = False
@@ -276,22 +294,26 @@ def get_backend_factory(options):
             try:
                 data_pw = tmp_backend['s3ql_passphrase']
             except CorruptedObjectError:
-                raise QuietError('Wrong file system passphrase (or file system '
-                                 'revision needs upgrade, or backend data is corrupted).',
-                                 exitcode=17)
+                raise QuietError(
+                    'Wrong file system passphrase (or file system '
+                    'revision needs upgrade, or backend data is corrupted).',
+                    exitcode=17,
+                )
         else:
             data_pw = None
             # Try to read metadata to detect old file system revision
             try:
                 tmp_backend.fetch('s3ql_metadata')
             except CorruptedObjectError:
-                raise QuietError('File system revision needs upgrade '
-                                 '(or backend data is corrupted)', exitcode=32)
+                raise QuietError(
+                    'File system revision needs upgrade ' '(or backend data is corrupted)',
+                    exitcode=32,
+                )
             except NoSuchObject:
-                raise QuietError('No S3QL file system found at given storage URL.',
-                                 exitcode=18)
+                raise QuietError('No S3QL file system found at given storage URL.', exitcode=18)
 
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
+
 
 def pretty_print_size(i):
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
@@ -362,12 +384,13 @@ class ExceptionStoringThread(threading.Thread):
 
     def __del__(self):
         if not self._joined:
-            raise RuntimeError("ExceptionStoringThread instance was destroyed "
-                               "without calling join_and_raise()!")
+            raise RuntimeError(
+                "ExceptionStoringThread instance was destroyed " "without calling join_and_raise()!"
+            )
+
 
 class EmbeddedException(Exception):
-    '''Encapsulates an exception that happened in a different thread
-    '''
+    '''Encapsulates an exception that happened in a different thread'''
 
     def __init__(self, exc_info, threadname):
         super().__init__()
@@ -375,9 +398,13 @@ class EmbeddedException(Exception):
         self.threadname = threadname
 
     def __str__(self):
-        return ''.join(['caused by an exception in thread %s.\n' % self.threadname,
-                       'Original/inner traceback (most recent call last): \n' ] +
-                       traceback.format_exception(*self.exc_info))
+        return ''.join(
+            [
+                'caused by an exception in thread %s.\n' % self.threadname,
+                'Original/inner traceback (most recent call last): \n',
+            ]
+            + traceback.format_exception(*self.exc_info)
+        )
 
 
 class AsyncFn(ExceptionStoringThread):
@@ -390,6 +417,7 @@ class AsyncFn(ExceptionStoringThread):
     def run_protected(self):
         self.target(*self.args, **self.kwargs)
 
+
 def split_by_n(seq, n):
     '''Yield elements in iterable *seq* in groups of *n*'''
 
@@ -397,15 +425,19 @@ def split_by_n(seq, n):
         yield seq[:n]
         seq = seq[n:]
 
+
 def handle_on_return(fn):
     '''Provide fresh ExitStack instance in `on_return` argument'''
+
     @functools.wraps(fn)
     def wrapper(*a, **kw):
         assert 'on_return' not in kw
         with contextlib.ExitStack() as on_return:
             kw['on_return'] = on_return
             return fn(*a, **kw)
+
     return wrapper
+
 
 def parse_literal(buf, type_spec):
     '''Try to parse *buf* as *type_spec*
@@ -428,20 +460,24 @@ def parse_literal(buf, type_spec):
     except (ValueError, SyntaxError):
         raise ValueError('unable to parse as python literal')
 
-    if (isinstance(type_spec, list) and type(obj) == list
-        and [ type(x) for x in obj ] == type_spec):
+    if isinstance(type_spec, list) and type(obj) == list and [type(x) for x in obj] == type_spec:
         return obj
-    elif (isinstance(type_spec, tuple) and type(obj) == tuple
-        and [ type(x) for x in obj ] == list(type_spec)):
+    elif (
+        isinstance(type_spec, tuple)
+        and type(obj) == tuple
+        and [type(x) for x in obj] == list(type_spec)
+    ):
         return obj
     elif type(obj) == type_spec:
         return obj
 
     raise ValueError('literal has wrong type')
 
+
 class ThawError(Exception):
     def __str__(self):
         return 'Malformed serialization data'
+
 
 def thaw_basic_mapping(buf):
     '''Reconstruct dict from serialized representation
@@ -459,7 +495,7 @@ def thaw_basic_mapping(buf):
         raise ThawError()
 
     # Decode bytes values
-    for (k,v) in d.items():
+    for (k, v) in d.items():
         if not isinstance(v, bytes):
             continue
         try:
@@ -468,6 +504,7 @@ def thaw_basic_mapping(buf):
             raise ThawError()
 
     return d
+
 
 def freeze_basic_mapping(d):
     '''Serialize mapping of elementary types
@@ -481,12 +518,11 @@ def freeze_basic_mapping(d):
     '''
 
     els = []
-    for (k,v) in d.items():
+    for (k, v) in d.items():
         if not isinstance(k, str):
             raise ValueError('key %s must be str, not %s' % (k, type(k)))
 
-        if (not isinstance(v, (str, bytes, bytearray, int, float, complex, bool))
-            and v is not None):
+        if not isinstance(v, (str, bytes, bytearray, int, float, complex, bool)) and v is not None:
             raise ValueError('value for key %s (%s) is not elementary' % (k, v))
 
         # To avoid wasting space, we b64encode non-ascii byte values.
@@ -496,13 +532,14 @@ def freeze_basic_mapping(d):
         # This should be a pretty safe assumption for elementary types, but we
         # add an assert just to be safe (Python docs just say that repr makes
         # "best effort" to produce something parseable)
-        (k_repr, v_repr)  = (repr(k), repr(v))
+        (k_repr, v_repr) = (repr(k), repr(v))
         assert (literal_eval(k_repr), literal_eval(v_repr)) == (k, v)
 
         els.append(('%s: %s' % (k_repr, v_repr)))
 
     buf = '{ %s }' % ', '.join(els)
     return buf.encode('utf-8')
+
 
 def time_ns():
     return int(time.time() * 1e9)

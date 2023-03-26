@@ -10,6 +10,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 if __name__ == '__main__':
     import pytest
     import sys
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 from s3ql import inode_cache
@@ -21,8 +22,8 @@ import unittest
 import tempfile
 import os
 
-class cache_tests(unittest.TestCase):
 
+class cache_tests(unittest.TestCase):
     def setUp(self):
         # Destructors are not guaranteed to run, and we can't unlink
         # the file immediately because apsw refers to it by name.
@@ -39,15 +40,17 @@ class cache_tests(unittest.TestCase):
         os.unlink(self.dbfile.name)
 
     def test_create(self):
-        attrs = {'mode': 784,
-                 'refcount': 3,
-                 'uid': 7,
-                 'gid': 2,
-                 'size': 34674,
-                 'rdev': 11,
-                 'atime_ns': time_ns(),
-                 'ctime_ns': time_ns(),
-                 'mtime_ns': time_ns() }
+        attrs = {
+            'mode': 784,
+            'refcount': 3,
+            'uid': 7,
+            'gid': 2,
+            'size': 34674,
+            'rdev': 11,
+            'atime_ns': time_ns(),
+            'ctime_ns': time_ns(),
+            'mtime_ns': time_ns(),
+        }
 
         inode = self.cache.create_inode(**attrs)
 
@@ -56,32 +59,35 @@ class cache_tests(unittest.TestCase):
 
         self.assertTrue(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
 
-
     def test_del(self):
-        attrs = {'mode': 784,
-                'refcount': 3,
-                'uid': 7,
-                'gid': 2,
-                'size': 34674,
-                'rdev': 11,
-                'atime_ns': time_ns(),
-                'ctime_ns': time_ns(),
-                'mtime_ns': time_ns() }
+        attrs = {
+            'mode': 784,
+            'refcount': 3,
+            'uid': 7,
+            'gid': 2,
+            'size': 34674,
+            'rdev': 11,
+            'atime_ns': time_ns(),
+            'ctime_ns': time_ns(),
+            'mtime_ns': time_ns(),
+        }
         inode = self.cache.create_inode(**attrs)
         del self.cache[inode.id]
         self.assertFalse(self.db.has_val('SELECT 1 FROM inodes WHERE id=?', (inode.id,)))
         self.assertRaises(KeyError, self.cache.__delitem__, inode.id)
 
     def test_get(self):
-        attrs = {'mode': 784,
-                'refcount': 3,
-                'uid': 7,
-                'gid': 2,
-                'size': 34674,
-                'rdev': 11,
-                'atime_ns': time_ns(),
-                'ctime_ns': time_ns(),
-                'mtime_ns': time_ns() }
+        attrs = {
+            'mode': 784,
+            'refcount': 3,
+            'uid': 7,
+            'gid': 2,
+            'size': 34674,
+            'rdev': 11,
+            'atime_ns': time_ns(),
+            'ctime_ns': time_ns(),
+            'mtime_ns': time_ns(),
+        }
 
         inode = self.cache.create_inode(**attrs)
         for (key, val) in attrs.items():

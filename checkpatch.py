@@ -11,6 +11,7 @@ from argparse import ArgumentParser
 trailing_w_re = re.compile(r'\s+\n$')
 only_w_re = re.compile(r'^\s+\n$')
 
+
 def check_whitespace(name, correct=False):
     found_problems = False
     if correct:
@@ -19,10 +20,10 @@ def check_whitespace(name, correct=False):
     with open(name, 'r+') as fh:
         for (lineno, line) in enumerate(fh):
             if only_w_re.search(line):
-                print('%s:%d: line consists only of whitespace' % (name, lineno+1))
+                print('%s:%d: line consists only of whitespace' % (name, lineno + 1))
                 found_problems = True
             elif trailing_w_re.search(line):
-                print('%s:%d: trailing whitespace' % (name, lineno+1))
+                print('%s:%d: trailing whitespace' % (name, lineno + 1))
                 found_problems = True
             if correct:
                 dst.write(line.rstrip() + '\n')
@@ -37,6 +38,7 @@ def check_whitespace(name, correct=False):
 
     return found_problems
 
+
 def get_definitions(path):
     '''Yield all objects defined directly in *path*
 
@@ -49,6 +51,7 @@ def get_definitions(path):
         for name in _iter_definitions(node):
             names.add(name)
     return names
+
 
 def _iter_definitions(node):
     if isinstance(node, ast.Assign):
@@ -73,6 +76,7 @@ def _iter_definitions(node):
             for ssnode in snode.body:
                 yield from _iter_definitions(ssnode)
 
+
 def iter_imports(path):
     '''Yield imports in *path*'''
 
@@ -88,6 +92,7 @@ def iter_imports(path):
             for node in node.names:
                 yield (0, tuple(node.name.split('.')))
 
+
 def yield_modules(path):
     '''Yield all Python modules underneath *path*'''
 
@@ -102,8 +107,8 @@ def yield_modules(path):
             else:
                 yield (fpath, module + (fname[:-3],))
 
-        dnames[:] = [ x for x in dnames
-                      if os.path.exists(os.path.join(dpath, x, '__init__.py')) ]
+        dnames[:] = [x for x in dnames if os.path.exists(os.path.join(dpath, x, '__init__.py'))]
+
 
 def check_imports():
     '''Check if all imports are direct'''
@@ -115,10 +120,14 @@ def check_imports():
 
     # Special case, we always want to import these indirectly
     definitions['s3ql', 'logging'].add('logging')
-    definitions['s3ql',].add('ROOT_INODE')
+    definitions[
+        's3ql',
+    ].add('ROOT_INODE')
 
     # False positives
-    definitions['s3ql',].add('deltadump')
+    definitions[
+        's3ql',
+    ].add('deltadump')
 
     # Check if imports are direct
     found_problems = False
@@ -128,12 +137,12 @@ def check_imports():
                 if lvl:
                     if lvl and fpath.endswith('/__init__.py'):
                         lvl += 1
-                    name = modname[:len(modname)-lvl] + name
+                    name = modname[: len(modname) - lvl] + name
                 if name in definitions:
                     # Import of entire module
                     continue
 
-                mod_idx = len(name)-1
+                mod_idx = len(name) - 1
                 while mod_idx > 0:
                     if name[:mod_idx] in definitions:
                         break
@@ -143,23 +152,31 @@ def check_imports():
                     continue
 
                 if name[mod_idx] not in definitions[name[:mod_idx]]:
-                    print('%s imports %s from %s, but is defined elsewhere'
-                          % (fpath, name[mod_idx], '.'.join(name[:mod_idx])))
+                    print(
+                        '%s imports %s from %s, but is defined elsewhere'
+                        % (fpath, name[mod_idx], '.'.join(name[:mod_idx]))
+                    )
                     found_problems = True
 
     return found_problems
 
+
 def check_pyflakes(name):
     return subprocess.call(['pyflakes3', name]) == 1
 
-def parse_args():
-    parser = ArgumentParser(
-        description="Check if tracked files are ready for commit")
 
-    parser.add_argument("--fix-whitespace", action="store_true", default=False,
-                      help="Automatically correct whitespace problems")
+def parse_args():
+    parser = ArgumentParser(description="Check if tracked files are ready for commit")
+
+    parser.add_argument(
+        "--fix-whitespace",
+        action="store_true",
+        default=False,
+        help="Automatically correct whitespace problems",
+    )
 
     return parser.parse_args()
+
 
 options = parse_args()
 
@@ -169,8 +186,9 @@ found_problems = False
 if not check_imports():
     found_problems = True
 
-hg_out = subprocess.check_output(['hg', 'status', '--modified', '--added',
-                                  '--no-status', '--print0'])
+hg_out = subprocess.check_output(
+    ['hg', 'status', '--modified', '--added', '--no-status', '--print0']
+)
 for b_name in hg_out.split(b'\0'):
     if not b_name:
         continue

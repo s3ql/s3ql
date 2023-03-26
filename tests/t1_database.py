@@ -21,6 +21,7 @@ from s3ql.metadata import upload_metadata, download_metadata
 from s3ql.backends import local
 import pytest
 
+
 def test_track_dirty():
     blocksize = 1024
     database.vfs.reset()

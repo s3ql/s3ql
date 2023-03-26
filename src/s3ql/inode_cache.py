@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging # Ensure use of custom logger class
+from .logging import logging  # Ensure use of custom logger class
 from .database import NoSuchRowError
 import pyfuse3
 import sys
@@ -14,12 +14,34 @@ import sys
 log = logging.getLogger(__name__)
 
 CACHE_SIZE = 100
-ATTRIBUTES = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'atime_ns', 'mtime_ns', 'ctime_ns', 'id')
+ATTRIBUTES = (
+    'mode',
+    'refcount',
+    'uid',
+    'gid',
+    'size',
+    'locked',
+    'rdev',
+    'atime_ns',
+    'mtime_ns',
+    'ctime_ns',
+    'id',
+)
 ATTRIBUTE_STR = ', '.join(ATTRIBUTES)
-UPDATE_ATTRS = ('mode', 'refcount', 'uid', 'gid', 'size', 'locked',
-              'rdev', 'atime_ns', 'mtime_ns', 'ctime_ns')
+UPDATE_ATTRS = (
+    'mode',
+    'refcount',
+    'uid',
+    'gid',
+    'size',
+    'locked',
+    'rdev',
+    'atime_ns',
+    'mtime_ns',
+    'ctime_ns',
+)
 UPDATE_STR = ', '.join('%s=?' % x for x in UPDATE_ATTRS)
+
 
 class _Inode:
     '''An inode with its attributes'''
@@ -93,6 +115,7 @@ class _Inode:
 
         sys.excepthook(*exc_info)
 
+
 class InodeCache(object):
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
@@ -143,7 +166,6 @@ class InodeCache(object):
 
         self.pos = 0
 
-
     def __delitem__(self, inode):
         if self.db.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
@@ -175,9 +197,8 @@ class InodeCache(object):
             self.attrs[id_] = inode
             return inode
 
-    def getattr(self, id_): #@ReservedAssignment
-        attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR,
-                                  (id_,))
+    def getattr(self, id_):  # @ReservedAssignment
+        attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR, (id_,))
         inode = _Inode(self.generation)
 
         for (i, id_) in enumerate(ATTRIBUTES):
@@ -193,18 +214,18 @@ class InodeCache(object):
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
 
-        id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values),
-                            bindings)
+        id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values), bindings)
         return self[id_]
-
 
     def setattr(self, inode):
         if not inode.dirty:
             return
         inode.dirty = False
 
-        self.db.execute("UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
-                        [ getattr(inode, x) for x in UPDATE_ATTRS ] + [inode.id])
+        self.db.execute(
+            "UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
+            [getattr(inode, x) for x in UPDATE_ATTRS] + [inode.id],
+        )
 
     def flush_id(self, id_):
         if id_ in self.attrs:

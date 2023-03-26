@@ -22,3 +22,9 @@ jobs:
       - run: python3 setup.py build_ext --inplace
       - run: python3 -m pytest -r s tests/
       - run: ./build_docs.sh
+  check-style:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: sudo python3 -m pip install "black == 22.3.0"
+      - run: black --line-length=100 --skip-string-normalization --check --diff --color --required-version 22.3.0 .

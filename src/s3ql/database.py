@@ -14,32 +14,33 @@ Module Attributes:
 '''
 
 from typing import Union, Optional, List
-from .logging import logging, QuietError # Ensure use of custom logger class
+from .logging import logging, QuietError  # Ensure use of custom logger class
 import apsw
 import os
 
 log = logging.getLogger(__name__)
 
-sqlite_ver = tuple([ int(x) for x in apsw.sqlitelibversion().split('.') ])
+sqlite_ver = tuple([int(x) for x in apsw.sqlitelibversion().split('.')])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
 
 initsql = (
-           # As of 2011, WAL mode causes trouble with s3qlcp, s3qlrm and s3qllock (performance going
-           # down orders of magnitude and WAL file grows unbounded) This is because WAL checkpoint
-           # is suspended while there is an active SELECT query. For now we use neither journal nor
-           # WAL and turn cache flushing off to get reasonable performance. However, this means
-           # there is a considerable risk of data corruption if the process crashes. This is not
-           # good, since the remote copy may itself be inconsistent due to incremental updates...
-           'PRAGMA journal_mode = OFF',
-           'PRAGMA synchronous = OFF',
-           'PRAGMA foreign_keys = OFF',
-           'PRAGMA locking_mode = EXCLUSIVE',
-           'PRAGMA recursize_triggers = on',
-           'PRAGMA temp_store = FILE',
-           'PRAGMA legacy_file_format = off',
-           )
+    # As of 2011, WAL mode causes trouble with s3qlcp, s3qlrm and s3qllock (performance going
+    # down orders of magnitude and WAL file grows unbounded) This is because WAL checkpoint
+    # is suspended while there is an active SELECT query. For now we use neither journal nor
+    # WAL and turn cache flushing off to get reasonable performance. However, this means
+    # there is a considerable risk of data corruption if the process crashes. This is not
+    # good, since the remote copy may itself be inconsistent due to incremental updates...
+    'PRAGMA journal_mode = OFF',
+    'PRAGMA synchronous = OFF',
+    'PRAGMA foreign_keys = OFF',
+    'PRAGMA locking_mode = EXCLUSIVE',
+    'PRAGMA recursize_triggers = on',
+    'PRAGMA temp_store = FILE',
+    'PRAGMA legacy_file_format = off',
+)
+
 
 class Connection(object):
     '''
@@ -77,9 +78,11 @@ class Connection(object):
         # Disable bloom filter optimization when we detect that sqlite is a buggy version
         # https://sqlite.org/forum/forumpost/031e262a89b6a9d2
         if (3, 38, 0) <= sqlite_ver < (3, 38, 4):
-            log.warning('Your sqlite version has bugs in its bloom filter optimization. '
-                        'We disable the usage of some indexes (in fsck.s3ql). '
-                        'Consider updating sqlite to 3.38.5+.')
+            log.warning(
+                'Your sqlite version has bugs in its bloom filter optimization. '
+                'We disable the usage of some indexes (in fsck.s3ql). '
+                'Consider updating sqlite to 3.38.5+.'
+            )
             self.fixes = {'dbf': '+'}
             # https://sqlite.org/forum/forumpost/0d3200f4f3bcd3a3
             cur.execute('PRAGMA automatic_index = off')
@@ -109,7 +112,7 @@ class Connection(object):
         return ResultSet(self.conn.cursor().execute(*a, **kw))
 
     def execute(self, *a, **kw):
-        '''Execute the given SQL statement. Return number of affected rows '''
+        '''Execute the given SQL statement. Return number of affected rows'''
 
         self.conn.cursor().execute(*a, **kw)
         return self.changes()
@@ -234,6 +237,7 @@ class VFS(apsw.VFS):
 
     Not threadsafe.
     '''
+
     vfs_name = 'S3QL'
 
     def __init__(self) -> None:
@@ -279,7 +283,7 @@ class VFS(apsw.VFS):
 
 
 class VFSFile(apsw.VFSFile):
-    ''''Custom VFSFile class for use by SQLite
+    ''' 'Custom VFSFile class for use by SQLite
 
     This is used to track which parts of the database are being modified
     and need to be re-uploaded.
@@ -303,7 +307,7 @@ class VFSFile(apsw.VFSFile):
         super().xWrite(buf, off)
         # Only mark blocks as dirty after the write, so that it's not possible
         # to accidentally upload a block before the changes have been applied.
-        for n in range(off // self.blocksize, (off+len_-1) // self.blocksize + 1):
+        for n in range(off // self.blocksize, (off + len_ - 1) // self.blocksize + 1):
             self.dirty_blocks.add(n)
 
     def xTruncate(self, newsize: int) -> None:
@@ -317,6 +321,7 @@ class VFSFile(apsw.VFSFile):
 
     # TODO: Figure out what we need to do about xShm* methods
     # (https://github.com/rogerbinns/apsw/issues/418)
+
 
 # Singleton instance (can't have more than one VFS with the same name)
 vfs = VFS()

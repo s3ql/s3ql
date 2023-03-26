@@ -36,8 +36,8 @@ COPY_RESPONSE_TEMPLATE = '''\
 </CopyObjectResult>
 '''
 
-class StorageServer(socketserver.TCPServer):
 
+class StorageServer(socketserver.TCPServer):
     def __init__(self, request_handler, server_address):
         super().__init__(server_address, request_handler)
         self.data = dict()
@@ -45,8 +45,10 @@ class StorageServer(socketserver.TCPServer):
         self.hostname = self.server_address[0]
         self.port = self.server_address[1]
 
+
 class ParsedURL:
-    __slots__ = [ 'bucket', 'key', 'params', 'fragment' ]
+    __slots__ = ['bucket', 'key', 'params', 'fragment']
+
 
 class S3CRequestHandler(BaseHTTPRequestHandler):
     '''A request handler implementing a subset of the AWS S3 Interface
@@ -57,8 +59,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 
     server_version = "MockHTTP"
     protocol_version = 'HTTP/1.1'
-    meta_header_re = re.compile(r'X-AMZ-Meta-([a-z0-9_.-]+)$',
-                                re.IGNORECASE)
+    meta_header_re = re.compile(r'X-AMZ-Meta-([a-z0-9_.-]+)$', re.IGNORECASE)
     hdr_prefix = 'X-AMZ-'
     xml_ns = 'http://s3.amazonaws.com/doc/2006-03-01/'
 
@@ -85,7 +86,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         try:
             return super().handle()
         except ValueError as exc:
-            if exc.args ==  ('I/O operation on closed file.',):
+            if exc.args == ('I/O operation on closed file.',):
                 pass
             else:
                 raise
@@ -107,12 +108,10 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
     def _check_encoding(self):
         encoding = self.headers['Content-Encoding']
         if 'Content-Length' not in self.headers:
-            self.send_error(400, message='Missing Content-Length',
-                            code='MissingContentLength')
+            self.send_error(400, message='Missing Content-Length', code='MissingContentLength')
             return
         elif encoding and encoding != 'identity':
-            self.send_error(501, message='Unsupport encoding',
-                            code='NotImplemented')
+            self.send_error(501, message='Unsupport encoding', code='NotImplemented')
             return
 
         return int(self.headers['Content-Length'])
@@ -132,22 +131,20 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 
         src = self.headers.get(self.hdr_prefix + 'copy-source')
         if src and len_:
-            self.send_error(400, message='Upload and copy are mutually exclusive',
-                            code='UnexpectedContent')
+            self.send_error(
+                400, message='Upload and copy are mutually exclusive', code='UnexpectedContent'
+            )
             return
         elif src:
             src = urllib.parse.unquote(src)
             hit = re.match('^/([a-z0-9._-]+)/(.+)$', src)
             if not hit:
-                self.send_error(400, message='Cannot parse copy-source',
-                                code='InvalidArgument')
+                self.send_error(400, message='Cannot parse copy-source', code='InvalidArgument')
                 return
 
-            metadata_directive = self.headers.get(self.hdr_prefix + 'metadata-directive',
-                                                  'COPY')
+            metadata_directive = self.headers.get(self.hdr_prefix + 'metadata-directive', 'COPY')
             if metadata_directive not in ('COPY', 'REPLACE'):
-                self.send_error(400, message='Invalid metadata directive',
-                                code='InvalidArgument')
+                self.send_error(400, message='Invalid metadata directive', code='InvalidArgument')
                 return
             src = hit.group(2)
             try:
@@ -169,9 +166,9 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         md5.update(data)
 
         if src:
-            content = (COPY_RESPONSE_TEMPLATE %
-                       {'etag': md5.hexdigest(),
-                        'ns': self.xml_ns }).encode('utf-8')
+            content = (
+                COPY_RESPONSE_TEMPLATE % {'etag': md5.hexdigest(), 'ns': self.xml_ns}
+            ).encode('utf-8')
             self.send_response(200)
             self.send_header('ETag', '"%s"' % md5.hexdigest())
             self.send_header('Content-Length', str(len(content)))
@@ -223,10 +220,12 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         max_keys = int(q.params['max_keys'][0]) if 'max_keys' in q.params else 1000
         prefix = q.params['prefix'][0] if 'prefix' in q.params else ''
 
-        resp = ['<?xml version="1.0" encoding="UTF-8"?>',
-                '<ListBucketResult xmlns="%s">' % self.xml_ns,
-                '<MaxKeys>%d</MaxKeys>' % max_keys,
-                '<IsTruncated>false</IsTruncated>' ]
+        resp = [
+            '<?xml version="1.0" encoding="UTF-8"?>',
+            '<ListBucketResult xmlns="%s">' % self.xml_ns,
+            '<MaxKeys>%d</MaxKeys>' % max_keys,
+            '<IsTruncated>false</IsTruncated>',
+        ]
 
         count = 0
         for key in sorted(self.server.data):
@@ -265,8 +264,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             self.send_header(self.hdr_prefix + 'Meta-%s' % name, value)
         self.end_headers()
 
-    def send_error(self, status, message=None, code='', resource='',
-                   extra_headers=None):
+    def send_error(self, status, message=None, code='', resource='', extra_headers=None):
 
         if not message:
             try:
@@ -275,11 +273,15 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
                 message = 'Unknown'
 
         self.log_error("code %d, message %s", status, message)
-        content = (ERROR_RESPONSE_TEMPLATE %
-                   {'code': code,
-                    'message': xml_escape(message),
-                    'request_id': 42,
-                    'resource': xml_escape(resource)}).encode('utf-8', 'replace')
+        content = (
+            ERROR_RESPONSE_TEMPLATE
+            % {
+                'code': code,
+                'message': xml_escape(message),
+                'request_id': 42,
+                'resource': xml_escape(resource),
+            }
+        ).encode('utf-8', 'replace')
         self.send_response(status, message)
         self.send_header("Content-Type", 'text/xml; charset="utf-8"')
         self.send_header("Content-Length", str(len(content)))
@@ -301,21 +303,20 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
     server in one.
     '''
 
-    meta_header_re = re.compile(r'X-Object-Meta-([a-z0-9_.-]+)$',
-                                re.IGNORECASE)
+    meta_header_re = re.compile(r'X-Object-Meta-([a-z0-9_.-]+)$', re.IGNORECASE)
     hdr_prefix = 'X-Object-'
 
     SWIFT_INFO = {
-      "swift": {
-        "max_meta_count": 90,
-        "max_meta_value_length": 256,
-        "container_listing_limit": 10000,
-        "extra_header_count": 0,
-        "max_meta_overall_size": 4096,
-        "version": "2.0.0", # < 2.8
-        "max_meta_name_length": 128,
-        "max_header_size": 16384
-      }
+        "swift": {
+            "max_meta_count": 90,
+            "max_meta_value_length": 256,
+            "container_listing_limit": 10000,
+            "extra_header_count": 0,
+            "max_meta_overall_size": 4096,
+            "version": "2.0.0",  # < 2.8
+            "max_meta_name_length": 128,
+            "max_header_size": 16384,
+        }
     }
 
     def parse_url(self, path):
@@ -339,15 +340,15 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
 
         src = self.headers.get('x-copy-from')
         if src and len_:
-            self.send_error(400, message='Upload and copy are mutually exclusive',
-                            code='UnexpectedContent')
+            self.send_error(
+                400, message='Upload and copy are mutually exclusive', code='UnexpectedContent'
+            )
             return
         elif src:
             src = urllib.parse.unquote(src)
             hit = re.match('^/([a-z0-9._-]+)/(.+)$', src)
             if not hit:
-                self.send_error(400, message='Cannot parse x-copy-from',
-                                code='InvalidArgument')
+                self.send_error(400, message='Cannot parse x-copy-from', code='InvalidArgument')
                 return
 
             src = hit.group(2)
@@ -398,8 +399,10 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
     def do_GET(self):
         if self.path in ('/v1.0', '/auth/v1.0'):
             self.send_response(200)
-            self.send_header('X-Storage-Url',
-                             'http://%s:%d/v1/AUTH_xyz' % (self.server.hostname, self.server.port))
+            self.send_header(
+                'X-Storage-Url',
+                'http://%s:%d/v1/AUTH_xyz' % (self.server.hostname, self.server.port),
+            )
             self.send_header('X-Auth-Token', 'static')
             self.send_header('Content-Length', '0')
             self.end_headers()
@@ -439,6 +442,7 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
 class CopySwiftRequestHandler(BasicSwiftRequestHandler):
     '''OpenStack Swift handler that emulates Copy middleware.'''
 
@@ -449,9 +453,9 @@ class CopySwiftRequestHandler(BasicSwiftRequestHandler):
             "container_listing_limit": 10000,
             "extra_header_count": 0,
             "max_meta_overall_size": 4096,
-            "version": "2.9.0", # >= 2.8
+            "version": "2.9.0",  # >= 2.8
             "max_meta_name_length": 128,
-            "max_header_size": 16384
+            "max_header_size": 16384,
         }
     }
 
@@ -464,8 +468,7 @@ class CopySwiftRequestHandler(BasicSwiftRequestHandler):
             assert dst[0] == '/'
             (_, dst) = dst[1:].split('/', maxsplit=1)
         except KeyError:
-            self.send_error(400, message='No Destination provided',
-                            code='InvalidArgument')
+            self.send_error(400, message='No Destination provided', code='InvalidArgument')
             return
 
         if src.key not in self.server.metadata:
@@ -485,25 +488,23 @@ class CopySwiftRequestHandler(BasicSwiftRequestHandler):
         self.send_header('Content-Length', '0')
         self.end_headers()
 
+
 class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
     '''OpenStack Swift handler that emulates bulk middleware (the delete part).'''
 
-    MAX_DELETES = 8 # test deletes 16 objects, so needs two requests
+    MAX_DELETES = 8  # test deletes 16 objects, so needs two requests
     SWIFT_INFO = {
-        "bulk_delete": {
-            "max_failed_deletes": MAX_DELETES,
-            "max_deletes_per_request": MAX_DELETES
-        },
+        "bulk_delete": {"max_failed_deletes": MAX_DELETES, "max_deletes_per_request": MAX_DELETES},
         "swift": {
             "max_meta_count": 90,
             "max_meta_value_length": 256,
             "container_listing_limit": 10000,
             "extra_header_count": 0,
             "max_meta_overall_size": 4096,
-            "version": "2.0.0", # < 2.8
+            "version": "2.0.0",  # < 2.8
             "max_meta_name_length": 128,
-            "max_header_size": 16384
-        }
+            "max_header_size": 16384,
+        },
     }
 
     def do_POST(self):
@@ -511,11 +512,13 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
         if not 'bulk-delete' in q.params:
             return super().do_POST()
 
-        response = { 'Response Status': '200 OK',
-                     'Response Body': '',
-                     'Number Deleted': 0,
-                     'Number Not Found': 0,
-                     'Errors': [] }
+        response = {
+            'Response Status': '200 OK',
+            'Response Body': '',
+            'Number Deleted': 0,
+            'Number Not Found': 0,
+            'Errors': [],
+        }
 
         def send_response(status_int):
             content = json.dumps(response).encode('utf-8')
@@ -540,9 +543,10 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
         lines = self.rfile.read(len_).decode('utf-8').split("\n")
         for index, to_delete in enumerate(lines):
             if index >= self.MAX_DELETES:
-                return inline_error('413 Request entity too large',
-                                    'Maximum Bulk Deletes: %d per request' %
-                                    self.MAX_DELETES)
+                return inline_error(
+                    '413 Request entity too large',
+                    'Maximum Bulk Deletes: %d per request' % self.MAX_DELETES,
+                )
             to_delete = urllib.parse.unquote(to_delete.strip())
             assert to_delete[0] == '/'
             to_delete = to_delete[1:].split('/', maxsplit=1)
@@ -557,16 +561,17 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
             else:
                 response['Number Deleted'] += 1
 
-        if not (response['Number Deleted'] or
-                response['Number Not Found']):
+        if not (response['Number Deleted'] or response['Number Not Found']):
             return inline_error('400 Bad Request', 'Invalid bulk delete.')
         send_response(200)
 
+
 #: A list of the available mock request handlers with
 #: corresponding storage urls
-handler_list = [ (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
-
-                 # Special syntax only for testing against mock server
-                 (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
-                 (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
-                 (BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test') ]
+handler_list = [
+    (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
+    # Special syntax only for testing against mock server
+    (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    (BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+]

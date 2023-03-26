@@ -16,24 +16,32 @@ import textwrap
 
 log = logging.getLogger(__name__)
 
+
 def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description=textwrap.dedent('''\
+        description=textwrap.dedent(
+            '''\
         Makes the given directory tree(s) immutable. No changes of any sort can
         be performed on the tree after that. Immutable entries can only be
         deleted with s3qlrm.
-        '''))
+        '''
+        )
+    )
 
     parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
 
-    parser.add_argument('path', metavar='<path>', nargs='+',
-                        help='Directories to make immutable.',
-                         type=(lambda x: x.rstrip('/')))
+    parser.add_argument(
+        'path',
+        metavar='<path>',
+        nargs='+',
+        help='Directories to make immutable.',
+        type=(lambda x: x.rstrip('/')),
+    )
 
     return parser.parse_args(args)
 
@@ -53,6 +61,7 @@ def main(args=None):
         ctrlfile = assert_fs_owner(name)
         fstat = os.stat(name)
         pyfuse3.setxattr(ctrlfile, 'lock', ('%d' % fstat.st_ino).encode())
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])
