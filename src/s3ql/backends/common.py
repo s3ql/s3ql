@@ -10,7 +10,7 @@ from ..logging import logging, QuietError, LOG_ONCE  # Ensure use of custom logg
 from abc import abstractmethod, ABCMeta
 from functools import wraps
 from typing import BinaryIO
-from ..common import BUFSIZE
+from .. import BUFSIZE
 import time
 import textwrap
 import hashlib
