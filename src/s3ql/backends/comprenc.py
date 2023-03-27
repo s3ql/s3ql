@@ -75,11 +75,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @property
     @copy_ancestor_docstring
-    def has_native_rename(self):
-        return self.backend.has_native_rename
-
-    @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return self.backend.has_delete_multi
 
@@ -277,51 +272,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
     @copy_ancestor_docstring
     def list(self, prefix=''):
         return self.backend.list(prefix)
-
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        if not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-        self._copy_or_rename(src=key, dest=key, rename=False, metadata=metadata)
-
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        self._copy_or_rename(src, dest, rename=False, metadata=metadata)
-
-    @copy_ancestor_docstring
-    def rename(self, src, dest, metadata=None):
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        self._copy_or_rename(src, dest, rename=True, metadata=metadata)
-
-    def _copy_or_rename(self, src, dest, rename, metadata=None):
-        meta_raw = self.backend.lookup(src)
-        (nonce, meta_old) = self._verify_meta(src, meta_raw)
-
-        if nonce:
-            meta_key = sha256(self.passphrase + nonce + b'meta')
-            if metadata is None:
-                meta_buf = freeze_basic_mapping(meta_old)
-            else:
-                meta_buf = freeze_basic_mapping(metadata)
-            encryptor = aes_encryptor(meta_key)
-            meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
-            meta_raw['object_id'] = dest
-            meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
-        elif metadata is None:
-            # Just copy old metadata
-            meta_raw = None
-        else:
-            meta_raw['data'] = freeze_basic_mapping(metadata)
-
-        if src == dest:  # metadata update only
-            self.backend.update_meta(src, meta_raw)
-        elif rename:
-            self.backend.rename(src, dest, metadata=meta_raw)
-        else:
-            self.backend.copy(src, dest, metadata=meta_raw)
 
     @copy_ancestor_docstring
     def close(self):

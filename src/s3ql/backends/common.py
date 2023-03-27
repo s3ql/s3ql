@@ -233,13 +233,6 @@ class AbstractBackend(object, metaclass=ABCMeta):
             yield (key, self[key])
 
     @property
-    @abstractmethod
-    def has_native_rename(self):
-        '''True if the backend has a native, atomic rename operation'''
-
-        pass
-
-    @property
     def has_delete_multi(self):
         '''True if the backend supports `delete_multi`.'''
 
@@ -443,42 +436,6 @@ class AbstractBackend(object, metaclass=ABCMeta):
         Returns an iterator over all keys in the backend.
         '''
         pass
-
-    @abstractmethod
-    def copy(self, src, dest, metadata=None):
-        """Copy data stored under key `src` to key `dest`
-
-        If `dest` already exists, it will be overwritten. If *metadata* is
-        `None` metadata will be copied from the source as well, otherwise
-        *metadata* becomes the metadata for the new object.
-
-        Copying will be done on the remote side without retrieving object data.
-        """
-
-        pass
-
-    @abstractmethod
-    def update_meta(self, key, metadata):
-        """Replace metadata of *key* with *metadata*
-
-        `metadata` must be a mapping with keys of type `str`, and values of an
-        elementary type (`str`, `bytes`, `int`, `float` or `bool`).
-        """
-
-        pass
-
-    def rename(self, src, dest, metadata=None):
-        """Rename key `src` to `dest`
-
-        If `dest` already exists, it will be overwritten. If *metadata* is
-        `None` metadata will be preserved, otherwise *metadata* becomes the
-        metadata for the renamed object.
-
-        Rename done remotely without retrieving object data.
-        """
-
-        self.copy(src, dest, metadata)
-        self.delete(src)
 
     def close(self):
         '''Close any opened resources

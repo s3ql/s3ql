@@ -104,12 +104,6 @@ class Backend(s3c.Backend):
         headers['x-amz-storage-class'] = sc
 
     @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        extra_headers = {}
-        self._set_storage_options(extra_headers)
-        return super().copy(src, dest, metadata=metadata, extra_headers=extra_headers)
-
-    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         extra_headers = {}
         self._set_storage_options(extra_headers)

@@ -95,9 +95,10 @@ def test_corrupted_head(backend, db, full):
 
     # Object two will have a checksum error in the metadata
     key = 's3ql_data_%d' % obj_ids[1]
+    data = b'some data that will be broken on a metadata check'
     backend.store(
         key,
-        b'some data that will be broken on a metadata check',
+        data,
         {
             'meta-key1': 'some textual data that just increases',
             'meta-key2': 'the metadata size so that we can tamper with it',
@@ -108,7 +109,7 @@ def test_corrupted_head(backend, db, full):
     assert len(raw) > 20
     raw[-10:-6] = b'forg'
     meta['data'] = raw
-    backend.backend.update_meta(key, meta)
+    backend.backend.store(key, data, meta)
 
     # When using a single thread, we can fake the backend factory
     backend_factory = lambda: backend

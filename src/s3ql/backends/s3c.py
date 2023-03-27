@@ -93,11 +93,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.password = options.backend_password
         self.login = options.backend_login
 
-    @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
     # NOTE: ! This function is also used by the swift backend !
     @copy_ancestor_docstring
     def reset(self):
@@ -424,54 +419,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         md5 = b64encode(checksum_basic_mapping(metadata)).decode('ascii')
         headers[self.hdr_prefix + 'meta-format'] = 'raw2'
         headers[self.hdr_prefix + 'meta-md5'] = md5
-
-    @retry
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None, extra_headers=None):
-        log.debug('started with %s, %s', src, dest)
-
-        headers = CaseInsensitiveDict()
-        if extra_headers is not None:
-            headers.update(extra_headers)
-        headers[self.hdr_prefix + 'copy-source'] = urllib.parse.quote(
-            '/%s/%s%s' % (self.bucket_name, self.prefix, src)
-        )
-
-        if metadata is None:
-            headers[self.hdr_prefix + 'metadata-directive'] = 'COPY'
-        else:
-            headers[self.hdr_prefix + 'metadata-directive'] = 'REPLACE'
-            self._add_meta_headers(headers, metadata)
-
-        try:
-            resp = self._do_request('PUT', '/%s%s' % (self.prefix, dest), headers=headers)
-        except NoSuchKeyError:
-            raise NoSuchObject(src)
-
-        # When copying, S3 may return error despite a 200 OK status
-        # http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
-        # https://doc.s3.amazonaws.com/proposals/copy.html
-        if self.options.get('dumb-copy', False):
-            self.conn.discard()
-            return
-        body = self.conn.readall()
-        root = self._parse_xml_response(resp, body)
-
-        # Some S3 implemenentations do not have a namespace on
-        # CopyObjectResult.
-        if root.tag in [self.xml_ns_prefix + 'CopyObjectResult', 'CopyObjectResult']:
-            return
-        elif root.tag in [self.xml_ns_prefix + 'Error', 'Error']:
-            raise get_S3Error(root.findtext('Code'), root.findtext('Message'), resp.headers)
-        else:
-            log.error(
-                'Unexpected server reply to copy operation:\n%s', self._dump_response(resp, body)
-            )
-            raise RuntimeError('Copy response has %s as root tag' % root.tag)
-
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        self.copy(key, key, metadata)
 
     def _do_request(self, method, path, subres=None, query_string=None, headers=None, body=None):
         '''Send request, read and return response object'''
