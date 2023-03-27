@@ -8,36 +8,6 @@ import shutil
 import ast
 from argparse import ArgumentParser
 
-trailing_w_re = re.compile(r'\s+\n$')
-only_w_re = re.compile(r'^\s+\n$')
-
-
-def check_whitespace(name, correct=False):
-    found_problems = False
-    if correct:
-        dst = open(name + '.checkpatch.tmp', 'w+')
-
-    with open(name, 'r+') as fh:
-        for (lineno, line) in enumerate(fh):
-            if only_w_re.search(line):
-                print('%s:%d: line consists only of whitespace' % (name, lineno + 1))
-                found_problems = True
-            elif trailing_w_re.search(line):
-                print('%s:%d: trailing whitespace' % (name, lineno + 1))
-                found_problems = True
-            if correct:
-                dst.write(line.rstrip() + '\n')
-
-        if correct:
-            fh.seek(0)
-            dst.seek(0)
-            shutil.copyfileobj(dst, fh)
-            fh.truncate()
-            os.unlink(dst.name)
-            found_problems = False
-
-    return found_problems
-
 
 def get_definitions(path):
     '''Yield all objects defined directly in *path*
@@ -161,45 +131,4 @@ def check_imports():
     return found_problems
 
 
-def check_pyflakes(name):
-    return subprocess.call(['pyflakes3', name]) == 1
-
-
-def parse_args():
-    parser = ArgumentParser(description="Check if tracked files are ready for commit")
-
-    parser.add_argument(
-        "--fix-whitespace",
-        action="store_true",
-        default=False,
-        help="Automatically correct whitespace problems",
-    )
-
-    return parser.parse_args()
-
-
-options = parse_args()
-
-os.chdir(os.path.dirname(__file__))
-
-found_problems = False
-if not check_imports():
-    found_problems = True
-
-hg_out = subprocess.check_output(
-    ['hg', 'status', '--modified', '--added', '--no-status', '--print0']
-)
-for b_name in hg_out.split(b'\0'):
-    if not b_name:
-        continue
-    name = b_name.decode('utf-8', errors='surrogatescape')
-    if check_whitespace(name, correct=options.fix_whitespace):
-        found_problems = True
-
-    if name.endswith('.py') and check_pyflakes(name):
-        found_problems = True
-
-if found_problems:
-    sys.exit(1)
-else:
-    sys.exit(0)
+check_imports()
