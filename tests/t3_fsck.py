@@ -16,8 +16,7 @@ if __name__ == '__main__':
 from s3ql.backends import local
 from s3ql import ROOT_INODE
 from s3ql.mkfs import init_tables
-from s3ql.metadata import create_tables
-from s3ql.database import Connection, NoSuchRowError
+from s3ql.database import Connection, NoSuchRowError, create_tables
 from s3ql.fsck import Fsck
 from s3ql.common import time_ns
 from argparse import Namespace

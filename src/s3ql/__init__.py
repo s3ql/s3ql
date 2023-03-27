@@ -47,7 +47,7 @@ RELEASE = '%s' % VERSION
 CURRENT_FS_REV = 26
 
 # Buffer size when writing objects
-BUFSIZE = 64 * 1024
+BUFSIZE = 256 * 1024
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = '.__s3ql__ctrl__'

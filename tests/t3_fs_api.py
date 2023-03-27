@@ -25,11 +25,10 @@ from s3ql.backends import local
 from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
-from s3ql.database import Connection
+from s3ql.database import Connection, create_tables
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import InodeCache
 from s3ql.inode_cache import CACHE_SIZE as INODE_CACHE_SIZE
-from s3ql.metadata import create_tables
 from s3ql.mkfs import init_tables
 from t2_block_cache import DummyQueue
 import errno

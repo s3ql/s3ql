@@ -15,9 +15,8 @@ if __name__ == "__main__":
 
 import tempfile
 from argparse import Namespace
-from s3ql.database import Connection
 from s3ql import database
-from s3ql.metadata import upload_metadata, download_metadata
+from s3ql.database import upload_metadata, download_metadata, Connection
 from s3ql.backends import local
 import pytest
 

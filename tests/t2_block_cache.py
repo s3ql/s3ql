@@ -22,8 +22,7 @@ from s3ql.backends.common import AbstractBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.common import time_ns
-from s3ql.database import Connection
-from s3ql.metadata import create_tables
+from s3ql.database import Connection, create_tables
 from s3ql.mkfs import init_tables
 from queue import Full as QueueFull
 from unittest.mock import patch

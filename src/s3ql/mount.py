@@ -12,9 +12,14 @@ from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import get_backend_factory, is_mounted
 from .daemonize import daemonize
-from .database import Connection
+from .database import (
+    Connection,
+    download_metadata,
+    upload_metadata,
+    read_params,
+    store_and_upload_params,
+)
 from .inode_cache import InodeCache
-from .metadata import download_metadata, upload_metadata, read_params, store_and_upload_params
 from .parse_args import ArgumentParser
 from contextlib import AsyncExitStack
 import _thread
