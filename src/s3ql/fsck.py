@@ -12,8 +12,14 @@ from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import inode_for_path, sha256_fh, get_path, is_mounted, get_backend, time_ns
-from .database import NoSuchRowError, Connection
-from .metadata import upload_metadata, download_metadata, store_and_upload_params, read_params
+from .database import (
+    NoSuchRowError,
+    Connection,
+    upload_metadata,
+    download_metadata,
+    store_and_upload_params,
+    read_params,
+)
 from .parse_args import ArgumentParser
 from os.path import basename
 import apsw

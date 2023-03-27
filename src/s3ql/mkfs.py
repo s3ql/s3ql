@@ -11,8 +11,7 @@ from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
 from .common import get_backend, split_by_n, time_ns
-from .database import Connection
-from .metadata import upload_metadata, create_tables, store_and_upload_params
+from .database import Connection, upload_metadata, create_tables, store_and_upload_params
 from .parse_args import ArgumentParser
 from getpass import getpass
 from base64 import b64encode

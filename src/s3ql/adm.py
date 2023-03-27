@@ -13,7 +13,6 @@ from .deltadump import INTEGER, BLOB
 from .database import Connection
 from base64 import b64decode
 from .common import is_mounted, get_backend, handle_on_return, AsyncFn
-from . import metadata
 from .parse_args import ArgumentParser
 from datetime import datetime as Datetime
 from getpass import getpass
