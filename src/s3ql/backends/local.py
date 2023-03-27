@@ -42,11 +42,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @property
     @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
-    @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return True
 
@@ -172,56 +167,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 if not prefix or key.startswith(prefix):
                     yield key
-
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        if not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-        self.copy(key, key, metadata)
-
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        elif metadata is not None:
-            buf = freeze_basic_mapping(metadata)
-            if len(buf).bit_length() > 16:
-                raise ValueError('Metadata too large')
-
-        path_src = self._key_to_path(src)
-        path_dest = self._key_to_path(dest)
-
-        try:
-            src = open(path_src, 'rb')
-        except FileNotFoundError:
-            raise NoSuchObject(src)
-
-        dest = None
-        try:
-            # By renaming, we make sure that there are no conflicts between
-            # parallel writes, the last one wins
-            tmpname = '%s#%d-%d.tmp' % (path_dest, os.getpid(), _thread.get_ident())
-            dest = ObjectW(tmpname)
-
-            if metadata is not None:
-                try:
-                    _read_meta(src)
-                except ThawError:
-                    raise CorruptedObjectError('Invalid metadata')
-                dest.write(b's3ql_1\n')
-                dest.write(struct.pack('<H', len(buf)))
-                dest.write(buf)
-            shutil.copyfileobj(src, dest, BUFSIZE)
-        except:
-            if dest:
-                os.unlink(tmpname)
-            raise
-
-        finally:
-            src.close()
-            dest.close()
-
-        os.rename(tmpname, path_dest)
 
     def _key_to_path(self, key):
         '''Return path for given key'''

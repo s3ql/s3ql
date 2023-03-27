@@ -89,11 +89,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __str__(self):
         return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
 
-    @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
     @retry
     def _container_exists(self):
         '''Make sure that the container exists'''
@@ -606,92 +601,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     keys[: self.features.max_deletes] = tmp
         else:
             super().delete_multi(keys, force=force)
-
-    # We cannot wrap the entire _copy_via_put_post() method into a retry()
-    # decorator, because _copy_via_put_post() issues multiple requests.
-    # If the server happens to regularly close the connection after a request
-    # (even though it was processed correctly), we'd never make any progress
-    # if we always restart from the first request.
-    # We experimented with adding a retry(fn, args, kwargs) function to wrap
-    # individual calls, but this doesn't really improve the code because we
-    # typically also have to wrap e.g. a discard() or assert_empty() call, so we
-    # end up with having to create an additional function anyway. Having
-    # anonymous blocks in Python would be very nice here.
-    @retry
-    def _copy_helper(self, method, path, headers):
-        self._do_request(method, path, headers=headers)
-        self.conn.discard()
-
-    def _copy_via_put_post(self, src, dest, metadata=None):
-        """Fallback copy method for older Swift implementations."""
-        headers = CaseInsensitiveDict()
-        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
-
-        if metadata is not None:
-            # We can't do a direct copy, because during copy we can only update the
-            # metadata, but not replace it. Therefore, we have to make a full copy
-            # followed by a separate request to replace the metadata. To avoid an
-            # inconsistent intermediate state, we use a temporary object.
-            final_dest = dest
-            dest = final_dest + TEMP_SUFFIX
-            headers['X-Delete-After'] = '600'
-
-        try:
-            self._copy_helper('PUT', '/%s%s' % (self.prefix, dest), headers)
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise NoSuchObject(src)
-            raise
-
-        if metadata is None:
-            return
-
-        # Update metadata
-        headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-        self._copy_helper('POST', '/%s%s' % (self.prefix, dest), headers)
-
-        # Rename object
-        headers = CaseInsensitiveDict()
-        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
-        self._copy_helper('PUT', '/%s%s' % (self.prefix, final_dest), headers)
-
-    @retry
-    def _copy_via_copy(self, src, dest, metadata=None):
-        """Copy for more modern Swift implementations that know the
-        X-Fresh-Metadata option and the native COPY method."""
-        headers = CaseInsensitiveDict()
-        headers['Destination'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
-        if metadata is not None:
-            self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-            headers['X-Fresh-Metadata'] = 'true'
-        try:
-            resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise NoSuchObject(src)
-            raise
-        self._assert_empty_response(resp)
-
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
-            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-
-        if self.features.has_copy:
-            self._copy_via_copy(src, dest, metadata=metadata)
-        else:
-            self._copy_via_put_post(src, dest, metadata=metadata)
-
-    @retry
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        log.debug('started with %s', key)
-        headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-        self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
-        self.conn.discard()
 
     @copy_ancestor_docstring
     def list(self, prefix=''):

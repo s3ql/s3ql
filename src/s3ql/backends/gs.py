@@ -194,11 +194,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise
         self._parse_json_response(resp)
 
-    @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
     @copy_ancestor_docstring
     def reset(self):
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
@@ -479,28 +474,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
 
-    @retry
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-
-        headers = CaseInsensitiveDict()
-        headers['Content-Type'] = 'application/json; charset="utf-8"'
-        body = json.dumps({'metadata': _wrap_user_meta(metadata), 'acl': []}).encode()
-
-        path = '/storage/v1/b/%s/o/%s' % (
-            urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + key, safe=''),
-        )
-        try:
-            resp = self._do_request('PUT', path, headers=headers, body=body)
-        except RequestError as exc:
-            exc = _map_request_error(exc, key)
-            if exc:
-                raise exc
-            raise
-
-        self._parse_json_response(resp)
-
     @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
@@ -690,40 +663,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return resp
         else:
             raise self._parse_error_response(resp)
-
-    @retry
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-
-        headers = CaseInsensitiveDict()
-
-        if metadata is not None:
-            headers['Content-Type'] = 'application/json; charset="utf-8"'
-            body = json.dumps({'metadata': _wrap_user_meta(metadata)}).encode()
-        else:
-            body = None
-
-        path = '/storage/v1/b/%s/o/%s/rewriteTo/b/%s/o/%s' % (
-            urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + src, safe=''),
-            urllib.parse.quote(self.bucket_name, safe=''),
-            urllib.parse.quote(self.prefix + dest, safe=''),
-        )
-        try:
-            resp = self._do_request('POST', path, headers=headers, body=body)
-        except RequestError as exc:
-            exc = _map_request_error(exc, src)
-            if exc:
-                raise exc
-            raise
-
-        json_resp = self._parse_json_response(resp)
-        assert json_resp['done']
-        assert 'rewriteToken' not in json_resp
 
 
 def _map_request_error(exc: RequestError, key: str):

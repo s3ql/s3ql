@@ -373,11 +373,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @property
     @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
-    @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return False
 
@@ -613,32 +608,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         file_name = self._b2_url_decode(head_request_response.headers['X-Bz-File-Name'])
         file_name = self._b2_escape_backslashes(file_name)
         return file_id, file_name
-
-    @retry
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-
-        source_file_id, source_file_name = self._get_file_id_and_name(src)
-
-        request_dict = {'sourceFileId': source_file_id, 'fileName': self._get_key_with_prefix(dest)}
-
-        if metadata is None:
-            request_dict['metadataDirective'] = 'COPY'
-        else:
-            request_dict['metadataDirective'] = 'REPLACE'
-            request_dict['contentType'] = 'application/octet-stream'
-
-            fileInfo = self._create_metadata_dict(metadata)
-            request_dict['fileInfo'] = fileInfo
-
-        response = self._do_api_call('b2_copy_file', request_dict)
-
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        # Backblaze has no API call to change existing metadata of an object,
-        # we have to copy it, but it is done remotely
-        self.copy(key, key, metadata)
 
     @copy_ancestor_docstring
     def close(self):
