@@ -8,17 +8,19 @@ This work can be distributed under the terms of the GNU GPLv3.
 """
 
 if __name__ == "__main__":
-    import pytest
     import sys
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import logging
 import tempfile
 from argparse import Namespace
-from s3ql import database
-from s3ql.database import upload_metadata, download_metadata, Connection
-from s3ql.backends import local
 import pytest
+from s3ql import database
+from s3ql.backends import local
+from s3ql.database import Connection, download_metadata, upload_metadata
+from pytest_checklogs import assert_logs
 
 
 def test_track_dirty():
@@ -66,3 +68,22 @@ def test_upload_download(backend, incremental):
             tmpfh.seek(0)
             tmpfh2.seek(0)
             assert tmpfh.read() == tmpfh2.read()
+
+
+def test_checkpoint():
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        db = Connection(tmpfh.name)
+        db.execute("CREATE TABLE foo (id INT);")
+        db.execute("INSERT INTO FOO VALUES(?)", (23,))
+        db.execute("INSERT INTO FOO VALUES(?)", (25,))
+        db.execute("INSERT INTO FOO VALUES(?)", (30,))
+
+        db.checkpoint()
+
+        q = db.query('SELECT * FROM foo')
+        db.execute("INSERT INTO FOO VALUES(?)", (35,))
+        with assert_logs('^Unable to checkpoint WAL', count=1, level=logging.WARNING):
+            db.checkpoint()
+
+        q.close()
+        db.checkpoint()

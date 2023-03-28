@@ -358,11 +358,16 @@ class Operations(pyfuse3.Operations):
         log.debug('started with %d', id0)
         queue = [(id0, -1)]
         self.inodes[id0].locked = True
+        conn = self.db
         while queue:
             (id_p, off) = queue.pop()
             log.debug('Processing directory (%d, %d)', id_p, off)
             processed = 0
-            with self.db.query(
+
+            # We use the transaction to save space in the WAL file, not because we want changes to
+            # be committed atomically. We also don't want to rollback on error, because in that case
+            # the database gets out of sync with the inode cache (which probably makes things worse)
+            with conn.transaction(rollback_on_error=False), conn.query(
                 'SELECT name_id, inode FROM contents WHERE parent_inode=? '
                 'AND name_id > ? ORDER BY name_id',
                 (id_p, off),
@@ -370,7 +375,7 @@ class Operations(pyfuse3.Operations):
                 for (name_id, id_) in res:
                     self.inodes[id_].locked = True
 
-                    if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                    if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         queue.append((id_, -1))
 
                     # Break every once in a while - note that we can't yield
@@ -381,6 +386,7 @@ class Operations(pyfuse3.Operations):
                         break
 
             await trio.lowlevel.checkpoint()
+            conn.checkpoint()
 
         log.debug('finished')
 
@@ -395,6 +401,7 @@ class Operations(pyfuse3.Operations):
         if self.inodes[id_p0].locked:
             raise FUSEError(errno.EPERM)
 
+        conn = self.db
         id0 = self._lookup(id_p0, name0, ctx=None).id
         queue = [id0]  # Directories that we still need to delete
         batch_size = 200  # Entries to process before checkpointing
@@ -406,23 +413,28 @@ class Operations(pyfuse3.Operations):
             # Per https://sqlite.org/isolation.html, results of removing rows
             # during select are undefined. Therefore, process data in chunks.
             # This is also a nice opportunity to release the GIL...
-            query_chunk = self.db.get_list(
+            query_chunk = conn.get_list(
                 'SELECT name, name_id, inode FROM contents_v WHERE '
                 'parent_inode=? LIMIT %d' % batch_size,
                 (id_p,),
             )
             reinserted = False
-            for (name, name_id, id_) in query_chunk:
-                if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                    # First delete subdirectories
-                    if not reinserted:
-                        queue.append(id_p)
-                        reinserted = True
-                    queue.append(id_)
-                else:
-                    if is_open:
-                        pyfuse3.invalidate_entry_async(id_p, name)
-                    await self._remove(id_p, name, id_, force=True)
+
+            # We use the transaction to save space in the WAL file, not because we want changes to
+            # be committed atomically. We also don't want to rollback on error, because in that case
+            # the database gets out of sync with the inode cache (which probably makes things worse)
+            with conn.transaction(rollback_on_error=False):
+                for (name, name_id, id_) in query_chunk:
+                    if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                        # First delete subdirectories
+                        if not reinserted:
+                            queue.append(id_p)
+                            reinserted = True
+                        queue.append(id_)
+                    else:
+                        if is_open:
+                            pyfuse3.invalidate_entry_async(id_p, name)
+                        await self._remove(id_p, name, id_, force=True)
 
             if query_chunk and not reinserted:
                 # Make sure to re-insert the directory to process the remaining
@@ -435,6 +447,7 @@ class Operations(pyfuse3.Operations):
             batch_size = max(batch_size, 20000)
             log.debug('Adjusting batch_size to %d and yielding', batch_size)
             await trio.lowlevel.checkpoint()
+            conn.checkpoint()
             log.debug('re-acquired lock')
             stamp = time.time()
 
@@ -482,7 +495,11 @@ class Operations(pyfuse3.Operations):
             (src_id, target_id, off) = queue.pop()
             log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
             processed = 0
-            with db.query(
+
+            # We use the transaction to save space in the WAL file, not because we want changes to
+            # be committed atomically. We also don't want to rollback on error, because in that case
+            # the database gets out of sync with the inode cache (which probably makes things worse)
+            with db.transaction(rollback_on_error=False), db.query(
                 'SELECT name_id, inode FROM contents WHERE parent_inode=? '
                 'AND name_id > ? ORDER BY name_id',
                 (src_id, off),
@@ -563,6 +580,7 @@ class Operations(pyfuse3.Operations):
                         break
 
             await trio.lowlevel.checkpoint()
+            db.checkpoint()
 
         # Make replication visible
         self.db.execute(
