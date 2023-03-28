@@ -13,7 +13,9 @@ Module Attributes:
                connection is created.
 '''
 
+
 from .logging import logging, QuietError  # Ensure use of custom logger class
+from contextlib import contextmanager
 
 from typing import Union, Optional, List
 import apsw
@@ -31,14 +33,8 @@ if sqlite_ver < (3, 7, 0):
 
 
 initsql = (
-    # As of 2011, WAL mode causes trouble with s3qlcp, s3qlrm and s3qllock (performance going
-    # down orders of magnitude and WAL file grows unbounded) This is because WAL checkpoint
-    # is suspended while there is an active SELECT query. For now we use neither journal nor
-    # WAL and turn cache flushing off to get reasonable performance. However, this means
-    # there is a considerable risk of data corruption if the process crashes. This is not
-    # good, since the remote copy may itself be inconsistent due to incremental updates...
-    'PRAGMA journal_mode = OFF',
-    'PRAGMA synchronous = OFF',
+    'PRAGMA journal_mode = WAL',
+    'PRAGMA synchronous = NORMAL',
     'PRAGMA foreign_keys = OFF',
     'PRAGMA locking_mode = EXCLUSIVE',
     'PRAGMA recursize_triggers = on',
@@ -140,6 +136,35 @@ class Connection(object):
             # Finish the active SQL statement
             res.close()
             return True
+
+    def checkpoint(self):
+        '''Checkpoint the WAL'''
+
+        try:
+            row = self.get_row('PRAGMA main.wal_checkpoint(RESTART)')
+        except apsw.LockedError:  # https://sqlite.org/forum/forumpost/9e1ad35f07
+            row = (1, 0, 0)
+        else:
+            log.debug('checkpoint: wrote %d/%d pages to db file', row[2], row[1])
+        if row[0] != 0:
+            log.warning(
+                'Unable to checkpoint WAL - please report at https://github.com/s3ql/s3ql/issues'
+            )
+
+    @contextmanager
+    def transaction(self, rollback_on_error: bool):
+        cur = self.conn.cursor()
+        cur.execute('BEGIN TRANSACTION')
+        try:
+            yield
+        except:
+            if rollback_on_error:
+                cur.execute('ROLLBACK')
+            else:
+                cur.execute('COMMIT')
+            raise
+        else:
+            cur.execute('COMMIT')
 
     def get_val(self, *a, **kw):
         """Execute statement and return first element of first result row.
