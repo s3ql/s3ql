@@ -35,7 +35,7 @@ from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from ast import literal_eval
 from urllib.parse import urlsplit, quote, unquote
-import defusedxml.cElementTree as ElementTree
+from defusedxml import ElementTree
 from itertools import count
 import hashlib
 import os
