@@ -119,7 +119,7 @@ def get_path(id_, conn, name=None):
     while id_ != ROOT_INODE:
         # This can be ambiguous if directories are hardlinked
         (name2, id_) = conn.get_row(
-            "SELECT name, parent_inode FROM contents_v " "WHERE inode=? LIMIT 1", (id_,)
+            "SELECT name, parent_inode FROM contents_v WHERE inode=? LIMIT 1", (id_,)
         )
         path.append(name2)
         maxdepth -= 1
@@ -192,7 +192,7 @@ def assert_fs_owner(path, mountpoint=False):
 
     if os.stat(ctrlfile).st_uid != os.geteuid() and os.geteuid() != 0:
         raise QuietError(
-            'Permission denied. %s is was not mounted by you ' 'and you are not root.' % path
+            'Permission denied. %s is was not mounted by you and you are not root.' % path
         )
 
     return ctrlfile
@@ -261,7 +261,7 @@ def get_backend_factory(options):
 
         except CorruptedObjectError:
             raise QuietError(
-                'File system revision needs upgrade ' '(or backend data is corrupted)', exitcode=32
+                'File system revision needs upgrade (or backend data is corrupted)', exitcode=32
             )
 
         except NoSuchObject:
@@ -306,7 +306,7 @@ def get_backend_factory(options):
                 tmp_backend.fetch('s3ql_metadata')
             except CorruptedObjectError:
                 raise QuietError(
-                    'File system revision needs upgrade ' '(or backend data is corrupted)',
+                    'File system revision needs upgrade (or backend data is corrupted)',
                     exitcode=32,
                 )
             except NoSuchObject:
@@ -385,7 +385,7 @@ class ExceptionStoringThread(threading.Thread):
     def __del__(self):
         if not self._joined:
             raise RuntimeError(
-                "ExceptionStoringThread instance was destroyed " "without calling join_and_raise()!"
+                "ExceptionStoringThread instance was destroyed without calling join_and_raise()!"
             )
 
 

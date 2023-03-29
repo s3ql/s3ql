@@ -325,7 +325,7 @@ class Operations(pyfuse3.Operations):
                 raise FUSEError(errno.EINVAL)
 
             self.db.execute(
-                'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) ' 'VALUES(?, ?, ?)',
+                'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) VALUES(?, ?, ?)',
                 (id_, self._add_name(name), value),
             )
             self.inodes[id_].ctime_ns = time_ns()
@@ -778,7 +778,7 @@ class Operations(pyfuse3.Operations):
         name_id_old = self._del_name(name_old)
 
         self.db.execute(
-            "UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? " "AND parent_inode=?",
+            "UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? AND parent_inode=?",
             (name_id_new, id_p_new, name_id_old, id_p_old),
         )
 
@@ -971,9 +971,7 @@ class Operations(pyfuse3.Operations):
         dedup_size = self.db.get_val('SELECT SUM(length) FROM objects') or 0
 
         # Objects that are currently being uploaded/compressed have size == -1
-        compr_size = (
-            self.db.get_val('SELECT SUM(phys_size) FROM objects ' 'WHERE phys_size > 0') or 0
-        )
+        compr_size = self.db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0') or 0
 
         return struct.pack(
             'QQQQQQQQQQQQ',
