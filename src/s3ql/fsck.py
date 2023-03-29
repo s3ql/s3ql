@@ -252,7 +252,7 @@ class Fsck(object):
 
             try:
                 old_obj_id = self.conn.get_val(
-                    'SELECT obj_id FROM inode_blocks ' 'WHERE inode=? AND blockno=?',
+                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                     (inode, blockno),
                 )
             except NoSuchRowError:
@@ -284,7 +284,7 @@ class Fsck(object):
         now_ns = time_ns()
         try:
             (inode_l, name_id) = self.conn.get_row(
-                "SELECT inode, name_id FROM contents_v " "WHERE name=? AND parent_inode=?",
+                "SELECT inode, name_id FROM contents_v WHERE name=? AND parent_inode=?",
                 (b"lost+found", ROOT_INODE),
             )
 
@@ -293,7 +293,7 @@ class Fsck(object):
             try:
                 # A bug in sqlite made fsck.s3ql move lost+found into lost+found. We just move it back to the root.
                 (inode_l, name_id) = self.conn.get_row(
-                    "SELECT inode, name_id FROM contents_v " "WHERE name=? AND parent_inode=inode",
+                    "SELECT inode, name_id FROM contents_v WHERE name=? AND parent_inode=inode",
                     (b"lost+found",),
                 )
                 self.log_error("Moving lost+found directory to root")
@@ -433,7 +433,7 @@ class Fsck(object):
 
             self.found_errors = True
             for (name, id_p) in self.conn.query(
-                'SELECT name, parent_inode ' 'FROM contents_v WHERE inode=?', (inode,)
+                'SELECT name, parent_inode FROM contents_v WHERE inode=?', (inode,)
             ):
                 path = get_path(id_p, self.conn, name)
                 self.log_error(
@@ -483,7 +483,7 @@ class Fsck(object):
         log.info('Checking directory reachability...')
 
         self.conn.execute(
-            'CREATE TEMPORARY TABLE loopcheck (inode INTEGER PRIMARY KEY, ' 'parent_inode INTEGER)'
+            'CREATE TEMPORARY TABLE loopcheck (inode INTEGER PRIMARY KEY, parent_inode INTEGER)'
         )
         self.conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
         self.conn.execute(
@@ -525,17 +525,17 @@ class Fsck(object):
                 inode = self.conn.get_val("SELECT inode FROM loopcheck2 ORDER BY inode ASC LIMIT 1")
 
             (name, name_id) = self.conn.get_row(
-                "SELECT name, name_id FROM contents_v " "WHERE inode=? LIMIT 1", (inode,)
+                "SELECT name, name_id FROM contents_v WHERE inode=? LIMIT 1", (inode,)
             )
             (id_p, name) = self.resolve_free(b"/lost+found", name)
 
             self.log_error(
-                "Found unreachable filesystem entries, re-anchoring %s [%d] " "in /lost+found",
+                "Found unreachable filesystem entries, re-anchoring %s [%d] in /lost+found",
                 to_str(name),
                 inode,
             )
             self.conn.execute(
-                'UPDATE contents SET parent_inode=?, name_id=? ' 'WHERE inode=? AND name_id=?',
+                'UPDATE contents SET parent_inode=?, name_id=? WHERE inode=? AND name_id=?',
                 (id_p, self._add_name(name), inode, name_id),
             )
             self._del_name(name_id)
@@ -625,7 +625,7 @@ class Fsck(object):
                         "Inode %d not referenced, adding as /lost+found/%s", id_, to_str(name)
                     )
                     self.conn.execute(
-                        "INSERT INTO contents (name_id, inode, parent_inode) " "VALUES (?,?,?)",
+                        "INSERT INTO contents (name_id, inode, parent_inode) VALUES (?,?,?)",
                         (self._add_name(basename(name)), id_, id_p),
                     )
                     self.conn.execute("UPDATE inodes SET refcount=? WHERE id=?", (1, id_))
@@ -688,7 +688,7 @@ class Fsck(object):
 
             affected_entries = list(
                 self.conn.query(
-                    'SELECT name, name_id, parent_inode ' 'FROM contents_v WHERE inode=?', (inode,)
+                    'SELECT name, name_id, parent_inode FROM contents_v WHERE inode=?', (inode,)
                 )
             )
             for (name, name_id, id_p) in affected_entries:
@@ -775,7 +775,7 @@ class Fsck(object):
             '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
         )
         try:
-            self.conn.execute('INSERT INTO refcounts (id, refcount) ' 'SELECT id, 0 FROM names')
+            self.conn.execute('INSERT INTO refcounts (id, refcount) SELECT id, 0 FROM names')
             self.conn.execute(
                 'UPDATE refcounts SET refcount='
                 '(SELECT COUNT(name_id) FROM contents WHERE name_id = refcounts.id)'
@@ -851,7 +851,7 @@ class Fsck(object):
 
                 self.found_errors = True
                 self.log_error(
-                    'Inode %d (%s): directory entry has no type, changed ' 'to %s.',
+                    'Inode %d (%s): directory entry has no type, changed to %s.',
                     inode,
                     to_str(get_path(inode, self.conn)),
                     made_to,
@@ -928,11 +928,11 @@ class Fsck(object):
                 )
 
         for (name, id_p) in self.conn.query(
-            'SELECT name, parent_inode FROM contents_v ' 'WHERE LENGTH(name) > 255'
+            'SELECT name, parent_inode FROM contents_v WHERE LENGTH(name) > 255'
         ):
             path = get_path(id_p, self.conn, name)
             self.log_error(
-                'Entry name %s... in %s has more than 255 characters, ' 'this could cause problems',
+                'Entry name %s... in %s has more than 255 characters, this could cause problems',
                 to_str(name[:40]),
                 to_str(path[: -len(name)]),
             )
@@ -1033,7 +1033,7 @@ class Fsck(object):
         log.info('Checking objects (backend)...')
 
         lof_id = self.conn.get_val(
-            "SELECT inode FROM contents_v " "WHERE name=? AND parent_inode=?",
+            "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
             (b"lost+found", ROOT_INODE),
         )
 
@@ -1061,7 +1061,7 @@ class Fsck(object):
                 self.conn.execute('INSERT INTO obj_ids VALUES(?)', (obj_id,))
 
             for (obj_id,) in self.conn.query(
-                'SELECT id FROM obj_ids ' 'EXCEPT SELECT id FROM objects'
+                'SELECT id FROM obj_ids EXCEPT SELECT id FROM objects'
             ):
                 try:
                     if obj_id in self.unlinked_objects:
@@ -1135,7 +1135,7 @@ class Fsck(object):
         try:
             while True:
                 self.conn.get_val(
-                    "SELECT inode FROM contents_v " "WHERE name=? AND parent_inode=?",
+                    "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
                     (newname, inode_p),
                 )
                 i += 1
@@ -1202,7 +1202,7 @@ def parse_args(args):
         "--force-remote",
         action="store_true",
         default=False,
-        help="Force use of remote metadata even when this would " "likely result in data loss.",
+        help="Force use of remote metadata even when this would likely result in data loss.",
     )
     options = parser.parse_args(args)
 
@@ -1306,7 +1306,7 @@ def main(args=None):
                 break
         log.warning('Renaming outdated cache directory %s to .bak%d', cachepath + '-cache', i)
         log.warning(
-            'You should delete this directory once you are sure that ' 'everything is in order.'
+            'You should delete this directory once you are sure that everything is in order.'
         )
         os.rename(cachepath + '-cache', bak_name)
     elif outdated_cachedir:

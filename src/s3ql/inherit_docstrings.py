@@ -31,7 +31,7 @@ def copy_ancestor_docstring(fn):
     metaclass.
     '''
     raise RuntimeError(
-        'Decorator can only be used in classes ' 'using the `InheritableDocstrings` metaclass'
+        'Decorator can only be used in classes using the `InheritableDocstrings` metaclass'
     )
 
 
@@ -50,7 +50,7 @@ def _copy_ancestor_docstring(mro, fn):
         break
     else:
         raise RuntimeError(
-            "Can't inherit docstring for %s: method does not " "exist in superclass" % fn.__name__
+            "Can't inherit docstring for %s: method does not exist in superclass" % fn.__name__
         )
 
     return fn
@@ -64,7 +64,7 @@ def prepend_ancestor_docstring(fn):
     metaclass.
     '''
     raise RuntimeError(
-        'Decorator can only be used in classes ' 'using the `InheritableDocstrings` metaclass'
+        'Decorator can only be used in classes using the `InheritableDocstrings` metaclass'
     )
 
 

@@ -63,7 +63,7 @@ def parse_args(args):
         'level',
         choices=('debug', 'info', 'warn'),
         metavar='<level>',
-        help='Desired new log level for mount.s3ql process. ' 'Allowed values: %(choices)s',
+        help='Desired new log level for mount.s3ql process. Allowed values: %(choices)s',
     )
     sparser.add_argument(
         'modules',

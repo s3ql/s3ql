@@ -288,7 +288,7 @@ class BlockCache(object):
         except QueueEmpty:
             pass
         else:
-            log.error('Could not complete object removals, ' 'no removal threads left alive')
+            log.error('Could not complete object removals, no removal threads left alive')
 
         self.to_upload = None
         self.to_remove = None
@@ -461,7 +461,7 @@ class BlockCache(object):
         try:
             try:
                 old_obj_id = self.db.get_val(
-                    'SELECT obj_id FROM inode_blocks ' 'WHERE inode=? AND blockno=?',
+                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                     (el.inode, el.blockno),
                 )
             except NoSuchRowError:
@@ -473,7 +473,7 @@ class BlockCache(object):
             # No object with same hash
             except NoSuchRowError:
                 obj_id = self.db.rowid(
-                    'INSERT INTO objects (refcount, hash, length, phys_size) ' 'VALUES(?, ?, ?, ?)',
+                    'INSERT INTO objects (refcount, hash, length, phys_size) VALUES(?, ?, ?, ?)',
                     (1, hash_, el.size, -1),
                 )
                 log.debug('created new object %d, adding to upload queue', obj_id)
@@ -482,7 +482,7 @@ class BlockCache(object):
                 # in_transit, otherwise commit() may return before all blocks
                 # are available in db.
                 self.db.execute(
-                    'INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) ' 'VALUES(?,?,?)',
+                    'INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) VALUES(?,?,?)',
                     (obj_id, el.inode, el.blockno),
                 )
 
@@ -685,7 +685,7 @@ class BlockCache(object):
             filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
             try:
                 obj_id = self.db.get_val(
-                    'SELECT obj_id FROM inode_blocks ' 'WHERE inode=? AND blockno=?',
+                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                     (inode, blockno),
                 )
 
@@ -824,7 +824,7 @@ class BlockCache(object):
 
                     try:
                         obj_id = self.db.get_val(
-                            'SELECT obj_id FROM inode_blocks ' 'WHERE inode=? AND blockno=?',
+                            'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                             (inode, blockno),
                         )
                     except NoSuchRowError:
@@ -949,7 +949,7 @@ class BlockCache(object):
         # Force execution of sys.excepthook (exceptions raised
         # by __del__ are ignored)
         try:
-            raise RuntimeError("BlockManager instance was destroyed without " "calling destroy()!")
+            raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
         except RuntimeError:
             exc_info = sys.exc_info()
 

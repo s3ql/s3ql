@@ -269,7 +269,7 @@ def process_backups(backup_list, state, cycles):
             else:
                 if step == 0:
                     log.info(
-                        'Note: there is currently no backup available ' 'for age range %d to %d',
+                        'Note: there is currently no backup available for age range %d to %d',
                         min_,
                         max_,
                     )
@@ -278,7 +278,7 @@ def process_backups(backup_list, state, cycles):
 
     for range_ in sorted(missing):
         log.info(
-            'Note: there will be no backup for age range %s ' 'in (forthcoming) cycle(s): %s',
+            'Note: there will be no backup for age range %s in (forthcoming) cycle(s): %s',
             range_,
             format_list(missing[range_]),
         )
