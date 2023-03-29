@@ -15,7 +15,6 @@ import _thread
 import struct
 import io
 import os
-import shutil
 
 log = logging.getLogger(__name__)
 
