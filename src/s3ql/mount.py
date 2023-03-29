@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError
+from .logging import logging, setup_logging, QuietError, setup_warnings
 from . import fs, CURRENT_FS_REV
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
@@ -72,15 +72,14 @@ def install_thread_excepthook():
     threading.Thread.__init__ = init
 
 
-install_thread_excepthook()
-
-
 def main(args=None):
     '''Mount S3QL file system'''
 
     if args is None:
         args = sys.argv[1:]
 
+    install_thread_excepthook()
+    setup_warnings()
     options = parse_args(args)
 
     # Save handler so that we can remove it when daemonizing

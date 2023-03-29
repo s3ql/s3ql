@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, QuietError, setup_logging
+from .logging import logging, QuietError, setup_logging, setup_warnings
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .deltadump import INTEGER, BLOB
@@ -82,6 +82,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 

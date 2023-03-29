@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging
+from .logging import logging, setup_logging, setup_warnings
 from . import CTRL_NAME
 from .common import assert_s3ql_mountpoint, parse_literal
 from .parse_args import ArgumentParser
@@ -197,6 +197,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 

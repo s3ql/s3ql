@@ -31,7 +31,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 else:
     exec_prefix = ''
 
-from s3ql.logging import logging, setup_logging, QuietError
+from s3ql.logging import logging, setup_logging, QuietError, setup_warnings
 from s3ql.common import get_backend
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql.backends.comprenc import ComprencBackend
@@ -150,6 +150,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 

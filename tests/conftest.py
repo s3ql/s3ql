@@ -20,7 +20,7 @@ import signal
 import gc
 import time
 import pytest_trio
-
+import warnings
 
 assert pytest_trio  # suppress unused import warning
 
@@ -93,26 +93,13 @@ def pytest_configure(config):
         ):
             sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-    # When running from VCS repo, enable warnings
+    # Enable all warnings for subprocesses. This is not optimal, because they will be treated like
+    # other log messages (rather than captured as warnings by pytest) and can thus trigger test
+    # failures. Therefore, we only enable this when running from Git. Note that logging.py
+    # has additional logic to suppress some unactionable warnings, which is triggered by the
+    # dummy entry.
     if os.path.exists(os.path.join(basedir, '.git')):
-        import warnings
-
-        warnings.resetwarnings()
-
-        # Not sure what this is or what causes it, bug the internet
-        # is full of similar reports so probably a false positive.
-        warnings.filterwarnings(
-            action='ignore',
-            category=ImportWarning,
-            message="can't resolve package from __spec__ or __package__, falling "
-            "back on __name__ and __path__",
-        )
-
-        for cat in (DeprecationWarning, PendingDeprecationWarning):
-            warnings.filterwarnings(action='default', category=cat, module='s3ql', append=True)
-            warnings.filterwarnings(action='ignore', category=cat, append=True)
-        warnings.filterwarnings(action='default', append=True)
-        os.environ['S3QL_ENABLE_WARNINGS'] = '1'
+        os.environ['PYTHONWARNINGS'] = 'default,default:set_by_conftest'
 
     # Enable faulthandler
     faultlog_fd = os.open(
@@ -135,7 +122,6 @@ def pytest_configure(config):
                 logging.getLogger(module).setLevel(logging.DEBUG)
     else:
         root_logger.setLevel(logging.INFO)
-    logging.captureWarnings(capture=True)
 
 
 # Run gc.collect() at the end of every test, so that we get ResourceWarnings

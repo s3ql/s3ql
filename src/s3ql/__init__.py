@@ -6,31 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-# First, enable warnings. This should happen before any imports,
-# so that we can catch warnings emitted by code that runs during
-# the import.
-# Sadly, we cannot simply use $PYTHONWARNINGS, because it
-# does not allow regexes (cf https://bugs.python.org/issue34920)
 import os
-
-if 'S3QL_ENABLE_WARNINGS' in os.environ:
-    import warnings
-
-    warnings.resetwarnings()
-
-    # Not sure what this is or what causes it, bug the internet
-    # is full of similar reports so probably a false positive.
-    warnings.filterwarnings(
-        action='ignore',
-        category=ImportWarning,
-        message="can't resolve package from __spec__ or __package__, falling "
-        "back on __name__ and __path__",
-    )
-
-    for cat in (DeprecationWarning, PendingDeprecationWarning):
-        warnings.filterwarnings(action='default', category=cat, module='^s3ql', append=True)
-        warnings.filterwarnings(action='ignore', category=cat, append=True)
-    warnings.filterwarnings(action='default', append=True)
 
 # Ensure use of custom logger class
 # (We must not import s3ql.logging.logging as s3ql.logging,

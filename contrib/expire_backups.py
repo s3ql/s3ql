@@ -23,7 +23,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import setup_logging, QuietError, logging
+from s3ql.logging import setup_logging, QuietError, logging, setup_warnings
 from s3ql.common import thaw_basic_mapping, freeze_basic_mapping
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
@@ -118,6 +118,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 
