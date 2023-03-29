@@ -65,7 +65,7 @@ class AdmTests(unittest.TestCase):
         proc.stdout.close()
         self.assertEqual(proc.wait(), 0)
         self.reg_output(
-            r'^WARNING: Maximum object sizes less than ' '1 MiB will degrade performance\.$',
+            r'^WARNING: Maximum object sizes less than 1 MiB will degrade performance\.$',
             count=1,
         )
 
