@@ -42,7 +42,7 @@ def test_track_dirty():
         assert len(db.dirty_blocks) >= 1
 
 
-@pytest.yield_fixture
+@pytest.fixture
 def backend():
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
         yield local.Backend(Namespace(storage_url="local://" + backend_dir))

@@ -27,7 +27,7 @@ import tempfile
 import pytest
 
 
-@pytest.yield_fixture()
+@pytest.fixture()
 def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     plain_backend = local.Backend(Namespace(storage_url='local://' + backend_dir))
@@ -39,7 +39,7 @@ def backend():
         shutil.rmtree(backend_dir)
 
 
-@pytest.yield_fixture()
+@pytest.fixture()
 def db():
     dbfile = tempfile.NamedTemporaryFile()
     db = Connection(dbfile.name)
