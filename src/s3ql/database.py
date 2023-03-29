@@ -20,9 +20,9 @@ from contextlib import contextmanager
 from typing import Union, Optional, List
 import apsw
 import os
-from . import BUFSIZE
+from . import BUFSIZE, CURRENT_FS_REV
 from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
-from .backends.common import AbstractBackend
+from .backends.common import AbstractBackend, NoSuchObject
 import re
 
 log = logging.getLogger(__name__)
@@ -453,13 +453,32 @@ def store_and_upload_params(backend, cachepath: str, params: dict):
 
 
 def read_params(backend, cachepath: str):
-    params = thaw_basic_mapping(backend['s3ql_params'])
+    try:
+        buf = backend['s3ql_params']
+    except NoSuchObject:
+        # Perhaps this is an old filesystem revision
+        params = backend.lookup('s3ql_metadata')
+    else:
+        params = thaw_basic_mapping(buf)
 
     filename = cachepath + '.params'
     local_params = None
     if os.path.exists(filename):
         with open(filename, 'rb') as fh:
             local_params = thaw_basic_mapping(fh.read())
+
+    if local_params is None or params['seq_no'] > local_params['seq_no']:
+        rev = params['revision']
+    else:
+        rev = local_params['revision']
+    if rev < CURRENT_FS_REV:
+        raise QuietError(
+            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
+        )
+    elif rev > CURRENT_FS_REV:
+        raise QuietError(
+            'File system revision too new, please update your S3QL installation.', exitcode=33
+        )
 
     return (local_params, params)
 
