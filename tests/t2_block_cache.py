@@ -73,7 +73,7 @@ def random_data(len_):
         return fh.read(len_)
 
 
-@pytest.yield_fixture
+@pytest.fixture
 async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
