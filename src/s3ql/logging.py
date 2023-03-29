@@ -10,6 +10,7 @@ import logging
 import logging.handlers
 import sys
 import os.path
+import warnings
 
 
 class QuietError(Exception):
@@ -138,9 +139,24 @@ def setup_logging(options):
     else:
         root_logger.setLevel(logging.INFO)
         logging.disable(logging.DEBUG)
-    logging.captureWarnings(capture=True)
 
     return stdout_handler
+
+
+def setup_warnings():
+    # Always redirect warnings to logs so that they don't get lost
+    logging.captureWarnings(capture=True)
+
+    # If we're running under py.test, also narrow down warnings to actionable ones.
+    # Otherwise, leave default configuration untouched.
+    if sys.warnoptions != ['default', 'default:set_by_conftest']:
+        return
+
+    warnings.resetwarnings()
+    for cat in (DeprecationWarning, PendingDeprecationWarning):
+        warnings.filterwarnings(action='default', category=cat, module='^s3ql', append=True)
+        warnings.filterwarnings(action='ignore', category=cat, append=True)
+    warnings.filterwarnings(action='default', append=True)
 
 
 def setup_excepthook():

@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError
+from .logging import logging, setup_logging, QuietError, setup_warnings
 from .parse_args import ArgumentParser
 from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -66,6 +66,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 

@@ -20,7 +20,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import logging, setup_logging
+from s3ql.logging import logging, setup_logging, setup_warnings
 from s3ql.common import get_backend
 from s3ql.parse_args import ArgumentParser
 
@@ -52,6 +52,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 
