@@ -89,7 +89,7 @@ class TestFailsafe(t4_fuse.TestFuse):
                 fh.read()
         assert exc_info.value.errno == errno.EIO
         self.reg_output(
-            r'^ERROR: Backend returned malformed data for ' 'block 0 of inode \d+ .+$', count=1
+            r'^ERROR: Backend returned malformed data for block 0 of inode \d+ .+$', count=1
         )
 
         # This should still work
@@ -100,11 +100,11 @@ class TestFailsafe(t4_fuse.TestFuse):
         with pytest.raises(PermissionError):
             open(fname2, 'wb')
         self.reg_output(
-            r'^ERROR: Backend returned malformed data for ' 'block 0 of inode \d+ .+$', count=1
+            r'^ERROR: Backend returned malformed data for block 0 of inode \d+ .+$', count=1
         )
 
         # Printed during umount
-        self.reg_output(r'^WARNING: File system errors encountered, ' 'marking for fsck.$', count=1)
+        self.reg_output(r'^WARNING: File system errors encountered, marking for fsck.$', count=1)
 
 
 class TestSigInt(t4_fuse.TestFuse):
