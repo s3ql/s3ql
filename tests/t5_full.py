@@ -22,8 +22,6 @@ from subprocess import check_output, CalledProcessError
 import t4_fuse
 import tempfile
 import pytest
-import os
-from s3ql.common import _escape
 
 
 class TestFull(t4_fuse.TestFuse):
@@ -36,18 +34,7 @@ class TestFull(t4_fuse.TestFuse):
         ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
         try:
             self.populate_dir(ref_dir)
-
-            # Copy source data
             self.mkfs()
-
-            # Force 64bit inodes. This brings the local database out of sync with what's stored in
-            # the backend, but the next mount will most likely result in modifications to the same
-            # block and thus bring things back in sync.
-            cachepath = os.path.join(self.cache_dir, _escape(self.storage_url))
-            db = Connection(cachepath + '.db')
-            db.execute('UPDATE sqlite_sequence SET seq=? WHERE name=?', (2**36 + 10, 'inodes'))
-            db.close()
-
             self.mount()
             subprocess.check_call(['rsync', '-aHAX', ref_dir + '/', self.mnt_dir + '/'])
             self.umount()
