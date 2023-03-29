@@ -7,7 +7,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging, setup_logging, QuietError, setup_warnings
-from . import CURRENT_FS_REV, BUFSIZE, CTRL_INODE, ROOT_INODE
+from . import BUFSIZE, CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
@@ -1246,16 +1246,6 @@ def main(args=None):
                 param['needs_fsck'] = True
         else:
             log.info('Ignoring locally cached metadata (outdated).')
-
-    # Check revision
-    if param['revision'] < CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
-        )
-    elif param['revision'] > CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too new, please update your ' 'S3QL installation.', exitcode=33
-        )
 
     if param['is_mounted'] and local_param is not param:
         print(
