@@ -15,6 +15,8 @@ __pycache__
 /rst/autogen/
 /s3ql.old/
 /src/s3ql.egg-info/
+/src/s3ql/*.so
+/src/s3ql/sqlite3ext.cpp
 /tests/.cache/
 /tests/.pytest_cache/
 /tests/test.log

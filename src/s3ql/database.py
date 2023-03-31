@@ -24,6 +24,7 @@ from . import BUFSIZE, CURRENT_FS_REV
 from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
 from .backends.common import AbstractBackend, NoSuchObject
 import re
+from . import sqlite3ext
 
 log = logging.getLogger(__name__)
 
@@ -62,10 +63,10 @@ class Connection(object):
 
     def __init__(self, file_: str, blocksize: Optional[int] = None):
         if blocksize:
-            vfs.set_blocksize(blocksize)
+            sqlite3ext.set_blocksize(blocksize)
             file_ = os.path.abspath(file_)
-            self.dirty_blocks = vfs.dirty_blocks(file_)
-            self.conn = apsw.Connection(file_, vfs=VFS.vfs_name)
+            self.dirty_blocks = sqlite3ext.track_writes(file_)
+            self.conn = apsw.Connection(file_, vfs=sqlite3ext.get_vfsname())
         else:
             self.conn = apsw.Connection(file_)
         self.file = file_
@@ -397,7 +398,7 @@ def upload_metadata(
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)
         if incremental:
-            next_dirty_block = db.dirty_blocks.pop
+            next_dirty_block = db.dirty_blocks.get_block
         else:
             all_blocks = iter(range(0, db_size // blocksize + 1))
 
@@ -527,99 +528,8 @@ class ResultSet(object):
         self.cur.close()
 
 
-class VFS(apsw.VFS):
-    '''Custom VFS class for use by SQLite.
-
-    The only difference to the default VFS is that it this enables use of
-    our custom VFSFile class.
-
-    Not threadsafe.
-    '''
-
-    vfs_name = 'S3QL'
-
-    def __init__(self) -> None:
-        super().__init__(name=VFS.vfs_name, base='')
-        self.reset()
-
-    def reset(self):
-        self._tracked_files = dict()
-        self._blocksize = None
-
-    def set_blocksize(self, blocksize: int):
-        if self._blocksize is not None and self._blocksize != blocksize:
-            raise RuntimeError('blocksize may only be set once')
-        self._blocksize = blocksize
-
-    def dirty_blocks(self, file: str) -> set:
-        '''Track writes for *file*'''
-
-        log.debug('VFS: Tracking writes for %s', file)
-        try:
-            return self._tracked_files[file]
-        except KeyError:
-            pass
-        dirty_blocks = set()
-        self._tracked_files[file] = dirty_blocks
-        return dirty_blocks
-
-    def xOpen(self, name: Union[str, apsw.URIFilename], flags: List[int]):
-        if isinstance(name, apsw.URIFilename):
-            pname = name.filename()
-        else:
-            pname = name
-
-        dirty_blocks = self._tracked_files.get(pname)
-        if dirty_blocks is not None:
-            log.debug('VFS.xOpen(%s): using custom VFSFile', pname)
-            if self._blocksize is None:
-                raise RuntimeError('blocksize not set')
-            return VFSFile(name, flags, self._blocksize, dirty_blocks)
-        else:
-            log.debug('VFS.xOpen(%s): using default VFSFile', pname)
-            return super().xOpen(name, flags)
-
-
-class VFSFile(apsw.VFSFile):
-    ''' 'Custom VFSFile class for use by SQLite
-
-    This is used to track which parts of the database are being modified
-    and need to be re-uploaded.
-
-    Not threadsafe.
-    '''
-
-    def __init__(self, name: str, flags: List[int], blocksize: int, dirty_blocks: set):
-        # Inherit methods from default VFS
-        # Can't use keyword parameters here since some versions of APSW use
-        # filename=, while others use name=.
-        # First parameter is the base VFS name.
-        super().__init__('', name, flags)
-
-        self.blocksize = blocksize
-        self.dirty_blocks = dirty_blocks
-
-    def xWrite(self, buf: bytes, off: int) -> None:
-        len_ = len(buf)
-        log.debug("VFSFile.write(len=%d, off=%d)", len_, off)
-        super().xWrite(buf, off)
-        # Only mark blocks as dirty after the write, so that it's not possible
-        # to accidentally upload a block before the changes have been applied.
-        for n in range(off // self.blocksize, (off + len_ - 1) // self.blocksize + 1):
-            self.dirty_blocks.add(n)
-
-    def xTruncate(self, newsize: int) -> None:
-        log.debug("VFSFile.truncate(%d)", newsize)
-        super().xTruncate(newsize)
-        threshold = newsize // self.blocksize
-        dirty = list(self.dirty_blocks)
-        for blockno in dirty:
-            if blockno > threshold:
-                self.dirty_blocks.remove(blockno)
-
-    # TODO: Figure out what we need to do about xShm* methods
-    # (https://github.com/rogerbinns/apsw/issues/418)
-
-
-# Singleton instance (can't have more than one VFS with the same name)
-vfs = VFS()
+# Load extension, needs a dummy connection
+db = apsw.Connection(':memory:')
+db.enableloadextension(True)
+db.loadextension(sqlite3ext.__file__[:-3])
+db.close()
