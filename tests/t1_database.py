@@ -17,15 +17,15 @@ from s3ql.logging import logging  # Ensure use of custom logger class
 import tempfile
 from argparse import Namespace
 import pytest
-from s3ql import database
+from s3ql import database, sqlite3ext
 from s3ql.backends import local
 from s3ql.database import Connection, download_metadata, upload_metadata
 from pytest_checklogs import assert_logs
 
 
 def test_track_dirty():
-    blocksize = 1024
-    database.vfs.reset()
+    blocksize = 4096
+    sqlite3ext.reset()
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, blocksize)
         db.execute("CREATE TABLE foo (id INT);")
@@ -33,13 +33,14 @@ def test_track_dirty():
         db.execute("INSERT INTO FOO VALUES(?)", (25,))
         db.execute("INSERT INTO FOO VALUES(?)", (30,))
 
-        assert len(db.dirty_blocks) > 1
+        assert db.dirty_blocks.get_count() >= 1
 
         db.dirty_blocks.clear()
+        assert db.dirty_blocks.get_count() == 0
 
         db.execute("UPDATE FOO SET id=24 WHERE ID=23")
 
-        assert len(db.dirty_blocks) >= 1
+        assert db.dirty_blocks.get_count() >= 1
 
 
 @pytest.fixture
@@ -51,7 +52,7 @@ def backend():
 @pytest.mark.parametrize("incremental", (True, False))
 def test_upload_download(backend, incremental):
     blocksize = 1024
-    database.vfs.reset()
+    sqlite3ext.reset()
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, blocksize)
         db.execute("CREATE TABLE foo (val TEXT);")

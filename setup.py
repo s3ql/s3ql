@@ -95,8 +95,6 @@ def main():
         long_description=long_desc,
         author='Nikolaus Rath',
         author_email='Nikolaus@rath.org',
-        url='https://bitbucket.org/nikratio/s3ql/',
-        download_url='https://bitbucket.org/nikratio/s3ql/downloads',
         license='GPLv3',
         classifiers=[
             'Development Status :: 5 - Production/Stable',
@@ -108,20 +106,17 @@ def main():
             'Topic :: System :: Archiving',
         ],
         platforms=['POSIX', 'UNIX', 'Linux'],
-        keywords=[
-            'FUSE',
-            'backup',
-            'archival',
-            'compression',
-            'encryption',
-            'deduplication',
-            'aws',
-            's3',
-        ],
         package_dir={'': 'src'},
         packages=setuptools.find_packages('src'),
         provides=['s3ql'],
-        ext_modules=[],
+        ext_modules=[
+            Extension(
+                's3ql.sqlite3ext',
+                ['src/s3ql/sqlite3ext.cpp'],
+                extra_compile_args=compile_args,
+                language='c++',
+            ),
+        ],
         data_files=[
             (
                 'share/man/man1',
@@ -156,7 +151,7 @@ def main():
 class build_cython(setuptools.Command):
     user_options = []
     boolean_options = []
-    description = "Compile .pyx to .c"
+    description = "Compile .pyx to .c/.cpp"
 
     def initialize_options(self):
         pass
@@ -167,39 +162,19 @@ class build_cython(setuptools.Command):
         self.extensions = self.distribution.ext_modules
 
     def run(self):
-        cython = None
-        for c in ('cython3', 'cython'):
-            try:
-                version = subprocess.check_output(
-                    [c, '--version'], universal_newlines=True, stderr=subprocess.STDOUT
-                )
-                cython = c
-            except FileNotFoundError:
-                pass
-        if cython is None:
+        try:
+            from Cython.Build import cythonize
+        except ImportError:
             raise SystemExit('Cython needs to be installed for this command') from None
 
-        hit = re.match('^Cython version (.+)$', version)
-        if not hit or LooseVersion(hit.group(1)) < "0.17":
-            raise SystemExit('Need Cython 0.17 or newer, found ' + version)
-
-        cmd = [cython, '-Wextra', '-f', '-3', '-X', 'embedsignature=True']
-        if DEVELOPER_MODE:
-            cmd.append('-Werror')
-
-        # Work around http://trac.cython.org/cython_trac/ticket/714
-        cmd += ['-X', 'warn.maybe_uninitialized=False']
-
         for extension in self.extensions:
-            for file_ in extension.sources:
-                (file_, ext) = os.path.splitext(file_)
-                path = os.path.join(basedir, file_)
-                if ext != '.c':
+            for fpath in extension.sources:
+                (file_, ext) = os.path.splitext(fpath)
+                spath = os.path.join(basedir, file_ + '.pyx')
+                if ext not in ('.c', '.cpp') or not os.path.exists(spath):
                     continue
-                if os.path.exists(path + '.pyx'):
-                    print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
-                    if subprocess.call(cmd + [path + '.pyx']) != 0:
-                        raise SystemExit('Cython compilation failed')
+                print('compiling %s to %s' % (file_ + '.pyx', file_ + ext))
+                cythonize(spath, language_level=3)
 
 
 class upload_docs(setuptools.Command):
