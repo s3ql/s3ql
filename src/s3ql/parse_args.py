@@ -162,7 +162,7 @@ class ArgumentParser(argparse.ArgumentParser):
             type=lambda s: s.split(','),
             dest='debug',
             help="Activate debugging output from specified modules "
-            "(use commas to separate multiple modules). " + destnote,
+            "(use commas to separate multiple modules, 'all' for everything). " + destnote,
         )
         self.add_argument(
             "--debug",
