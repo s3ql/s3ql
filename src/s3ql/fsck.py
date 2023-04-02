@@ -1336,10 +1336,9 @@ def main(args=None):
             raise apsw.CorruptError()
     except apsw.CorruptError:
         raise QuietError(
-            'Metadata is corrupted. Remove or repair the following '
-            'files manually and re-run fsck:\n'
-            f'{cachepath}.db (corrupted)\n'
-            f'{cachepath }.param (intact)',
+            'Database file (f{cachepath}.db) is corrupted. Restore from a backup or try\n'
+            'to repair with the SQLite CLI (cf. https://www.sqlite.org/recovery.html),\n'
+            'then re-run fsck.s3ql',
             exitcode=43,
         )
 
