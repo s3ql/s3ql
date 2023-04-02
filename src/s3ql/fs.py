@@ -7,7 +7,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging
-from . import deltadump, CTRL_NAME, CTRL_INODE
+from . import CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .common import get_path, parse_literal, time_ns
 from .database import NoSuchRowError
@@ -320,9 +320,6 @@ class Operations(pyfuse3.Operations):
         else:
             if self.failsafe or self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
-
-            if len(value) > deltadump.MAX_BLOB_SIZE:
-                raise FUSEError(errno.EINVAL)
 
             self.db.execute(
                 'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) VALUES(?, ?, ?)',

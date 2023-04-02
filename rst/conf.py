@@ -9,7 +9,6 @@ sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
 try:
     import s3ql
-    import s3ql.deltadump
 except ModuleNotFoundError:
     print(
         'ERROR: s3ql python module not found.',
