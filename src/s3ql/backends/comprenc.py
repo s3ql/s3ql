@@ -10,7 +10,6 @@ from ..logging import logging  # Ensure use of custom logger class
 from .. import BUFSIZE
 from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
-from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 import cryptography.hazmat.backends as crypto_backends
 import bz2
@@ -55,7 +54,7 @@ def aes_decryptor(key):
     return cipher.decryptor()
 
 
-class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
+class ComprencBackend(AbstractBackend):
     '''
     This class adds encryption, compression and integrity protection to a plain
     backend.
@@ -74,20 +73,16 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             raise ValueError('Unsupported compression: %s' % compression)
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return self.backend.has_delete_multi
 
-    @copy_ancestor_docstring
     def reset(self):
         self.backend.reset()
 
-    @copy_ancestor_docstring
     def lookup(self, key):
         meta_raw = self.backend.lookup(key)
         return self._verify_meta(key, meta_raw)[1]
 
-    @prepend_ancestor_docstring
     def get_size(self, key):
         '''
         This method returns the compressed size, i.e. the storage space
@@ -96,7 +91,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return self.backend.get_size(key)
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
@@ -161,7 +155,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 
-    @prepend_ancestor_docstring
     def open_read(self, key):
         """
         If the backend has a password set but the object is not encrypted,
@@ -210,7 +203,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return fh
 
-    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
 
         if metadata is None:
@@ -257,23 +249,18 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return fh
 
-    @copy_ancestor_docstring
     def contains(self, key):
         return self.backend.contains(key)
 
-    @copy_ancestor_docstring
     def delete(self, key, force=False):
         return self.backend.delete(key, force)
 
-    @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         return self.backend.delete_multi(keys, force=force)
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         return self.backend.list(prefix)
 
-    @copy_ancestor_docstring
     def close(self):
         self.backend.close()
 

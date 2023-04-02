@@ -11,7 +11,6 @@ from . import swift
 from dugong import HTTPConnection, CaseInsensitiveDict
 from .common import AuthorizationError, retry, DanglingStorageURLError
 from .s3c import HTTPError
-from ..inherit_docstrings import copy_ancestor_docstring
 from urllib.parse import urlsplit
 import json
 import re
@@ -36,7 +35,6 @@ class Backend(swift.Backend):
         self.region = None
         super().__init__(options)
 
-    @copy_ancestor_docstring
     def _parse_storage_url(self, storage_url, ssl_context):
 
         hit = re.match(

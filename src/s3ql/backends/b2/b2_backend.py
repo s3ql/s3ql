@@ -35,7 +35,6 @@ from ..common import (
     NoSuchObject,
     DanglingStorageURLError,
 )
-from ...inherit_docstrings import ABCDocstMeta, copy_ancestor_docstring, prepend_ancestor_docstring
 from ...logging import logging, QuietError
 from ... import BUFSIZE
 from ..s3c import HTTPError
@@ -49,7 +48,7 @@ api_url_prefix = '/b2api/v2/'
 info_header_prefix = 'X-Bz-Info-'
 
 
-class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
+class B2Backend(AbstractBackend):
     '''A backend to store data in Backblaze B2 cloud storage.'''
 
     known_options = {
@@ -372,11 +371,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self.bucket_id
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return False
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We better reset our connections
@@ -420,7 +417,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return False
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
 
@@ -435,7 +431,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._extract_b2_metadata(response, key)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         log.debug('started with %s', key)
 
@@ -453,7 +448,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise RuntimeError('HEAD request did not return Content-Length')
 
     @retry
-    @copy_ancestor_docstring
     def open_read(self, key):
         response = self._do_download_request('GET', key)
 
@@ -470,7 +464,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, response, self, metadata)
 
-    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         '''
         The returned object will buffer all data and only start the uploads
@@ -487,7 +480,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectW(key, self, headers)
 
-    @copy_ancestor_docstring
     def delete(self, key, force=False):
         log.debug('started with %s', key)
 
@@ -571,7 +563,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return response['nextFileName'], response['nextFileId'], file_versions_list
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         next_filename = self._get_key_with_prefix(prefix)
 
@@ -609,7 +600,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         file_name = self._b2_escape_backslashes(file_name)
         return file_id, file_name
 
-    @copy_ancestor_docstring
     def close(self):
         self._reset_connections()
 

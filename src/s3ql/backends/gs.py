@@ -21,7 +21,6 @@ from .common import (
 )
 from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from .. import BUFSIZE
-from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 from dugong import (
     HTTPConnection,
     is_temp_network_error,
@@ -106,7 +105,7 @@ class AccessTokenExpired(Exception):
     '''
 
 
-class Backend(AbstractBackend, metaclass=ABCDocstMeta):
+class Backend(AbstractBackend):
     """A backend to store data in Google Storage"""
 
     known_options = {'ssl-ca-path', 'tcp-timeout'}
@@ -194,7 +193,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise
         self._parse_json_response(resp)
 
-    @copy_ancestor_docstring
     def reset(self):
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
@@ -209,7 +207,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so use this
@@ -252,7 +249,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         raise ServerResponseError(resp, error='expected empty response', body=body)
 
     @retry
-    @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
         path = '/storage/v1/b/%s/o/%s' % (
@@ -271,7 +267,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         prefix = self.prefix + prefix
         strip = len(self.prefix)
@@ -311,7 +306,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ([x['name'] for x in json_resp['items']], page_token)
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
         return _unwrap_user_meta(self._get_gs_meta(key))
@@ -332,13 +326,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._parse_json_response(resp)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         json_resp = self._get_gs_meta(key)
         return json_resp['size']
 
     @retry
-    @copy_ancestor_docstring
     def open_read(self, key):
         gs_meta = self._get_gs_meta(key)
 
@@ -356,7 +348,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, resp, self, gs_meta)
 
-    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         """
         The returned object will buffer all data and only start the upload
@@ -474,7 +465,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
 
-    @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
 
