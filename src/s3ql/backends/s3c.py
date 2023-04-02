@@ -755,7 +755,7 @@ def _tag_xmlns_uri(elem):
     return uri
 
 
-class ObjectR(object):
+class ObjectR:
     '''An S3 object open for reading'''
 
     # NOTE: This class is used as a base class for the swift backend,
@@ -831,7 +831,7 @@ class ObjectR(object):
             self.backend.conn.disconnect()
 
 
-class ObjectW(object):
+class ObjectW:
     '''An S3 object open for writing
 
     All data is first cached in memory, upload only starts when

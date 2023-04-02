@@ -116,7 +116,7 @@ class _Inode:
         sys.excepthook(*exc_info)
 
 
-class InodeCache(object):
+class InodeCache:
     '''
     This class maps the `inode` SQL table to a dict, caching the rows.
 

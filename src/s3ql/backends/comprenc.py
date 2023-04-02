@@ -265,7 +265,7 @@ class ComprencBackend(AbstractBackend):
         self.backend.close()
 
 
-class CompressFilter(object):
+class CompressFilter:
     '''Compress data while writing'''
 
     def __init__(self, fh, compr):
@@ -414,7 +414,7 @@ class DecompressFilter(InputFilter):
         return False
 
 
-class EncryptFilter(object):
+class EncryptFilter:
     '''Encrypt data while writing'''
 
     def __init__(self, fh, key):

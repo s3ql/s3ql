@@ -9,7 +9,7 @@ from .b2_error import BadDigestError
 log = logging.getLogger(__name__)
 
 
-class ObjectW(object):
+class ObjectW:
     '''A Backblaze B2 object open for writing
 
     All data is first cached in memory, upload only starts when

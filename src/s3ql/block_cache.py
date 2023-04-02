@@ -48,7 +48,7 @@ class NoWorkerThreads(Exception):
     pass
 
 
-class CacheEntry(object):
+class CacheEntry:
     """An element in the block cache
 
     Attributes:
@@ -149,7 +149,7 @@ class CacheDict(OrderedDict):
         return self.size > self.max_size or len(self) > self.max_entries
 
 
-class BlockCache(object):
+class BlockCache:
     """Provides access to file blocks
 
     This class manages access to file blocks. It takes care of creation,
