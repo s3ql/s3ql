@@ -721,7 +721,7 @@ def _unwrap_user_meta(json_resp):
     return meta
 
 
-class ObjectR(object):
+class ObjectR:
     '''A GS object open for reading'''
 
     def __init__(self, key, resp, backend, gs_meta):
@@ -796,7 +796,7 @@ class ObjectR(object):
             self.backend.conn.disconnect()
 
 
-class ObjectW(object):
+class ObjectW:
     '''An GS object open for writing
 
     All data is first cached in memory, upload only starts when

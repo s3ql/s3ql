@@ -46,7 +46,7 @@ S_IFMT = (
 )
 
 
-class Fsck(object):
+class Fsck:
     def __init__(self, cachedir_, backend_, param, conn):
 
         self.cachedir = cachedir_

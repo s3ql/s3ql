@@ -7,7 +7,7 @@ from .b2_error import BadDigestError
 log = logging.getLogger(__name__)
 
 
-class ObjectR(object):
+class ObjectR:
     '''A Backblaze B2 object open for reading'''
 
     def __init__(self, key, response, backend, metadata=None):

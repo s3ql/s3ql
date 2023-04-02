@@ -227,7 +227,7 @@ class ObjectR(io.FileIO):
         super().close()
 
 
-class ObjectW(object):
+class ObjectW:
     '''A local storage object opened for writing'''
 
     def __init__(self, name):

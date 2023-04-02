@@ -44,7 +44,7 @@ initsql = (
 )
 
 
-class Connection(object):
+class Connection:
     '''
     This class wraps an APSW connection object. It should be used instead of any
     native APSW cursors.
@@ -500,7 +500,7 @@ class NoSuchRowError(Exception):
         return 'Query produced 0 result rows'
 
 
-class ResultSet(object):
+class ResultSet:
     '''
     Provide iteration over encapsulated apsw cursor. Additionally,
     `ResultSet` instances may be used as context managers to terminate
