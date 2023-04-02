@@ -985,14 +985,21 @@ class Operations(pyfuse3.Operations):
             *self.cache.get_usage()
         )
 
-    async def statfs(self, ctx):
+    async def statfs(self, ctx, _cache=[]):
         log.debug('started')
 
         stat_ = pyfuse3.StatvfsData()
 
-        objects = self.db.get_val("SELECT COUNT(id) FROM objects")
-        inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-        size = self.db.get_val('SELECT SUM(length) FROM objects')
+        # Some applications call statfs() very often and repeatedly (VSCode). Since the SELECT
+        # queries need to iterate over the full database, this is very expensive and slows other
+        # filesystem users down. To avoid that, we cache results for a short time.
+        if _cache and time.time() - _cache[3] < 30:
+            (objects, inodes, size) = _cache[:3]
+        else:
+            objects = self.db.get_val("SELECT COUNT(id) FROM objects")
+            inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
+            size = self.db.get_val('SELECT SUM(length) FROM objects')
+            _cache[:] = (objects, inodes, size, time.time())
 
         if size is None:
             size = 0
