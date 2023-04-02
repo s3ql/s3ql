@@ -128,13 +128,13 @@ def setup_logging(options):
     setup_excepthook()
 
     if options.debug:
+        logging.getLogger('__main__').setLevel(logging.DEBUG)
         if 'all' in options.debug:
             root_logger.setLevel(logging.DEBUG)
         else:
             root_logger.setLevel(logging.INFO)
             for module in options.debug:
                 logging.getLogger(module).setLevel(logging.DEBUG)
-
         logging.disable(logging.NOTSET)
     else:
         root_logger.setLevel(logging.INFO)
@@ -167,14 +167,14 @@ def setup_excepthook():
     '''
 
     def excepthook(type_, val, tb):
-        root_logger = logging.getLogger()
+        log = logging.getLogger('__main__')
 
         if isinstance(val, QuietError):
-            root_logger.debug('Uncaught top-level exception:', exc_info=(type_, val, tb))
-            root_logger.error(val.msg)
+            log.debug('Uncaught top-level exception:', exc_info=(type_, val, tb))
+            log.error(val.msg)
             sys.exit(val.exitcode)
         else:
-            root_logger.error('Uncaught top-level exception:', exc_info=(type_, val, tb))
+            log.error('Uncaught top-level exception:', exc_info=(type_, val, tb))
             sys.exit(1)
 
     sys.excepthook = excepthook
