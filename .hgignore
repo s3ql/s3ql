@@ -11,8 +11,7 @@ __pycache__/
 ^doc/
 ^rst/autogen/
 ^s3ql.old$
-^src/s3ql/deltadump.*.so$
-^src/s3ql/deltadump.c$
+^src/s3ql/*.so$
 ^src/s3ql\.egg-info$
 ^tests/.cache/
 ^tests/.pytest_cache/

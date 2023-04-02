@@ -121,14 +121,7 @@ def main():
         package_dir={'': 'src'},
         packages=setuptools.find_packages('src'),
         provides=['s3ql'],
-        ext_modules=[
-            Extension(
-                's3ql.deltadump',
-                ['src/s3ql/deltadump.c'],
-                extra_compile_args=compile_args,
-                extra_link_args=['-lsqlite3'],
-            )
-        ],
+        ext_modules=[],
         data_files=[
             (
                 'share/man/man1',
