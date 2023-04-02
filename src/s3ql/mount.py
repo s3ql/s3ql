@@ -127,9 +127,9 @@ def main(args=None):
 
         prof = cProfile.Profile()
         prof.runcall(trio.run, main_async, options, stdout_log_handler)
-        with tempfile.NamedTemporaryFile() as tmp, open('s3ql_profile.txt', 'w') as fh:
-            prof.dump_stats(tmp.name)
-            p = pstats.Stats(tmp.name, stream=fh)
+        with open('s3ql_profile.txt', 'w') as fh:
+            prof.dump_stats('s3ql_profile.dat')
+            p = pstats.Stats('s3ql_profile.dat', stream=fh)
             p.strip_dirs()
             p.sort_stats('cumulative')
             p.print_stats(50)
