@@ -303,7 +303,7 @@ def get_backend_factory(options):
             data_pw = None
             # Try to read metadata to detect old file system revision
             try:
-                tmp_backend.fetch('s3ql_metadata')
+                tmp_backend.fetch('s3ql_params')
             except CorruptedObjectError:
                 raise QuietError(
                     'File system revision needs upgrade (or backend data is corrupted)',
