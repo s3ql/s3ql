@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging  # Ensure use of custom logger class
 from .. import BUFSIZE
-from ..inherit_docstrings import copy_ancestor_docstring, ABCDocstMeta
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, CorruptedObjectError
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 import _thread
@@ -19,7 +18,7 @@ import os
 log = logging.getLogger(__name__)
 
 
-class Backend(AbstractBackend, metaclass=ABCDocstMeta):
+class Backend(AbstractBackend):
     '''
     A backend that stores data on the local hard disk
     '''
@@ -40,18 +39,15 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise DanglingStorageURLError(self.prefix)
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return True
 
     def __str__(self):
         return 'local directory %s' % self.prefix
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):  # IGNORE:W0613
         return False
 
-    @copy_ancestor_docstring
     def lookup(self, key):
         path = self._key_to_path(key)
         try:
@@ -60,11 +56,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except FileNotFoundError:
             raise NoSuchObject(key)
 
-    @copy_ancestor_docstring
     def get_size(self, key):
         return os.path.getsize(self._key_to_path(key))
 
-    @copy_ancestor_docstring
     def open_read(self, key):
         path = self._key_to_path(key)
         try:
@@ -79,7 +73,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise CorruptedObjectError('Invalid metadata')
         return fh
 
-    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         if metadata is None:
             metadata = dict()
@@ -104,7 +97,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return dest
 
-    @copy_ancestor_docstring
     def contains(self, key):
         path = self._key_to_path(key)
         try:
@@ -113,7 +105,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             return False
         return True
 
-    @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         for (i, key) in enumerate(keys):
             try:
@@ -124,7 +115,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         del keys[:]
 
-    @copy_ancestor_docstring
     def delete(self, key, force=False):
         path = self._key_to_path(key)
         try:
@@ -135,7 +125,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise NoSuchObject(key)
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
 
         if prefix:

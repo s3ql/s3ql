@@ -19,7 +19,6 @@ from .common import (
 )
 from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
 from . import s3c
-from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 from dugong import (
     HTTPConnection,
     BodyFollowing,
@@ -42,7 +41,7 @@ log = logging.getLogger(__name__)
 TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
 
-class Backend(AbstractBackend, metaclass=ABCDocstMeta):
+class Backend(AbstractBackend):
     """A backend to store data in OpenStack Swift
 
     The backend guarantees get after create consistency, i.e. a newly created
@@ -130,7 +129,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.container_name = containername
         self.prefix = prefix
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if isinstance(exc, AuthenticationExpired):
             return True
@@ -330,7 +328,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self.conn.read_response()
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
         if key.endswith(TEMP_SUFFIX):
@@ -348,7 +345,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._extractmeta(resp, key)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
@@ -369,7 +365,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise RuntimeError('HEAD request did not return Content-Length')
 
     @retry
-    @copy_ancestor_docstring
     def open_read(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
@@ -393,7 +388,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, resp, self, meta)
 
-    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         """
         The returned object will buffer all data and only start the upload
@@ -412,7 +406,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return ObjectW(key, self, headers)
 
     @retry
-    @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
@@ -584,11 +577,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         raise HTTPError(error_code, error_msg, {})
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return self.features.has_bulk_delete
 
-    @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         log.debug('started with %s', keys)
 
@@ -602,7 +593,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         else:
             super().delete_multi(keys, force=force)
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         prefix = self.prefix + prefix
         strip = len(self.prefix)
@@ -657,7 +647,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return (names, page_token)
 
-    @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
 

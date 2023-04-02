@@ -20,7 +20,6 @@ from .common import (
     CorruptedObjectError,
     checksum_basic_mapping,
 )
-from ..inherit_docstrings import copy_ancestor_docstring, prepend_ancestor_docstring, ABCDocstMeta
 from io import BytesIO
 from shutil import copyfileobj
 from dugong import (
@@ -56,7 +55,7 @@ XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 log = logging.getLogger(__name__)
 
 
-class Backend(AbstractBackend, metaclass=ABCDocstMeta):
+class Backend(AbstractBackend):
     """A backend to stored data in some S3 compatible storage service.
 
     The backend guarantees only immediate get after create consistency.
@@ -94,7 +93,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.login = options.backend_login
 
     # NOTE: ! This function is also used by the swift backend !
-    @copy_ancestor_docstring
+
     def reset(self):
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
@@ -143,7 +142,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     # `gs.Backend._get_access_token`. When modifying this method, do not forget
     # to check if this makes it unsuitable for use by `_get_access_token` (in
     # that case we will have to implement a custom retry logic there).
-    @copy_ancestor_docstring
+
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so use this
@@ -236,7 +235,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         raise RuntimeError('Unexpected server response')
 
     @retry
-    @copy_ancestor_docstring
     def delete(self, key, force=False, is_retry=False):
         log.debug('started with %s', key)
         try:
@@ -250,7 +248,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             else:
                 raise NoSuchObject(key)
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         prefix = self.prefix + prefix
         strip = len(self.prefix)
@@ -308,7 +305,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return (names, page_token)
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
 
@@ -324,7 +320,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._extractmeta(resp, key)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         log.debug('started with %s', key)
 
@@ -343,7 +338,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             raise RuntimeError('HEAD request did not return Content-Length')
 
     @retry
-    @copy_ancestor_docstring
     def open_read(self, key):
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
@@ -363,7 +357,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return ObjectR(key, resp, self, meta)
 
-    @prepend_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False, extra_headers=None):
         """
         The returned object will buffer all data and only start the upload
@@ -698,7 +691,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return read_response()
 
-    @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
 

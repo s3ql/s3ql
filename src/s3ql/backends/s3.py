@@ -10,7 +10,6 @@ from ..logging import logging, QuietError  # Ensure use of custom logger class
 from . import s3c
 from .s3c import get_S3Error
 from .common import NoSuchObject, retry
-from ..inherit_docstrings import copy_ancestor_docstring
 from xml.sax.saxutils import escape as xml_escape
 import re
 import time
@@ -72,11 +71,9 @@ class Backend(s3c.Backend):
         return 'Amazon S3 bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return True
 
-    @copy_ancestor_docstring
     def delete_multi(self, keys, force=False):
         log.debug('started with %s', keys)
 
@@ -103,7 +100,6 @@ class Backend(s3c.Backend):
             sc = 'STANDARD'
         headers['x-amz-storage-class'] = sc
 
-    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False):
         extra_headers = {}
         self._set_storage_options(extra_headers)
