@@ -24,6 +24,7 @@ from . import BUFSIZE, CURRENT_FS_REV
 from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
 from .backends.common import AbstractBackend, NoSuchObject
 import re
+import time
 from . import sqlite3ext
 
 log = logging.getLogger(__name__)
@@ -81,6 +82,7 @@ class Connection:
             self.conn = apsw.Connection(file_)
         self.file = file_
         self.blocksize = blocksize
+        self.tx_active = False
 
         cur = self.conn.cursor()
 
@@ -169,27 +171,15 @@ class Connection:
             row = self.get_row('PRAGMA main.wal_checkpoint(RESTART)')
         except apsw.LockedError:  # https://sqlite.org/forum/forumpost/9e1ad35f07
             row = (1, 0, 0)
-        else:
-            log.debug('checkpoint: wrote %d/%d pages to db file', row[2], row[1])
-        if row[0] != 0:
+        if row[0] != 0 or row[1] == -1:
             log.warning(
                 'Unable to checkpoint WAL - please report at https://github.com/s3ql/s3ql/issues'
             )
-
-    @contextmanager
-    def transaction(self, rollback_on_error: bool):
-        cur = self.conn.cursor()
-        cur.execute('BEGIN TRANSACTION')
-        try:
-            yield
-        except:
-            if rollback_on_error:
-                cur.execute('ROLLBACK')
-            else:
-                cur.execute('COMMIT')
-            raise
         else:
-            cur.execute('COMMIT')
+            log.debug('checkpoint: wrote %d/%d pages to db file', row[2], row[1])
+
+    def batch(self, dt_target: float):
+        return BatchedTransactionManager(self, dt_target)
 
     def get_val(self, *a, **kw):
         """Execute statement and return first element of first result row.
@@ -238,6 +228,49 @@ class Connection:
         """Return number of rows affected by most recent sql statement"""
 
         return self.conn.changes()
+
+
+class BatchedTransactionManager:
+    def __init__(self, conn: Connection, dt_target: float) -> None:
+        self.conn = conn
+        self.dt_target = dt_target
+        self.in_tx = False
+        self.stamp = None
+        self.batch_size = 100
+
+    def __enter__(self):
+        self.start_batch()
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        if self.in_tx:
+            self.conn.execute('COMMIT')
+            self.in_tx = False
+
+    def start_batch(self):
+        self.stamp = time.time()
+        self.conn.execute('BEGIN TRANSACTION')
+        self.in_tx = True
+
+    def finish_batch(self, processed: int):
+        '''Return new batch size'''
+
+        if not self.in_tx:
+            raise RuntimeError('No active batch')
+
+        self.conn.execute('COMMIT')
+        self.in_tx = False
+        self.conn.checkpoint()
+        dt = time.time() - self.stamp
+        self.batch_size = max(
+            100, int(processed * self.dt_target / dt)  # make sure to make some progress
+        )
+        log.debug(
+            'Last batch of %d took %.2f s, adjusting batch_size to %d and yielding',
+            processed,
+            dt,
+            self.batch_size,
+        )
 
 
 def create_tables(conn):

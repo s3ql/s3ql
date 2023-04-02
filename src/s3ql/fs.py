@@ -10,7 +10,7 @@ from .logging import logging
 from . import CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .common import get_path, parse_literal, time_ns
-from .database import NoSuchRowError
+from .database import Connection, NoSuchRowError
 from io import BytesIO
 import collections
 import errno
@@ -114,7 +114,7 @@ class Operations(pyfuse3.Operations):
     enable_acl = False
     enable_writeback_cache = True
 
-    def __init__(self, block_cache, db, max_obj_size, inode_cache, upload_task=None):
+    def __init__(self, block_cache, db: Connection, max_obj_size, inode_cache, upload_task=None):
         super().__init__()
 
         self.inodes = inode_cache
@@ -356,34 +356,39 @@ class Operations(pyfuse3.Operations):
         queue = [(id0, -1)]
         self.inodes[id0].locked = True
         conn = self.db
-        while queue:
-            (id_p, off) = queue.pop()
-            log.debug('Processing directory (%d, %d)', id_p, off)
-            processed = 0
 
-            # We use the transaction to save space in the WAL file, not because we want changes to
-            # be committed atomically. We also don't want to rollback on error, because in that case
-            # the database gets out of sync with the inode cache (which probably makes things worse)
-            with conn.transaction(rollback_on_error=False), conn.query(
-                'SELECT name_id, inode FROM contents WHERE parent_inode=? '
-                'AND name_id > ? ORDER BY name_id',
-                (id_p, off),
-            ) as res:
-                for (name_id, id_) in res:
-                    self.inodes[id_].locked = True
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:
+                (id_p, off) = queue.pop()
+                log.debug('Processing directory (%d, %d)', id_p, off)
 
-                    if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        queue.append((id_, -1))
+                with conn.query(
+                    'SELECT name_id, inode FROM contents WHERE parent_inode=? '
+                    'AND name_id > ? ORDER BY name_id',
+                    (id_p, off),
+                ) as res:
+                    for (name_id, id_) in res:
+                        self.inodes[id_].locked = True
 
-                    # Break every once in a while - note that we can't yield
-                    # right here because there's an active DB query.
-                    processed += 1
-                    if processed > 200:
-                        queue.append((id_p, name_id))
-                        break
+                        if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                            queue.append((id_, -1))
 
-            await trio.lowlevel.checkpoint()
-            conn.checkpoint()
+                        # Break every once in a while - note that we can't yield
+                        # right here because there's an active DB query.
+                        processed += 1
+                        if processed > batch_mgr.batch_size:
+                            queue.append((id_p, name_id))
+                            break
+
+                if processed > batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         log.debug('finished')
 
@@ -401,26 +406,26 @@ class Operations(pyfuse3.Operations):
         conn = self.db
         id0 = self._lookup(id_p0, name0, ctx=None).id
         queue = [id0]  # Directories that we still need to delete
-        batch_size = 200  # Entries to process before checkpointing
-        stamp = time.time()  # Time of last checkpoint
-        while queue:  # For every directory
-            id_p = queue.pop()
-            is_open = id_p in self.open_inodes
 
-            # Per https://sqlite.org/isolation.html, results of removing rows
-            # during select are undefined. Therefore, process data in chunks.
-            # This is also a nice opportunity to release the GIL...
-            query_chunk = conn.get_list(
-                'SELECT name, name_id, inode FROM contents_v WHERE '
-                'parent_inode=? LIMIT %d' % batch_size,
-                (id_p,),
-            )
-            reinserted = False
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:  # For every directory
+                id_p = queue.pop()
+                is_open = id_p in self.open_inodes
 
-            # We use the transaction to save space in the WAL file, not because we want changes to
-            # be committed atomically. We also don't want to rollback on error, because in that case
-            # the database gets out of sync with the inode cache (which probably makes things worse)
-            with conn.transaction(rollback_on_error=False):
+                # Per https://sqlite.org/isolation.html, results of removing rows
+                # during select are undefined. Therefore, process data in chunks.
+                # This is also a nice opportunity to release the GIL...
+                query_chunk = conn.get_list(
+                    'SELECT name, name_id, inode FROM contents_v WHERE '
+                    'parent_inode=? LIMIT %d' % batch_mgr.batch_size,
+                    (id_p,),
+                )
+                reinserted = False
+
                 for (name, name_id, id_) in query_chunk:
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         # First delete subdirectories
@@ -432,21 +437,18 @@ class Operations(pyfuse3.Operations):
                         if is_open:
                             pyfuse3.invalidate_entry_async(id_p, name)
                         await self._remove(id_p, name, id_, force=True)
+                    processed += 1
 
-            if query_chunk and not reinserted:
-                # Make sure to re-insert the directory to process the remaining
-                # contents and delete the directory itself.
-                queue.append(id_p)
+                if query_chunk and not reinserted:
+                    # Make sure to re-insert the directory to process the remaining
+                    # contents and delete the directory itself.
+                    queue.append(id_p)
 
-            dt = time.time() - stamp
-            batch_size = int(batch_size * CHECKPOINT_INTERVAL / dt)
-            batch_size = min(batch_size, 200)  # somewhat arbitrary...
-            batch_size = max(batch_size, 20000)
-            log.debug('Adjusting batch_size to %d and yielding', batch_size)
-            await trio.lowlevel.checkpoint()
-            conn.checkpoint()
-            log.debug('re-acquired lock')
-            stamp = time.time()
+                if processed > batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
@@ -488,96 +490,100 @@ class Operations(pyfuse3.Operations):
 
         queue = [(src_id, tmp.id, -1)]
         id_cache = dict()
-        while queue:
-            (src_id, target_id, off) = queue.pop()
-            log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
-            processed = 0
 
-            # We use the transaction to save space in the WAL file, not because we want changes to
-            # be committed atomically. We also don't want to rollback on error, because in that case
-            # the database gets out of sync with the inode cache (which probably makes things worse)
-            with db.transaction(rollback_on_error=False), db.query(
-                'SELECT name_id, inode FROM contents WHERE parent_inode=? '
-                'AND name_id > ? ORDER BY name_id',
-                (src_id, off),
-            ) as res:
-                for (name_id, id_) in res:
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with db.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:
+                (src_id, target_id, off) = queue.pop()
+                # log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
 
-                    # Make sure that all blocks are in the database
-                    if id_ in self.open_inodes:
-                        await self.cache.start_flush(id_)
+                with db.query(
+                    'SELECT name_id, inode FROM contents WHERE parent_inode=? '
+                    'AND name_id > ? ORDER BY name_id',
+                    (src_id, off),
+                ) as res:
+                    for (name_id, id_) in res:
 
-                    if id_ not in id_cache:
-                        inode = self.inodes[id_]
-                        inode_new = make_inode(
-                            refcount=1,
-                            mode=inode.mode,
-                            size=inode.size,
-                            uid=inode.uid,
-                            gid=inode.gid,
-                            mtime_ns=inode.mtime_ns,
-                            atime_ns=inode.atime_ns,
-                            ctime_ns=inode.ctime_ns,
-                            rdev=inode.rdev,
-                        )
+                        # Make sure that all blocks are in the database
+                        if id_ in self.open_inodes:
+                            await self.cache.start_flush(id_)
 
-                        id_new = inode_new.id
+                        if id_ not in id_cache:
+                            inode = self.inodes[id_]
+                            inode_new = make_inode(
+                                refcount=1,
+                                mode=inode.mode,
+                                size=inode.size,
+                                uid=inode.uid,
+                                gid=inode.gid,
+                                mtime_ns=inode.mtime_ns,
+                                atime_ns=inode.atime_ns,
+                                ctime_ns=inode.ctime_ns,
+                                rdev=inode.rdev,
+                            )
 
-                        if inode.refcount != 1:
-                            id_cache[id_] = id_new
+                            id_new = inode_new.id
+
+                            if inode.refcount != 1:
+                                id_cache[id_] = id_new
+
+                            db.execute(
+                                'INSERT INTO symlink_targets (inode, target) '
+                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
+                                (id_new, id_),
+                            )
+
+                            db.execute(
+                                'INSERT INTO ext_attributes (inode, name_id, value) '
+                                'SELECT ?, name_id, value FROM ext_attributes WHERE inode=?',
+                                (id_new, id_),
+                            )
+                            db.execute(
+                                'UPDATE names SET refcount = refcount + 1 WHERE '
+                                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                                (id_,),
+                            )
+
+                            processed += db.execute(
+                                'INSERT INTO inode_blocks (inode, blockno, obj_id) '
+                                'SELECT ?, blockno, obj_id FROM inode_blocks '
+                                'WHERE inode=?',
+                                (id_new, id_),
+                            )
+                            db.execute(
+                                'REPLACE INTO objects (id, hash, refcount, phys_size, length) '
+                                'SELECT id, hash, refcount+COUNT(id), phys_size, length '
+                                'FROM inode_blocks JOIN objects ON obj_id = id '
+                                'WHERE inode = ? GROUP BY id',
+                                (id_new,),
+                            )
+
+                            if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                                queue.append((id_, id_new, -1))
+                        else:
+                            id_new = id_cache[id_]
+                            self.inodes[id_new].refcount += 1
 
                         db.execute(
-                            'INSERT INTO symlink_targets (inode, target) '
-                            'SELECT ?, target FROM symlink_targets WHERE inode=?',
-                            (id_new, id_),
+                            'INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
+                            (name_id, id_new, target_id),
                         )
+                        db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
 
-                        db.execute(
-                            'INSERT INTO ext_attributes (inode, name_id, value) '
-                            'SELECT ?, name_id, value FROM ext_attributes WHERE inode=?',
-                            (id_new, id_),
-                        )
-                        db.execute(
-                            'UPDATE names SET refcount = refcount + 1 WHERE '
-                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                            (id_,),
-                        )
+                        # Can't finish batch here because there's an active DB query.
+                        processed += 1
+                        if processed >= batch_mgr.batch_size:
+                            queue.append((src_id, target_id, name_id))
+                            break
 
-                        processed += db.execute(
-                            'INSERT INTO inode_blocks (inode, blockno, obj_id) '
-                            'SELECT ?, blockno, obj_id FROM inode_blocks '
-                            'WHERE inode=?',
-                            (id_new, id_),
-                        )
-                        db.execute(
-                            'REPLACE INTO objects (id, hash, refcount, phys_size, length) '
-                            'SELECT id, hash, refcount+COUNT(id), phys_size, length '
-                            'FROM inode_blocks JOIN objects ON obj_id = id '
-                            'WHERE inode = ? GROUP BY id',
-                            (id_new,),
-                        )
-
-                        if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                            queue.append((id_, id_new, -1))
-                    else:
-                        id_new = id_cache[id_]
-                        self.inodes[id_new].refcount += 1
-
-                    db.execute(
-                        'INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
-                        (name_id, id_new, target_id),
-                    )
-                    db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
-
-                    # Break every once in a while - note that we can't yield
-                    # right here because there's an active DB query.
-                    processed += 1
-                    if processed > 200:
-                        queue.append((src_id, target_id, name_id))
-                        break
-
-            await trio.lowlevel.checkpoint()
-            db.checkpoint()
+                if processed >= batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         # Make replication visible
         self.db.execute(
