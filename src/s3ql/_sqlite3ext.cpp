@@ -152,12 +152,16 @@ static int vfstraceTruncate(sqlite3_file* pFile, sqlite_int64 size) {
     }
     auto it = p->block_map->begin();
     auto blockno = size / blocksize;
+    int dropped = 0;
     while (it != p->block_map->end()) {
         if (*it <= blockno) {
+            it++;
             continue;
         }
         p->block_map->erase(it++);
+        dropped++;
     }
+    sqlite3_log(SQLITE_NOTICE, "Dropped %d dirty blocks after truncation", dropped);
     return rc;
 }
 
