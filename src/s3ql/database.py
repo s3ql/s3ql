@@ -113,6 +113,9 @@ class Connection:
             self.fixes = {'dbf': ''}
 
     def close(self):
+        # As recommended in https://www.sqlite.org/lang_analyze.html
+        self.execute('PRAGMA analysis_limit=0')
+        self.execute('PRAGMA optimize')
         self.conn.close()
 
     def get_size(self):
