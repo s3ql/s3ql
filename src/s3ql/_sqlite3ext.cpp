@@ -250,9 +250,11 @@ static int vfstraceDeviceCharacteristics(sqlite3_file* pFile) {
 */
 static int vfstraceShmLock(sqlite3_file* pFile, int ofst, int n, int flags) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    int rc;
-    rc = p->pReal->pMethods->xShmLock(p->pReal, ofst, n, flags);
-    return rc;
+    if (p->block_map) {
+        sqlite3_log(SQLITE_IOERR_SHMLOCK, "Can't use shm when write tracking is enabled");
+        return SQLITE_IOERR_SHMLOCK;
+    }
+    return p->pReal->pMethods->xShmLock(p->pReal, ofst, n, flags);
 }
 static int vfstraceShmMap(
     sqlite3_file* pFile,
@@ -261,19 +263,26 @@ static int vfstraceShmMap(
     int isWrite,
     void volatile** pp) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    int rc;
-    rc = p->pReal->pMethods->xShmMap(p->pReal, iRegion, szRegion, isWrite, pp);
-    return rc;
+    if (p->block_map) {
+        sqlite3_log(SQLITE_IOERR_SHMMAP, "Can't use shm when write tracking is enabled");
+        return SQLITE_IOERR_SHMMAP;
+    }
+    return p->pReal->pMethods->xShmMap(p->pReal, iRegion, szRegion, isWrite, pp);
 }
 static void vfstraceShmBarrier(sqlite3_file* pFile) {
     vfstrace_file* p = (vfstrace_file*)pFile;
+    if (p->block_map) {
+        sqlite3_log(SQLITE_IOERR, "Can't use shm when write tracking is enabled");
+    }
     p->pReal->pMethods->xShmBarrier(p->pReal);
 }
 static int vfstraceShmUnmap(sqlite3_file* pFile, int delFlag) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    int rc;
-    rc = p->pReal->pMethods->xShmUnmap(p->pReal, delFlag);
-    return rc;
+    if (p->block_map) {
+        sqlite3_log(SQLITE_IOERR, "Can't use shm when write tracking is enabled");
+        return SQLITE_IOERR;
+    }
+    return p->pReal->pMethods->xShmUnmap(p->pReal, delFlag);
 }
 
 /*
@@ -319,17 +328,13 @@ static int vfstraceOpen(
         pNew->xSectorSize = vfstraceSectorSize;
         pNew->xDeviceCharacteristics = vfstraceDeviceCharacteristics;
         if (pNew->iVersion >= 2) {
-            if (p->block_map) {
-                pNew->xShmMap = nullptr;
-                pNew->xShmLock = nullptr;
-                pNew->xShmBarrier = nullptr;
-                pNew->xShmUnmap = nullptr;
-            } else {
-                pNew->xShmMap = pSub->xShmMap ? vfstraceShmMap : 0;
-                pNew->xShmLock = pSub->xShmLock ? vfstraceShmLock : 0;
-                pNew->xShmBarrier = pSub->xShmBarrier ? vfstraceShmBarrier : 0;
-                pNew->xShmUnmap = pSub->xShmUnmap ? vfstraceShmUnmap : 0;
-            }
+            /* We can't set these to nullptr for the tracked databases, because SQLite
+             * then assumes that they will not be available for e.g. the associated
+             * journals either */
+            pNew->xShmMap = pSub->xShmMap ? vfstraceShmMap : 0;
+            pNew->xShmLock = pSub->xShmLock ? vfstraceShmLock : 0;
+            pNew->xShmBarrier = pSub->xShmBarrier ? vfstraceShmBarrier : 0;
+            pNew->xShmUnmap = pSub->xShmUnmap ? vfstraceShmUnmap : 0;
         }
 
         pFile->pMethods = pNew;
