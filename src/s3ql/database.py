@@ -44,6 +44,25 @@ initsql = (
 )
 
 
+def sqlite3_log(errcode, message):
+    if errcode == apsw.SQLITE_NOTICE:
+        log.debug('sqlite3: %s', message)
+    elif errcode == apsw.SQLITE_WARNING:
+        log.warning('sqlite3: %s', message)
+    elif errcode == apsw.SQLITE_ERROR:
+        log.error('sqlite3: %s', message)
+    elif errcode == apsw.SQLITE_OK:
+        log.info('sqlite3: %s', message)
+    else:
+        errstr = apsw.mapping_extended_result_codes.get(
+            errcode, apsw.mapping_result_codes[errcode & 255]
+        )
+        log.warning('sqlite3: : %s (%s)', message, errstr)
+
+
+apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+
+
 class Connection:
     '''
     This class wraps an APSW connection object. It should be used instead of any

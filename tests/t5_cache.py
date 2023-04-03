@@ -77,6 +77,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         assert not os.path.exists(cache_file)
 
         # Ensure that we get updated data
+        self.reg_output(r'^WARNING: sqlite3: recovered [0-9]+ frames from WAL file', count=1)
         self.mount()
         with open(pjoin(self.mnt_dir, 'testfile'), 'rb') as fh:
             assert fh.read() == TEST_DATA[::-1]
@@ -154,6 +155,7 @@ class TestPerstCache(t4_fuse.TestFuse):
             fh.write(TEST_DATA[::-1])
 
         # Mount elsewhere
+        self.reg_output(r'^WARNING: sqlite3: recovered [0-9]+ frames from WAL file', count=1)
         bak = self.cache_dir
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         try:
