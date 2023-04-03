@@ -89,7 +89,6 @@ def check_imports():
         definitions[modname] = get_definitions(fpath)
 
     # Special case, we always want to import these indirectly
-    definitions['s3ql', 'logging'].add('logging')
     definitions[
         's3ql',
     ].add('ROOT_INODE')

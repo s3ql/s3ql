@@ -35,7 +35,8 @@ from ..common import (
     NoSuchObject,
     DanglingStorageURLError,
 )
-from ...logging import logging, QuietError
+from ...logging import QuietError
+import logging
 from ... import BUFSIZE
 from ..s3c import HTTPError
 from .object_r import ObjectR

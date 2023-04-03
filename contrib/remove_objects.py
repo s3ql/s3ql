@@ -11,6 +11,8 @@ import os
 import sys
 import argparse
 import atexit
+import logging
+
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -20,7 +22,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import logging, setup_logging, setup_warnings
+from s3ql.logging import setup_logging, setup_warnings
 from s3ql.common import get_backend
 from s3ql.parse_args import ArgumentParser
 

@@ -1,6 +1,6 @@
 import hashlib
 
-from ...logging import logging
+import logging
 
 from .b2_error import BadDigestError
 

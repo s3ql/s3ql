@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError, setup_warnings
+from .logging import setup_logging, QuietError, setup_warnings
 from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
 from .backends.comprenc import ComprencBackend
 from .backends import s3
@@ -20,6 +20,7 @@ import shutil
 import stat
 import sys
 import time
+import logging
 import atexit
 
 log = logging.getLogger(__name__)

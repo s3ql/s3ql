@@ -6,7 +6,7 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, setup_warnings
+from .logging import setup_logging, setup_warnings
 from .mount import get_metadata
 from . import BUFSIZE
 from .common import get_backend_factory, pretty_print_size, AsyncFn
@@ -17,6 +17,7 @@ import os
 import argparse
 import time
 import signal
+import logging
 import faulthandler
 import sys
 import textwrap

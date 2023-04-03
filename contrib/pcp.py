@@ -13,6 +13,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 import sys
 import os
 import subprocess
+import logging
 from argparse import ArgumentTypeError
 
 # We are running from the S3QL source directory, make sure
@@ -23,7 +24,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import logging, setup_logging, setup_warnings
+from s3ql.logging import setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
