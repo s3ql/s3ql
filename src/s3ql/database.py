@@ -409,7 +409,6 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
     blocksize = params['metadata-block-size']
     file_size = params['db-size']
 
-    to_remove = []
     with open(db_file, 'w+b', buffering=0) as fh:
         log.info('Downloading metadata...')
         for obj in backend.list('s3ql_metadata_'):
@@ -419,15 +418,12 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
                 continue
             blockno = int(hit.group(1), base=16)
             off = blockno * blocksize
-            if off > file_size:
-                to_remove.append(obj)
+            if off > file_size and not failsafe:
+                log.debug('download_metadata: skipping obsolete object %s', obj)
                 continue
             log.debug('download_metadata: storing %s at pos %d', obj, off)
             fh.seek(off)
             backend.readinto(obj, fh)
-
-        log.debug('Deleting obsolete objects...')
-        backend.delete_multi(to_remove)
 
         if not failsafe:
             log.debug('download_metadata: truncating file to %d bytes', file_size)
@@ -447,8 +443,9 @@ def upload_metadata(
 ) -> None:
     '''Upload metadata to backend
 
-    If *params* is given, calculate checksum and update *params*
-    in place.
+    If *params* is given, calculate checksum and update *params* in place. If *incremental* is
+    false, upload all objects (rather than just known dirty ones) and remove objects holding data
+    beyond the current file size.
     '''
 
     blocksize = db.blocksize
@@ -474,6 +471,19 @@ def upload_metadata(
             log.debug('upload_metadata: uploading block %d', blockno)
             fh.seek(blockno * blocksize)
             backend.store('s3ql_metadata_%012x' % blockno, fh.read(blocksize))
+
+        if not incremental:
+            to_remove = []
+            for obj in backend.list('s3ql_metadata_'):
+                hit = re.match('^s3ql_metadata_([0-9a-f]+)$', obj)
+                if not hit:
+                    log.warning('Unexpected object in backend: %s, ignoring', obj)
+                    continue
+                blockno = int(hit.group(1), base=16)
+                off = blockno * blocksize
+                if off > db_size:
+                    to_remove.append(obj)
+            backend.delete_multi(to_remove)
 
         if params is None:
             return
