@@ -1363,6 +1363,10 @@ def main(args=None):
     param['last_fsck'] = time.time()
     param['last-modified'] = time.time()
 
+    # Since we're uploading the full database anyway, might as well try
+    # to reduce the size.
+    db.execute('VACUUM')
+
     db.close()
 
     # If the filesystem was not unmounted cleanly, the database may have changes
