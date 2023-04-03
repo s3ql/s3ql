@@ -7,10 +7,12 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 
-from .database import NoSuchRowError
-import pyfuse3
-import sys
 import logging
+import sys
+
+import pyfuse3
+
+from .database import NoSuchRowError
 
 log = logging.getLogger(__name__)
 

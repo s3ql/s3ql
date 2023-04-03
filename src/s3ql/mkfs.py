@@ -6,22 +6,23 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, QuietError, setup_warnings
-from . import CURRENT_FS_REV, CTRL_INODE, ROOT_INODE
-from .backends.comprenc import ComprencBackend
-from .backends import s3
-from .common import get_backend, split_by_n, time_ns
-from .database import Connection, upload_metadata, create_tables, store_and_upload_params
-from .parse_args import ArgumentParser
-from getpass import getpass
-from base64 import b64encode
+import atexit
+import logging
 import os
 import shutil
 import stat
 import sys
 import time
-import logging
-import atexit
+from base64 import b64encode
+from getpass import getpass
+
+from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
+from .backends import s3
+from .backends.comprenc import ComprencBackend
+from .common import get_backend, split_by_n, time_ns
+from .database import Connection, create_tables, store_and_upload_params, upload_metadata
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

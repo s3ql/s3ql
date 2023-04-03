@@ -8,20 +8,23 @@ All Rights Reserved.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import t4_fuse
-from s3ql.common import _escape
-import pytest
 import os
 import shutil
-import tempfile
 import subprocess
+import tempfile
 import time
 from os.path import join as pjoin
+
+import pytest
+import t4_fuse
+
+from s3ql.common import _escape
 
 with open(__file__, 'rb') as fh:
     TEST_DATA = fh.read()

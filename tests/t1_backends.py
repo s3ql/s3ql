@@ -8,35 +8,37 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from argparse import Namespace
-from common import get_remote_test_info, NoTestSection, CLOCK_GRANULARITY
-from dugong import ConnectionClosed
-from pytest import raises as assert_raises
-from pytest_checklogs import assert_logs
-from s3ql import backends, BUFSIZE
-from s3ql.backends.common import NoSuchObject, CorruptedObjectError
-from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
-from s3ql.backends.gs import Backend as GSBackend
-from s3ql.backends.local import Backend as LocalBackend
-from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
-from s3ql.backends.swift import Backend as SwiftBackend
 import functools
-import mock_server
-import pytest
+import logging
 import re
-import s3ql.backends.common
 import shutil
 import struct
 import tempfile
 import threading
 import time
-import logging
+from argparse import Namespace
 
+import mock_server
+import pytest
+from common import CLOCK_GRANULARITY, NoTestSection, get_remote_test_info
+from dugong import ConnectionClosed
+from pytest import raises as assert_raises
+from pytest_checklogs import assert_logs
+
+import s3ql.backends.common
+from s3ql import BUFSIZE, backends
+from s3ql.backends.common import CorruptedObjectError, NoSuchObject
+from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
+from s3ql.backends.gs import Backend as GSBackend
+from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
+from s3ql.backends.swift import Backend as SwiftBackend
 
 log = logging.getLogger(__name__)
 empty_set = set()

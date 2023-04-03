@@ -6,22 +6,24 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-from . import CTRL_NAME, CTRL_INODE
-from .backends.common import NoSuchObject, CorruptedObjectError
-from .common import get_path, parse_literal, time_ns
-from .database import Connection, NoSuchRowError
-from io import BytesIO
 import collections
 import errno
-import pyfuse3
-from pyfuse3 import FUSEError
+import logging
 import math
 import os
 import stat
 import struct
 import time
+from io import BytesIO
+
+import pyfuse3
 import trio
+from pyfuse3 import FUSEError
+
+from . import CTRL_INODE, CTRL_NAME
+from .backends.common import CorruptedObjectError, NoSuchObject
+from .common import get_path, parse_literal, time_ns
+from .database import Connection, NoSuchRowError
 
 # We work in bytes
 CTRL_NAME = CTRL_NAME.encode('us-ascii')

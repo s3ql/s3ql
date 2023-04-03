@@ -8,25 +8,28 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from os.path import basename
-from s3ql import CTRL_NAME
-from s3ql.common import path2bytes
-from common import retry, skip_if_no_fusermount, RetryTimeoutError
 import filecmp
-import pyfuse3
 import os.path
-import shutil
 import platform
+import shutil
 import stat
 import subprocess
 import tempfile
+from os.path import basename
+
+import pyfuse3
 import pytest
+from common import RetryTimeoutError, retry, skip_if_no_fusermount
 from pytest import raises as assert_raises
+
+from s3ql import CTRL_NAME
+from s3ql.common import path2bytes
 
 # For debugging
 USE_VALGRIND = False

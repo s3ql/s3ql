@@ -11,16 +11,17 @@ initialize logging and adjust the load path before running
 any tests.
 '''
 
-import logging.handlers
-import sys
-import os.path
-import pytest
 import faulthandler
-import signal
 import gc
+import logging.handlers
+import os.path
+import signal
+import sys
 import time
-import pytest_trio
 import warnings
+
+import pytest
+import pytest_trio
 
 assert pytest_trio  # suppress unused import warning
 

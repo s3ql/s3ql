@@ -8,20 +8,23 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from common import populate_dir, skip_without_rsync, get_remote_test_info, NoTestSection
-from s3ql import backends
-from s3ql.database import Connection
 import shutil
 import subprocess
-from subprocess import check_output, CalledProcessError
-import t4_fuse
 import tempfile
+from subprocess import CalledProcessError, check_output
+
 import pytest
+import t4_fuse
+from common import NoTestSection, get_remote_test_info, populate_dir, skip_without_rsync
+
+from s3ql import backends
+from s3ql.database import Connection
 
 
 class TestFull(t4_fuse.TestFuse):

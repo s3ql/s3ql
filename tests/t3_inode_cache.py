@@ -8,18 +8,20 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import os
+import tempfile
+import unittest
+
 from s3ql import inode_cache
-from s3ql.mkfs import init_tables
 from s3ql.common import time_ns
 from s3ql.database import Connection, create_tables
-import unittest
-import tempfile
-import os
+from s3ql.mkfs import init_tables
 
 
 class cache_tests(unittest.TestCase):

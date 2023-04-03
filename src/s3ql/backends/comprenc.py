@@ -6,20 +6,22 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-from .. import BUFSIZE
-from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
-from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
-import cryptography.hazmat.primitives.ciphers as crypto_ciphers
-import cryptography.hazmat.backends as crypto_backends
 import bz2
 import hashlib
 import hmac
-import lzma
 import io
+import logging
+import lzma
 import struct
 import time
 import zlib
+
+import cryptography.hazmat.backends as crypto_backends
+import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+
+from .. import BUFSIZE
+from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
+from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
 
 log = logging.getLogger(__name__)
 

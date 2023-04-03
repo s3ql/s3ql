@@ -6,23 +6,24 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import hashlib
+import hmac
+import inspect
 import logging
-from ..logging import QuietError, LOG_ONCE
-from abc import abstractmethod, ABCMeta
+import os
+import random
+import re
+import ssl
+import struct
+import textwrap
+import threading
+import time
+from abc import ABCMeta, abstractmethod
 from functools import wraps
 from typing import BinaryIO
+
 from .. import BUFSIZE
-import time
-import textwrap
-import hashlib
-import struct
-import hmac
-import random
-import inspect
-import ssl
-import os
-import re
-import threading
+from ..logging import LOG_ONCE, QuietError
 
 log = logging.getLogger(__name__)
 

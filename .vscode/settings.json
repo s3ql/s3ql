@@ -23,5 +23,11 @@
     "python.analysis.diagnosticMode": "workspace",
     "python.analysis.diagnosticSeverityOverrides": {
         "reportShadowedImports": "none"
-    }
+    },
+    "[python]": {
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        }
+    },
+    "isort.check": true
 }

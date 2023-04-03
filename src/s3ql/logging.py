@@ -8,8 +8,8 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 import logging
 import logging.handlers
-import sys
 import os.path
+import sys
 import warnings
 
 
@@ -201,7 +201,6 @@ def add_stdout_logging(quiet=False, systemd=False):
     handler.setFormatter(formatter)
     root_logger.addHandler(handler)
     return handler
-
 
 
 class LogFilter:

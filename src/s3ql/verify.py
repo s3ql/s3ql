@@ -6,22 +6,24 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, setup_warnings
-from .mount import get_metadata
-from . import BUFSIZE
-from .common import get_backend_factory, pretty_print_size, AsyncFn
-from .backends.common import NoSuchObject, CorruptedObjectError
-from .parse_args import ArgumentParser
-from queue import Queue, Full as QueueFull
-import os
 import argparse
-import time
-import signal
-import logging
+import atexit
 import faulthandler
+import logging
+import os
+import signal
 import sys
 import textwrap
-import atexit
+import time
+from queue import Full as QueueFull
+from queue import Queue
+
+from . import BUFSIZE
+from .backends.common import CorruptedObjectError, NoSuchObject
+from .common import AsyncFn, get_backend_factory, pretty_print_size
+from .logging import setup_logging, setup_warnings
+from .mount import get_metadata
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

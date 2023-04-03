@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from . import local, s3, gs, s3c, swift, rackspace, swiftks
+from . import gs, local, rackspace, s3, s3c, swift, swiftks
 from .b2.b2_backend import B2Backend
 
 #: Mapping from storage URL prefixes to backend classes

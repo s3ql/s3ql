@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 import os
 
-
 # (We must not import s3ql.logging.logging as s3ql.logging,
 # otherwise future imports of s3ql.logging will incorrectly
 # use s3ql.logging.logging).

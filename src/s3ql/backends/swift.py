@@ -6,35 +6,37 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import json
 import logging
-from ..logging import QuietError, LOG_ONCE
-from .. import BUFSIZE
-from .common import (
-    AbstractBackend,
-    NoSuchObject,
-    retry,
-    AuthorizationError,
-    DanglingStorageURLError,
-    get_proxy,
-    get_ssl_context,
-)
-from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
-from . import s3c
+import os
+import re
+import shutil
+import ssl
+import urllib.parse
+from distutils.version import LooseVersion
+from urllib.parse import urlsplit
+
 from dugong import (
-    HTTPConnection,
     BodyFollowing,
-    is_temp_network_error,
     CaseInsensitiveDict,
     ConnectionClosed,
+    HTTPConnection,
+    is_temp_network_error,
 )
-from urllib.parse import urlsplit
-import json
-import shutil
-import re
-import os
-import urllib.parse
-import ssl
-from distutils.version import LooseVersion
+
+from .. import BUFSIZE
+from ..logging import LOG_ONCE, QuietError
+from . import s3c
+from .common import (
+    AbstractBackend,
+    AuthorizationError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    get_proxy,
+    get_ssl_context,
+    retry,
+)
+from .s3c import BadDigestError, HTTPError, ObjectR, ObjectW, md5sum_b64
 
 log = logging.getLogger(__name__)
 

@@ -6,16 +6,18 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-from ..logging import QuietError
-from . import swift
-from dugong import HTTPConnection, CaseInsensitiveDict
-from .common import AuthorizationError, retry, DanglingStorageURLError
-from .s3c import HTTPError
-from urllib.parse import urlsplit
 import json
+import logging
 import re
 import urllib.parse
+from urllib.parse import urlsplit
+
+from dugong import CaseInsensitiveDict, HTTPConnection
+
+from ..logging import QuietError
+from . import swift
+from .common import AuthorizationError, DanglingStorageURLError, retry
+from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
 

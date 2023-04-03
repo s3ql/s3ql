@@ -6,24 +6,26 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from . import BUFSIZE
-from .database import NoSuchRowError
-from .backends.common import NoSuchObject
-from .multi_lock import MultiLock
-
-
-from collections import OrderedDict
-from queue import Queue, Empty as QueueEmpty, Full as QueueFull
-from argparse import Namespace
-import os
 import hashlib
-import shutil
 import logging
+import os
+import re
+import shutil
+import sys
 import threading
 import time
+from argparse import Namespace
+from collections import OrderedDict
+from queue import Empty as QueueEmpty
+from queue import Full as QueueFull
+from queue import Queue
+
 import trio
-import re
-import sys
+
+from . import BUFSIZE
+from .backends.common import NoSuchObject
+from .database import NoSuchRowError
+from .multi_lock import MultiLock
 
 try:
     from contextlib import asynccontextmanager

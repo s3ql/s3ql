@@ -6,17 +6,18 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import hashlib
+import hmac
 import logging
-from ..logging import QuietError
-from . import s3c
-from .s3c import get_S3Error
-from .common import NoSuchObject, retry
-from xml.sax.saxutils import escape as xml_escape
 import re
 import time
 import urllib.parse
-import hashlib
-import hmac
+from xml.sax.saxutils import escape as xml_escape
+
+from ..logging import QuietError
+from . import s3c
+from .common import NoSuchObject, retry
+from .s3c import get_S3Error
 
 log = logging.getLogger(__name__)
 

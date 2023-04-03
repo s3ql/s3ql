@@ -14,27 +14,25 @@ Module Attributes:
 '''
 
 
-from .logging import QuietError
-from contextlib import contextmanager
-
-from typing import Union, Optional, List
-import apsw
 import logging
 import os
-from . import BUFSIZE, CURRENT_FS_REV
-from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh
-from .backends.common import AbstractBackend, NoSuchObject
 import re
 import time
-from . import sqlite3ext
+from contextlib import contextmanager
+from typing import List, Optional, Union
+
+import apsw
+
+from . import BUFSIZE, CURRENT_FS_REV, sqlite3ext
+from .backends.common import AbstractBackend, NoSuchObject
+from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
+from .logging import QuietError
 
 log = logging.getLogger(__name__)
 
 sqlite_ver = tuple([int(x) for x in apsw.sqlitelibversion().split('.')])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
-
-
 
 
 def sqlite3_log(errcode, message):

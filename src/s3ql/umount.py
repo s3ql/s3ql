@@ -6,18 +6,20 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, setup_warnings
-from . import CTRL_NAME
-from .common import assert_s3ql_mountpoint, parse_literal
-from .parse_args import ArgumentParser
-import pyfuse3
-import os
-import subprocess
 import logging
+import os
 import platform
+import subprocess
 import sys
 import textwrap
 import time
+
+import pyfuse3
+
+from . import CTRL_NAME
+from .common import assert_s3ql_mountpoint, parse_literal
+from .logging import setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

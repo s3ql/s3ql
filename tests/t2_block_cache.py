@@ -8,15 +8,29 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import logging
+import os
+import queue
+import shutil
+import stat
+import tempfile
+import threading
 from argparse import Namespace
-from common import safe_sleep
 from contextlib import contextmanager
+from queue import Full as QueueFull
+from unittest.mock import patch
+
+import pytest
+import trio
+from common import safe_sleep
 from pytest_checklogs import assert_logs
+
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
 from s3ql.backends.pool import BackendPool
@@ -24,17 +38,6 @@ from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.common import time_ns
 from s3ql.database import Connection, create_tables
 from s3ql.mkfs import init_tables
-from queue import Full as QueueFull
-from unittest.mock import patch
-import logging
-import os
-import pytest
-import queue
-import shutil
-import stat
-import tempfile
-import threading
-import trio
 
 log = logging.getLogger(__name__)
 

@@ -7,14 +7,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import sys
+import logging
 import os
 import re
-import textwrap
-import logging
 import shutil
-from datetime import datetime, timedelta
+import sys
+import textwrap
 from collections import defaultdict
+from datetime import datetime, timedelta
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -24,8 +24,8 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import setup_logging, QuietError, setup_warnings
-from s3ql.common import thaw_basic_mapping, freeze_basic_mapping
+from s3ql.common import freeze_basic_mapping, thaw_basic_mapping
+from s3ql.logging import QuietError, setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
 

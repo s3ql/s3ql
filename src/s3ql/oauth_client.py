@@ -6,14 +6,16 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, QuietError, setup_warnings
-from .parse_args import ArgumentParser
-from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
-from google_auth_oauthlib.flow import InstalledAppFlow
+import logging
 import sys
 import textwrap
+
 import requests
-import logging
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

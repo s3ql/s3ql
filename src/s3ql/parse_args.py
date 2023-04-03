@@ -34,18 +34,19 @@ are:
 # pylint: disable-all
 
 
+import argparse
+import configparser
+import logging
+import os
+import re
+import stat
+import sys
+from argparse import ArgumentError, ArgumentTypeError
+from getpass import getpass
+
 from . import RELEASE
 from .backends import prefix_map
 from .common import _escape
-from getpass import getpass
-from argparse import ArgumentTypeError, ArgumentError
-import configparser
-import logging
-import argparse
-import stat
-import os
-import sys
-import re
 
 DEFAULT_USAGE = object()
 log = logging.getLogger(__name__)

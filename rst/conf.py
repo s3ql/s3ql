@@ -21,8 +21,8 @@ except ModuleNotFoundError:
 
 # Add a custom role for command line options that does not try to reference anything.
 def add_literal_role(rolename):
-    from docutils.parsers.rst import roles
     from docutils import nodes
+    from docutils.parsers.rst import roles
 
     nodeclass = nodes.literal
     generic = roles.GenericRole(rolename, nodeclass)
