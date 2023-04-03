@@ -120,3 +120,34 @@ def get_metadata_obj_count(backend: AbstractBackend):
     for _ in backend.list('s3ql_metadata_'):
         i += 1
     return i
+
+
+def test_truncate(backend: AbstractBackend):
+    sqlite3ext.reset()
+    rows = 11
+    params = {"metadata-block-size": BLOCKSIZE}
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        db = Connection(tmpfh.name, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT, data BLOB);")
+        for i in range(rows):
+            db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
+
+        db.checkpoint()
+        upload_metadata(backend, db, params)
+        obj_count = get_metadata_obj_count(backend)
+        assert obj_count >= rows
+
+        # Shrink database
+        db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
+        db.execute('VACUUM')
+        db.checkpoint()
+
+        # Incremental upload should not remove objects
+        upload_metadata(backend, db, params, incremental=True)
+        assert get_metadata_obj_count(backend) == obj_count
+
+        # Full upload should remove some objects
+        upload_metadata(backend, db, params, incremental=False)
+        assert obj_count - get_metadata_obj_count(backend) >= rows // 2
+
+        db.close()

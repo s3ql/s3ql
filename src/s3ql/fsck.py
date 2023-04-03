@@ -1327,7 +1327,8 @@ def main(args=None):
         check_cache = False
 
     if not db:
-        # When file system was not unmounted cleanly, the checksum may not have been updated.
+        # When file system was not unmounted cleanly, the checksum and size may not have been
+        # updated.
         db = download_metadata(backend, cachepath + '.db', param, failsafe=param['is_mounted'])
 
     log.info('Checking DB integrity...')
