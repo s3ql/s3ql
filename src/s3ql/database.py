@@ -33,15 +33,6 @@ if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
 
-initsql = (
-    'PRAGMA journal_mode = WAL',
-    'PRAGMA synchronous = NORMAL',
-    'PRAGMA foreign_keys = OFF',
-    'PRAGMA locking_mode = EXCLUSIVE',
-    'PRAGMA recursize_triggers = on',
-    'PRAGMA temp_store = FILE',
-    'PRAGMA legacy_file_format = off',
-)
 
 
 def sqlite3_log(errcode, message):
@@ -93,7 +84,18 @@ class Connection:
 
         cur = self.conn.cursor()
 
-        for s in initsql:
+        cur.execute('PRAGMA locking_mode = EXCLUSIVE')
+        res = self.get_val('PRAGMA journal_mode = WAL')
+        if res.lower() != 'wal':
+            raise RuntimeError(f'Unable to set WAL journaling mode, got: {res}')
+
+        for s in (
+            'PRAGMA synchronous = NORMAL',
+            'PRAGMA foreign_keys = OFF',
+            'PRAGMA recursize_triggers = on',
+            'PRAGMA temp_store = FILE',
+            'PRAGMA legacy_file_format = off',
+        ):
             cur.execute(s)
 
         # Disable bloom filter optimization when we detect that sqlite is a buggy version
