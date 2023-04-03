@@ -87,7 +87,10 @@ def test_checkpoint():
         q = db.query('SELECT * FROM foo')
         db.execute("INSERT INTO FOO VALUES(?)", (35,))
         with assert_logs('^Unable to checkpoint WAL', count=1, level=logging.WARNING):
-            db.checkpoint()
+            with assert_logs(
+                '^sqlite3: statement aborts at.+SQLITE_LOCKED', count=1, level=logging.WARNING
+            ):
+                db.checkpoint()
 
         q.close()
         db.checkpoint()
