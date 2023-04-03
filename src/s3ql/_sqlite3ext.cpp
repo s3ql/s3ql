@@ -292,9 +292,12 @@ static int vfstraceOpen(
     p->pReal = (sqlite3_file*)&p[1];
     rc = pRoot->xOpen(pRoot, zName, p->pReal, flags, pOutFlags);
 
-    if (flags & SQLITE_OPEN_MAIN_DB) {
-        p->block_map = &file_block_map[zName];
+    auto it = file_block_map.find(zName ? zName : "<temp>");
+    if (it != file_block_map.end()) {
+        p->block_map = &(it->second);
+        sqlite3_log(SQLITE_NOTICE, "%s opened with write-tracking enabled", zName);
     } else {
+        sqlite3_log(SQLITE_NOTICE, "%s opened with write-tracking disabled", zName);
         p->block_map = nullptr;
     }
 
