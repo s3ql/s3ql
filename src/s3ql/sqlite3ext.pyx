@@ -7,6 +7,9 @@ from libcpp.unordered_set cimport unordered_set
 from libcpp.string cimport string
 from cython.operator cimport dereference as deref
 
+import os
+
+
 cdef extern from "_sqlite3ext.cpp":
     ctypedef int size_t
     ctypedef unordered_set[size_t] block_map_t
@@ -43,8 +46,7 @@ cdef class WriteTracker:
         self.block_map.clear()
 
 def track_writes(fpath: str):
-    # TODO: This needs to use fsencoding
-    cdef string path_c = fpath.encode()
+    cdef string path_c = os.fsencode(fpath)
     return WriteTracker.make(&file_block_map[path_c])
 
 def set_blocksize(size: int):
