@@ -140,6 +140,7 @@ async def ctx():
             await ctx.cache.destroy()
         shutil.rmtree(ctx.cachedir)
         shutil.rmtree(ctx.backend_dir)
+        ctx.db.close()
         ctx.dbfile.close()
         os.unlink(ctx.dbfile.name)
 
