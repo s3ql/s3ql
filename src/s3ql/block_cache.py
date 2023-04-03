@@ -10,13 +10,15 @@ from . import BUFSIZE
 from .database import NoSuchRowError
 from .backends.common import NoSuchObject
 from .multi_lock import MultiLock
-from .logging import logging  # Ensure use of custom logger class
+
+
 from collections import OrderedDict
 from queue import Queue, Empty as QueueEmpty, Full as QueueFull
 from argparse import Namespace
 import os
 import hashlib
 import shutil
+import logging
 import threading
 import time
 import trio

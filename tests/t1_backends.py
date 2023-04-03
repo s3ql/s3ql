@@ -25,7 +25,6 @@ from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, OperationAbortedError, HTTPError, S3Error
 from s3ql.backends.swift import Backend as SwiftBackend
-from s3ql.logging import logging
 import functools
 import mock_server
 import pytest
@@ -36,6 +35,8 @@ import struct
 import tempfile
 import threading
 import time
+import logging
+
 
 log = logging.getLogger(__name__)
 empty_set = set()

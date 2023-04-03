@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, QuietError, setup_logging, setup_warnings
+from .logging import QuietError, setup_logging, setup_warnings
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .database import Connection
@@ -17,6 +17,7 @@ from datetime import datetime as Datetime
 from getpass import getpass
 from queue import Queue, Full as QueueFull
 import os
+import logging
 import re
 import shutil
 import sys

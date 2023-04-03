@@ -1,7 +1,7 @@
 import tempfile
 import hashlib
 
-from ...logging import logging
+import logging
 from ..common import retry
 
 from .b2_error import BadDigestError

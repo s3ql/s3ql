@@ -31,11 +31,12 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 else:
     exec_prefix = ''
 
-from s3ql.logging import logging, setup_logging, QuietError, setup_warnings
+from s3ql.logging import setup_logging, QuietError, setup_warnings
 from s3ql.common import get_backend
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql.backends.comprenc import ComprencBackend
 from s3ql import BUFSIZE
+import logging
 from s3ql.parse_args import ArgumentParser
 
 ALGS = ('lzma', 'bzip2', 'zlib')

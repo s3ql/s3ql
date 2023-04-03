@@ -33,13 +33,14 @@ are:
 # Pylint really gets confused by this module
 # pylint: disable-all
 
-from .logging import logging  # Ensure use of custom logger class
+
 from . import RELEASE
 from .backends import prefix_map
 from .common import _escape
 from getpass import getpass
 from argparse import ArgumentTypeError, ArgumentError
 import configparser
+import logging
 import argparse
 import stat
 import os

@@ -6,11 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError, setup_warnings
+from .logging import setup_logging, QuietError, setup_warnings
 from .common import assert_fs_owner, path2bytes
 from .parse_args import ArgumentParser
 import pyfuse3
 import os
+import logging
 import sys
 import textwrap
 

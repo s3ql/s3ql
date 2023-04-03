@@ -6,7 +6,6 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError, setup_warnings
 from . import fs
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
@@ -20,6 +19,7 @@ from .database import (
     store_and_upload_params,
 )
 from .inode_cache import InodeCache
+from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 from contextlib import AsyncExitStack
 import _thread
@@ -33,7 +33,7 @@ import re
 import signal
 import resource
 import sys
-import tempfile
+import logging
 import threading
 import trio
 import time

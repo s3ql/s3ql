@@ -6,7 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError  # Ensure use of custom logger class
+import logging
+from ..logging import QuietError
 from . import s3c
 from .s3c import get_S3Error
 from .common import NoSuchObject, retry

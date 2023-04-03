@@ -6,13 +6,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, setup_warnings
+from .logging import setup_logging, setup_warnings
 from . import CTRL_NAME
 from .common import assert_s3ql_mountpoint, parse_literal
 from .parse_args import ArgumentParser
 import pyfuse3
 import os
 import subprocess
+import logging
 import platform
 import sys
 import textwrap

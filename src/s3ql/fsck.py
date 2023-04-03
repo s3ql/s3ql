@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError, setup_warnings
+from .logging import setup_logging, QuietError, setup_warnings
 from . import BUFSIZE, CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
@@ -32,6 +32,8 @@ import sys
 import textwrap
 import time
 import atexit
+import logging
+
 
 log = logging.getLogger(__name__)
 

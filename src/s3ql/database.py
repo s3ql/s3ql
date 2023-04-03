@@ -14,11 +14,12 @@ Module Attributes:
 '''
 
 
-from .logging import logging, QuietError  # Ensure use of custom logger class
+from .logging import QuietError
 from contextlib import contextmanager
 
 from typing import Union, Optional, List
 import apsw
+import logging
 import os
 from . import BUFSIZE, CURRENT_FS_REV
 from .common import freeze_basic_mapping, thaw_basic_mapping, sha256_fh

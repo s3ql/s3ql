@@ -111,9 +111,14 @@ def setup_logging(options):
         root_logger.debug("Logging already initialized.")
         return
 
+    filter = LogFilter()
+
     stdout_handler = add_stdout_logging(options.quiet, getattr(options, 'systemd', False))
+    stdout_handler.addFilter(filter)
     if hasattr(options, 'log') and options.log:
-        root_logger.addHandler(create_handler(options.log))
+        handler = create_handler(options.log)
+        handler.addFilter(filter)
+        root_logger.addHandler(handler)
     elif options.debug and (not hasattr(options, 'log') or not options.log):
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
@@ -198,29 +203,25 @@ def add_stdout_logging(quiet=False, systemd=False):
     return handler
 
 
-class Logger(logging.getLoggerClass()):
-    '''
-    This class has the following features in addition to `logging.Logger`:
 
-    * Log messages that are emitted with an *log_once* attribute in the
-      *extra* parameter are only emitted once per logger.
+class LogFilter:
+    '''
+    Log messages that are emitted with an *log_once* attribute in the
+    *extra* parameter are only emitted once.
     '''
 
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__()
         self.log_cache = set()
 
-    def handle(self, record):
+    def filter(self, record):
         if hasattr(record, 'log_once') and record.log_once:
             id_ = hash((record.name, record.levelno, record.msg, record.args, record.exc_info))
             if id_ in self.log_cache:
-                return
+                return False
             self.log_cache.add(id_)
+        return True
 
-        return super().handle(record)
-
-
-logging.setLoggerClass(Logger)
 
 # Convenience object for use in logging calls, e.g.
 # log.warning('This will be printed only once', extra=LOG_ONCE)

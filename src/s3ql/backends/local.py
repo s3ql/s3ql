@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging  # Ensure use of custom logger class
+import logging
 from .. import BUFSIZE
 from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, CorruptedObjectError
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping

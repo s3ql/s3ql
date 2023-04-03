@@ -6,7 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, QuietError  # Ensure use of custom logger class
+from .logging import QuietError
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from dugong import HostnameNotResolvable
 from getpass import getpass
@@ -24,6 +24,7 @@ import hashlib
 import pyfuse3
 import posixpath
 import functools
+import logging
 import contextlib
 
 log = logging.getLogger(__name__)

@@ -27,9 +27,10 @@ a shell or some other process)". In this case the user will have to live with
 that.
 '''
 
-from .logging import logging  # Ensure use of custom logger class
+
 import os
 import sys
+import logging
 
 log = logging.getLogger(__name__)
 

@@ -11,6 +11,7 @@ import sys
 import os
 import re
 import textwrap
+import logging
 import shutil
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -23,7 +24,7 @@ if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
 ):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import setup_logging, QuietError, logging, setup_warnings
+from s3ql.logging import setup_logging, QuietError, setup_warnings
 from s3ql.common import thaw_basic_mapping, freeze_basic_mapping
 from s3ql.parse_args import ArgumentParser
 from s3ql.remove import main as s3qlrm
