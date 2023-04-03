@@ -108,10 +108,10 @@ async def ctx():
 
     ctx.server.inodes.destroy()
     await ctx.cache.destroy()
+    ctx.db.close()
+    os.unlink(ctx.dbfile.name)
     shutil.rmtree(ctx.cachedir)
     shutil.rmtree(ctx.backend_dir)
-    os.unlink(ctx.dbfile.name)
-    ctx.dbfile.close()
 
 
 def random_data(len_):

@@ -33,15 +33,17 @@ def test_track_dirty():
         db.execute("INSERT INTO FOO VALUES(?)", (25,))
         db.execute("INSERT INTO FOO VALUES(?)", (30,))
 
+        db.checkpoint()
         assert db.dirty_blocks.get_count() >= 1
 
         db.dirty_blocks.clear()
         assert db.dirty_blocks.get_count() == 0
 
         db.execute("UPDATE FOO SET id=24 WHERE ID=23")
-
+        db.checkpoint()
         assert db.dirty_blocks.get_count() >= 1
 
+        db.close()
 
 @pytest.fixture
 def backend():
@@ -58,10 +60,11 @@ def test_upload_download(backend, incremental):
         db.execute("CREATE TABLE foo (val TEXT);")
         for i in range(50):
             db.execute("INSERT INTO FOO VALUES(?)", ("foo" * i,))
-        db.close()
 
+        db.checkpoint()
         params = {"metadata-block-size": blocksize}
         upload_metadata(backend, db, params, incremental)
+        db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
             download_metadata(backend, tmpfh2.name, params)
