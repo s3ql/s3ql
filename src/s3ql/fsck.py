@@ -6,34 +6,35 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, QuietError, setup_warnings
-from . import BUFSIZE, CTRL_INODE, ROOT_INODE
-from .backends.common import NoSuchObject
-from .backends.comprenc import ComprencBackend
-from .backends.local import Backend as LocalBackend
-from .common import inode_for_path, sha256_fh, get_path, is_mounted, get_backend, time_ns
-from .database import (
-    NoSuchRowError,
-    Connection,
-    upload_metadata,
-    download_metadata,
-    store_and_upload_params,
-    read_params,
-)
-from .parse_args import ArgumentParser
-from os.path import basename
-import apsw
+import atexit
+import itertools
+import logging
 import os
 import re
 import shutil
-import itertools
 import stat
 import sys
 import textwrap
 import time
-import atexit
-import logging
+from os.path import basename
 
+import apsw
+
+from . import BUFSIZE, CTRL_INODE, ROOT_INODE
+from .backends.common import NoSuchObject
+from .backends.comprenc import ComprencBackend
+from .backends.local import Backend as LocalBackend
+from .common import get_backend, get_path, inode_for_path, is_mounted, sha256_fh, time_ns
+from .database import (
+    Connection,
+    NoSuchRowError,
+    download_metadata,
+    read_params,
+    store_and_upload_params,
+    upload_metadata,
+)
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

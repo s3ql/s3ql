@@ -8,37 +8,39 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import errno
+import logging
+import os
+import shutil
+import stat
+import tempfile
 from argparse import Namespace
+from random import randint
+
+import pytest
+import trio
 from common import CLOCK_GRANULARITY, safe_sleep
 from pyfuse3 import FUSEError
 from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
-from random import randint
-from s3ql import ROOT_INODE
-from s3ql import fs
+from t2_block_cache import DummyQueue
+
+from s3ql import ROOT_INODE, fs
 from s3ql.backends import local
 from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.database import Connection, create_tables
 from s3ql.fsck import Fsck
-from s3ql.inode_cache import InodeCache
 from s3ql.inode_cache import CACHE_SIZE as INODE_CACHE_SIZE
+from s3ql.inode_cache import InodeCache
 from s3ql.mkfs import init_tables
-from t2_block_cache import DummyQueue
-import errno
-import logging
-import os
-import pytest
-import shutil
-import stat
-import tempfile
-import trio
 
 # We need to access to protected members
 # pylint: disable=W0212

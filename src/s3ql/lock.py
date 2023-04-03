@@ -6,15 +6,16 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import setup_logging, QuietError, setup_warnings
-from .common import assert_fs_owner
-from .parse_args import ArgumentParser
-import pyfuse3
+import logging
 import os
 import sys
 import textwrap
-import logging
 
+import pyfuse3
+
+from .common import assert_fs_owner
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

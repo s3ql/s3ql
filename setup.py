@@ -15,16 +15,16 @@ except ModuleNotFoundError:
         'Setuptools package not found. Please install from '
         'https://pypi.python.org/pypi/setuptools'
     )
+import faulthandler
+import os
+import re
+import subprocess
+import sys
+from distutils.version import LooseVersion
+from glob import glob
+
 from setuptools import Extension
 from setuptools.command.test import test as TestCommand
-
-from distutils.version import LooseVersion
-import os
-import subprocess
-import re
-import sys
-from glob import glob
-import faulthandler
 
 faulthandler.enable()
 

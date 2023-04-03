@@ -8,14 +8,17 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import s3ql.ctrl
 import sys
+
 import t4_fuse
+
+import s3ql.ctrl
 
 
 class TestCtrl(t4_fuse.TestFuse):

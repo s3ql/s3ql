@@ -10,13 +10,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from docutils.parsers.rst.directives.misc import Include
-import subprocess
-import shlex
-from docutils.utils.error_reporting import SafeString
-import tempfile
 import os.path
+import shlex
+import subprocess
 import sys
+import tempfile
+
+from docutils.parsers.rst.directives.misc import Include
+from docutils.utils.error_reporting import SafeString
 
 
 class PipeInclude(Include):

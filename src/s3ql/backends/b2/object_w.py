@@ -1,9 +1,8 @@
-import tempfile
 import hashlib
-
 import logging
-from ..common import retry
+import tempfile
 
+from ..common import retry
 from .b2_error import BadDigestError
 
 log = logging.getLogger(__name__)

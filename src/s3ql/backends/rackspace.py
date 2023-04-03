@@ -7,9 +7,10 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
+import re
+
 from ..logging import QuietError
 from . import swiftks
-import re
 
 log = logging.getLogger(__name__)
 

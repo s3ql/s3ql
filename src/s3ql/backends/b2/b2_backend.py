@@ -7,41 +7,42 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import base64
-from dugong import (
-    HTTPConnection,
-    CaseInsensitiveDict,
-    is_temp_network_error,
-    BodyFollowing,
-    ConnectionClosed,
-    ConnectionTimedOut,
-)
-from urllib.parse import urlparse
-import urllib
+import binascii
 import json
+import logging
+import os
 import re
 import ssl
-import binascii
+import urllib
 from ast import literal_eval
 from itertools import count
-import os
 from shutil import copyfileobj
+from urllib.parse import urlparse
 
+from dugong import (
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+    ConnectionTimedOut,
+    HTTPConnection,
+    is_temp_network_error,
+)
+
+from ... import BUFSIZE
+from ...logging import QuietError
 from ..common import (
     AbstractBackend,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    checksum_basic_mapping,
     get_ssl_context,
     retry,
-    checksum_basic_mapping,
-    CorruptedObjectError,
-    NoSuchObject,
-    DanglingStorageURLError,
 )
-from ...logging import QuietError
-import logging
-from ... import BUFSIZE
 from ..s3c import HTTPError
+from .b2_error import B2Error, BadDigestError
 from .object_r import ObjectR
 from .object_w import ObjectW
-from .b2_error import B2Error, BadDigestError
 
 log = logging.getLogger(__name__)
 

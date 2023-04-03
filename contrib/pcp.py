@@ -10,10 +10,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import sys
+import logging
 import os
 import subprocess
-import logging
+import sys
 from argparse import ArgumentTypeError
 
 # We are running from the S3QL source directory, make sure

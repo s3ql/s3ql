@@ -6,43 +6,44 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import hashlib
+import json
 import logging
-from ..logging import QuietError
-from .common import (
-    AbstractBackend,
-    NoSuchObject,
-    retry,
-    AuthorizationError,
-    AuthenticationError,
-    DanglingStorageURLError,
-    get_proxy,
-    get_ssl_context,
-    CorruptedObjectError,
-    checksum_basic_mapping,
-)
-from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
-from .. import BUFSIZE
+import os
+import re
+import ssl
+import tempfile
+import threading
+import urllib.parse
+from ast import literal_eval
+from base64 import b64decode, b64encode
+from itertools import count
+from typing import Any, Dict, Optional
+
+import dugong
 from dugong import (
-    HTTPConnection,
-    is_temp_network_error,
     BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
+    HTTPConnection,
+    is_temp_network_error,
 )
-from base64 import b64encode, b64decode
-from itertools import count
-from ast import literal_eval
 
-import hashlib
-import urllib.parse
-import re
-import tempfile
-import os
-import dugong
-import json
-import threading
-import ssl
-from typing import Optional, Dict, Any
+from .. import BUFSIZE
+from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+from ..logging import QuietError
+from .common import (
+    AbstractBackend,
+    AuthenticationError,
+    AuthorizationError,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    checksum_basic_mapping,
+    get_proxy,
+    get_ssl_context,
+    retry,
+)
 
 try:
     import google.auth as g_auth

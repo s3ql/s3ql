@@ -6,6 +6,26 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import _thread
+import argparse
+import atexit
+import faulthandler
+import logging
+import os
+import platform
+import re
+import resource
+import shutil
+import signal
+import subprocess
+import sys
+import threading
+import time
+from contextlib import AsyncExitStack
+
+import pyfuse3
+import trio
+
 from . import fs
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
@@ -14,31 +34,13 @@ from .daemonize import daemonize
 from .database import (
     Connection,
     download_metadata,
-    upload_metadata,
     read_params,
     store_and_upload_params,
+    upload_metadata,
 )
 from .inode_cache import InodeCache
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
-from contextlib import AsyncExitStack
-import _thread
-import argparse
-import pyfuse3
-import faulthandler
-import os
-import platform
-import subprocess
-import re
-import signal
-import resource
-import sys
-import logging
-import threading
-import trio
-import time
-import shutil
-import atexit
 
 log = logging.getLogger(__name__)
 

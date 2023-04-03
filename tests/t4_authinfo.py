@@ -8,15 +8,17 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from argparse import Namespace
-import tempfile
 import shutil
 import subprocess
+import tempfile
+from argparse import Namespace
+
 import pytest
 
 

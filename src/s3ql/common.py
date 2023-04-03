@@ -6,26 +6,28 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import QuietError
-from . import BUFSIZE, CTRL_NAME, ROOT_INODE
-from dugong import HostnameNotResolvable
-from getpass import getpass
+import binascii
+import contextlib
+import errno
+import functools
+import hashlib
+import logging
+import os
+import posixpath
+import subprocess
+import sys
+import threading
+import time
+import traceback
 from ast import literal_eval
 from base64 import b64decode, b64encode
-import binascii
-import threading
-import traceback
-import sys
-import os
-import time
-import subprocess
-import errno
-import hashlib
+from getpass import getpass
+
 import pyfuse3
-import posixpath
-import functools
-import logging
-import contextlib
+from dugong import HostnameNotResolvable
+
+from . import BUFSIZE, CTRL_NAME, ROOT_INODE
+from .logging import QuietError
 
 log = logging.getLogger(__name__)
 
@@ -230,11 +232,11 @@ def get_backend_factory(options):
     '''Return factory producing backend objects'''
 
     from .backends.common import (
-        CorruptedObjectError,
-        NoSuchObject,
         AuthenticationError,
-        DanglingStorageURLError,
         AuthorizationError,
+        CorruptedObjectError,
+        DanglingStorageURLError,
+        NoSuchObject,
     )
     from .backends.comprenc import ComprencBackend
 

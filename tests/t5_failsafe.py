@@ -8,23 +8,26 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import os.path
-import t4_fuse
-import s3ql.ctrl
-import pytest
 import errno
-import time
-from common import get_remote_test_info, NoTestSection
-from argparse import Namespace
+import os.path
 import signal
+import time
+from argparse import Namespace
+
+import pytest
+import t4_fuse
+from common import NoTestSection, get_remote_test_info
+
+import s3ql.ctrl
+from s3ql import BUFSIZE
 from s3ql.backends import gs
 from s3ql.backends.local import Backend as LocalBackend
-from s3ql import BUFSIZE
 
 
 @pytest.mark.usefixtures('pass_reg_output')

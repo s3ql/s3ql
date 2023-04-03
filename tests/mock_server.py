@@ -7,14 +7,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from http.server import BaseHTTPRequestHandler
+import hashlib
+import json
+import logging
 import re
 import socketserver
-import logging
-import hashlib
 import urllib.parse
+from http.server import BaseHTTPRequestHandler
 from xml.sax.saxutils import escape as xml_escape
-import json
 
 log = logging.getLogger(__name__)
 

@@ -6,14 +6,15 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-from .. import BUFSIZE
-from .common import AbstractBackend, DanglingStorageURLError, NoSuchObject, CorruptedObjectError
-from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 import _thread
-import struct
 import io
+import logging
 import os
+import struct
+
+from .. import BUFSIZE
+from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
+from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
 
 log = logging.getLogger(__name__)
 

@@ -8,21 +8,24 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.backends import local
-from s3ql.backends.comprenc import ComprencBackend
-from s3ql.backends.common import CorruptedObjectError
-from argparse import Namespace
-import shutil
 import re
+import shutil
+import subprocess
 import tempfile
 import unittest
-import subprocess
+from argparse import Namespace
+
 import pytest
+
+from s3ql.backends import local
+from s3ql.backends.common import CorruptedObjectError
+from s3ql.backends.comprenc import ComprencBackend
 
 
 @pytest.mark.usefixtures('pass_s3ql_cmd_argv', 'pass_reg_output')

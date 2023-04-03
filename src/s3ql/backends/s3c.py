@@ -6,46 +6,48 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-from ..logging import QuietError
-from .. import BUFSIZE
-from .common import (
-    AbstractBackend,
-    NoSuchObject,
-    retry,
-    AuthorizationError,
-    AuthenticationError,
-    DanglingStorageURLError,
-    get_proxy,
-    get_ssl_context,
-    CorruptedObjectError,
-    checksum_basic_mapping,
-)
-from io import BytesIO
-from shutil import copyfileobj
-from dugong import (
-    HTTPConnection,
-    is_temp_network_error,
-    BodyFollowing,
-    CaseInsensitiveDict,
-    UnsupportedResponse,
-    ConnectionClosed,
-)
-from base64 import b64encode, b64decode
-from email.utils import parsedate_tz, mktime_tz
-from ast import literal_eval
-from urllib.parse import urlsplit, quote, unquote
-from defusedxml import ElementTree
-from itertools import count
-import hashlib
-import os
 import binascii
+import hashlib
 import hmac
+import logging
+import os
 import re
+import ssl
 import tempfile
 import time
-import ssl
 import urllib.parse
+from ast import literal_eval
+from base64 import b64decode, b64encode
+from email.utils import mktime_tz, parsedate_tz
+from io import BytesIO
+from itertools import count
+from shutil import copyfileobj
+from urllib.parse import quote, unquote, urlsplit
+
+from defusedxml import ElementTree
+from dugong import (
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+    HTTPConnection,
+    UnsupportedResponse,
+    is_temp_network_error,
+)
+
+from .. import BUFSIZE
+from ..logging import QuietError
+from .common import (
+    AbstractBackend,
+    AuthenticationError,
+    AuthorizationError,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    checksum_basic_mapping,
+    get_proxy,
+    get_ssl_context,
+    retry,
+)
 
 C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 C_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']

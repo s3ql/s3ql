@@ -8,25 +8,27 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.backends import local
-from s3ql import ROOT_INODE
-from s3ql.mkfs import init_tables
-from s3ql.database import Connection, NoSuchRowError, create_tables
-from s3ql.fsck import Fsck
-from s3ql.common import time_ns
-from argparse import Namespace
+import _thread
+import hashlib
 import os
 import shutil
-import hashlib
 import stat
 import tempfile
-import _thread
 import unittest
+from argparse import Namespace
+
+from s3ql import ROOT_INODE
+from s3ql.backends import local
+from s3ql.common import time_ns
+from s3ql.database import Connection, NoSuchRowError, create_tables
+from s3ql.fsck import Fsck
+from s3ql.mkfs import init_tables
 
 
 def sha256(s):

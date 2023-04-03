@@ -6,24 +6,26 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import QuietError, setup_logging, setup_warnings
-from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.comprenc import ComprencBackend
-from .database import Connection
-from base64 import b64decode
-from .common import is_mounted, get_backend, handle_on_return, AsyncFn
-from .parse_args import ArgumentParser
-from datetime import datetime as Datetime
-from getpass import getpass
-from queue import Queue, Full as QueueFull
-import os
 import logging
+import os
 import re
 import shutil
 import sys
-from unittest import mock
 import textwrap
 import time
+from base64 import b64decode
+from datetime import datetime as Datetime
+from getpass import getpass
+from queue import Full as QueueFull
+from queue import Queue
+from unittest import mock
+
+from . import CURRENT_FS_REV, REV_VER_MAP
+from .backends.comprenc import ComprencBackend
+from .common import AsyncFn, get_backend, handle_on_return, is_mounted
+from .database import Connection
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
 

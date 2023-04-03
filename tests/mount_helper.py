@@ -4,8 +4,8 @@ This file reproduces mount.s3ql, with pyfuse3.invalidate_inode patched
 for the t5_cp.py::TestCp::test_cp_inode_invalidate test.
 '''
 
-import sys
 import os.path
+import sys
 
 basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
 sys.path = [os.path.join(basedir, 'src')] + sys.path

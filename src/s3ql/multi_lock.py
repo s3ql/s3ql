@@ -6,8 +6,9 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import trio
 import logging
+
+import trio
 
 try:
     from contextlib import asynccontextmanager

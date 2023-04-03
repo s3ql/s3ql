@@ -1,5 +1,4 @@
 import hashlib
-
 import logging
 
 from .b2_error import BadDigestError
