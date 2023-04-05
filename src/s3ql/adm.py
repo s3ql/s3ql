@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from .logging import logging, QuietError, setup_logging, setup_warnings
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
+from .deltadump import INTEGER, BLOB
 from .database import Connection
 from base64 import b64decode
 from .common import is_mounted, get_backend, handle_on_return, AsyncFn

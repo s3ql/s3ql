@@ -140,7 +140,7 @@ class fsck_tests(unittest.TestCase):
         # Remove lost+found
         name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (b'lost+found',))
         inode = self.db.get_val(
-            'SELECT inode FROM contents WHERE name_id=? AND parent_inode=?',
+            'SELECT inode FROM contents WHERE name_id=? AND ' 'parent_inode=?',
             (name_id, ROOT_INODE),
         )
         self.db.execute('DELETE FROM inodes WHERE id=?', (inode,))
@@ -154,7 +154,7 @@ class fsck_tests(unittest.TestCase):
     def test_lof_issue_273(self):
         name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (b'lost+found',))
         inode = self.db.get_val(
-            'SELECT inode FROM contents WHERE name_id=? AND parent_inode=?',
+            'SELECT inode FROM contents WHERE name_id=? AND ' 'parent_inode=?',
             (name_id, ROOT_INODE),
         )
         self.db.execute('UPDATE contents SET parent_inode = ? WHERE inode = ?', (inode, inode))
@@ -324,7 +324,7 @@ class fsck_tests(unittest.TestCase):
 
         block_size = self.max_obj_size // 3
         obj_id = self.db.rowid(
-            'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(?, ?, ?, ?)',
+            'INSERT INTO objects (refcount, phys_size, length, hash) ' 'VALUES(?, ?, ?, ?)',
             (1, 36, block_size, sha256(b'foo')),
         )
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
@@ -388,7 +388,7 @@ class fsck_tests(unittest.TestCase):
 
         # Create an object that does not exist in the backend
         self.db.execute(
-            'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+            'INSERT INTO objects (id, refcount, phys_size, length) ' 'VALUES(?, ?, ?, ?)',
             (34, 1, 27, 50),
         )
         self.assert_fsck(self.fsck.check_objects_id)
@@ -438,7 +438,7 @@ class fsck_tests(unittest.TestCase):
     def test_missing_obj(self):
 
         obj_id = self.db.rowid(
-            'INSERT INTO objects (refcount, phys_size, length) VALUES(1, 32, 128)'
+            'INSERT INTO objects (refcount, phys_size, length) ' 'VALUES(1, 32, 128)'
         )
 
         id_ = self.db.rowid(
@@ -465,7 +465,7 @@ class fsck_tests(unittest.TestCase):
     def test_inode_blocks_inode(self):
 
         obj_id = self.db.rowid(
-            'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, 42, 34, ?)',
+            'INSERT INTO objects (refcount, phys_size, length, hash) ' 'VALUES(1, 42, 34, ?)',
             (sha256(b'foo'),),
         )
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
@@ -592,7 +592,7 @@ class fsck_tests(unittest.TestCase):
     def test_obj_refcounts(self):
 
         obj_id = self.db.rowid(
-            'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, 42, 0, ?)',
+            'INSERT INTO objects (refcount, phys_size, length, hash) ' 'VALUES(1, 42, 0, ?)',
             (sha256(b'foo'),),
         )
         self.backend['s3ql_data_%d' % obj_id] = b'foo'
@@ -624,7 +624,7 @@ class fsck_tests(unittest.TestCase):
     def test_orphaned_obj(self):
 
         self.db.rowid(
-            'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, 33, 50, ?)',
+            'INSERT INTO objects (refcount, phys_size, length, hash) ' 'VALUES(1, 33, 50, ?)',
             (sha256(b'foobar'),),
         )
         self.assert_fsck(self.fsck.check_objects_refcount)
@@ -815,7 +815,9 @@ class fsck_tests(unittest.TestCase):
             ),
         )
         self._link(b'test-entry', inode)
-        obj_id = self.db.rowid('INSERT INTO objects (refcount, phys_size, length) VALUES(1, 32, 0)')
+        obj_id = self.db.rowid(
+            'INSERT INTO objects (refcount, phys_size, length) ' 'VALUES(1, 32, 0)'
+        )
         self.db.execute(
             'INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)', (inode, 1, obj_id)
         )

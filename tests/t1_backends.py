@@ -156,7 +156,7 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
     )
 
 
-@pytest.fixture()
+@pytest.yield_fixture()
 def backend(request):
     (backend_info, comprenc_kind) = request.param
 

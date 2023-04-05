@@ -10,18 +10,4 @@
         "--skip-string-normalization"
     ],
     "editor.formatOnSave": true,
-    "C_Cpp.vcFormat.newLine.beforeOpenBrace.block": "sameLine",
-    "C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "sameLine",
-    "C_Cpp.formatting": "vcFormat",
-    "C_Cpp.vcFormat.newLine.beforeCatch": false,
-    "C_Cpp.vcFormat.newLine.beforeElse": false,
-    "C_Cpp.vcFormat.newLine.beforeOpenBrace.namespace": "sameLine",
-    "C_Cpp.vcFormat.newLine.beforeOpenBrace.type": "sameLine",
-    "python.analysis.extraPaths": [
-        "src/s3ql"
-    ],
-    "python.analysis.diagnosticMode": "workspace",
-    "python.analysis.diagnosticSeverityOverrides": {
-        "reportShadowedImports": "none"
-    }
 }

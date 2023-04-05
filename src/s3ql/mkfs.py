@@ -149,9 +149,9 @@ def main(args=None):
             '(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)'
         )
 
-    if 's3ql_params' in plain_backend or 's3ql_metadata' in plain_backend:
+    if 's3ql_metadata' in plain_backend:
         raise QuietError(
-            "Refusing to overwrite existing file system! (use `s3qladm clear` to delete)"
+            "Refusing to overwrite existing file system! " "(use `s3qladm clear` to delete)"
         )
 
     if not options.plain:

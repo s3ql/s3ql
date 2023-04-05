@@ -155,14 +155,16 @@ class ArgumentParser(argparse.ArgumentParser):
         )
 
     def add_debug(self):
-        destnote = 'Debug messages will be written to the target specified by the ``--log`` option.'
+        destnote = (
+            'Debug messages will be written to the target ' 'specified by the ``--log`` option.'
+        )
         self.add_argument(
             "--debug-modules",
             metavar='<modules>',
             type=lambda s: s.split(','),
             dest='debug',
             help="Activate debugging output from specified modules "
-            "(use commas to separate multiple modules, 'all' for everything). " + destnote,
+            "(use commas to separate multiple modules). " + destnote,
         )
         self.add_argument(
             "--debug",
@@ -177,7 +179,7 @@ class ArgumentParser(argparse.ArgumentParser):
             type=str,
             metavar='<path>',
             default=os.path.expanduser("~/.s3ql"),
-            help='Store cached data in this directory (default: `~/.s3ql)`',
+            help='Store cached data in this directory ' '(default: `~/.s3ql)`',
         )
 
     def add_log(self, default=None):
@@ -205,7 +207,7 @@ class ArgumentParser(argparse.ArgumentParser):
             type=str,
             metavar='<path>',
             default=os.path.expanduser("~/.s3ql/authinfo2"),
-            help='Read authentication credentials from this file (default: `~/.s3ql/authinfo2)`',
+            help='Read authentication credentials from this file ' '(default: `~/.s3ql/authinfo2)`',
         )
 
     def add_compress(self):

@@ -91,7 +91,7 @@ def main(args=None):
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
     if is_mounted(options.storage_url):
-        raise QuietError('File system already mounted elsewhere on this machine.', exitcode=40)
+        raise QuietError('File system already mounted elsewhere on this ' 'machine.', exitcode=40)
 
     if options.threads is None:
         options.threads = determine_threads(options)
@@ -127,9 +127,9 @@ def main(args=None):
 
         prof = cProfile.Profile()
         prof.runcall(trio.run, main_async, options, stdout_log_handler)
-        with open('s3ql_profile.txt', 'w') as fh:
-            prof.dump_stats('s3ql_profile.dat')
-            p = pstats.Stats('s3ql_profile.dat', stream=fh)
+        with tempfile.NamedTemporaryFile() as tmp, open('s3ql_profile.txt', 'w') as fh:
+            prof.dump_stats(tmp.name)
+            p = pstats.Stats(tmp.name, stream=fh)
             p.strip_dirs()
             p.sort_stats('cumulative')
             p.print_stats(50)
@@ -397,7 +397,7 @@ def determine_threads(options):
             log.info('Using %d upload threads (memory limited).', threads)
         else:
             log.warning(
-                'Compression will require %d MiB memory (%d%% of total system memory',
+                'Compression will require %d MiB memory ' '(%d%% of total system memory',
                 mem_per_thread / 1024**2,
                 mem_per_thread * 100 / memory,
             )
@@ -432,7 +432,7 @@ def get_metadata(backend, cachepath):
         raise QuietError("File system damaged or not unmounted cleanly, run fsck!", exitcode=30)
     if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
         log.warning(
-            'Last file system check was more than 1 month ago, running fsck.s3ql is recommended.'
+            'Last file system check was more than 1 month ago, ' 'running fsck.s3ql is recommended.'
         )
 
     # Download metadata
@@ -569,7 +569,7 @@ def parse_args(args):
         "--allow-root",
         action="store_true",
         default=False,
-        help='Like `--allow-other`, but restrict access to the mounting user and the root user.',
+        help='Like `--allow-other`, but restrict access to the mounting ' 'user and the root user.',
     )
     parser.add_argument(
         "--dirty-block-upload-delay",
@@ -690,7 +690,9 @@ def setup_exchook():
         reporting_thread = _thread.get_ident()
         if reporting_thread != main_thread:
             if exc_info:
-                log.warning("Unhandled top-level exception during shutdown (will not be re-raised)")
+                log.warning(
+                    "Unhandled top-level exception during shutdown " "(will not be re-raised)"
+                )
             else:
                 log.error("Unhandled exception in thread, terminating", exc_info=True)
                 exc_info.append(exc_inst)

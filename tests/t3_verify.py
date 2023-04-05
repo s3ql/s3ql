@@ -27,7 +27,7 @@ import tempfile
 import pytest
 
 
-@pytest.fixture()
+@pytest.yield_fixture()
 def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     plain_backend = local.Backend(Namespace(storage_url='local://' + backend_dir))
@@ -39,7 +39,7 @@ def backend():
         shutil.rmtree(backend_dir)
 
 
-@pytest.fixture()
+@pytest.yield_fixture()
 def db():
     dbfile = tempfile.NamedTemporaryFile()
     db = Connection(dbfile.name)
@@ -59,7 +59,7 @@ def test_missing(backend, db, full):
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
         db.execute(
-            'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+            'INSERT INTO objects (id, refcount, phys_size, length) ' 'VALUES(?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data)),
         )
     key = 's3ql_data_%d' % obj_ids[0]
@@ -84,7 +84,7 @@ def test_corrupted_head(backend, db, full):
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
         db.execute(
-            'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+            'INSERT INTO objects (id, refcount, phys_size, length) ' 'VALUES(?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data)),
         )
 
@@ -129,7 +129,7 @@ def test_corrupted_body(backend, db, full):
     data = b'just some data that no-one really cares about'
     for id_ in obj_ids:
         db.execute(
-            'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+            'INSERT INTO objects (id, refcount, phys_size, length) ' 'VALUES(?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data)),
         )
         backend['s3ql_data_%d' % id_] = data
@@ -169,7 +169,7 @@ def test_truncated_body(backend, db, full):
     id_ = 35
     data = b'just some data that no-one really cares about'
     db.execute(
-        'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
+        'INSERT INTO objects (id, refcount, phys_size, length) ' 'VALUES(?, ?, ?, ?)',
         (id_, 1, 27 * id_, len(data) + 1),
     )
     key = 's3ql_data_%d' % id_

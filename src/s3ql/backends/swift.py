@@ -319,7 +319,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if resp.status >= 400:  # error response
                     return resp
                 log.warning(
-                    'Server broke connection during upload, but signaled %d %s',
+                    'Server broke connection during upload, but signaled ' '%d %s',
                     resp.status,
                     resp.reason,
                 )

@@ -97,7 +97,7 @@ def check_imports():
     # False positives
     definitions[
         's3ql',
-    ].add('sqlite3ext')
+    ].add('deltadump')
 
     # Check if imports are direct
     found_problems = False

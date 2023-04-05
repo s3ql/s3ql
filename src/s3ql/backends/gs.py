@@ -454,7 +454,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 pass
             else:
                 log.warning(
-                    'Server broke connection during upload, signaled %d %s',
+                    'Server broke connection during upload, signaled ' '%d %s',
                     resp.status,
                     resp.reason,
                 )
@@ -542,7 +542,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             message = json_resp['error']['message']
             body = None
         except KeyError:
-            log.warning('Did not find error.message element in JSON error response. This is odd.')
+            log.warning(
+                'Did not find error.message element in JSON ' 'error response. This is odd.'
+            )
             message = None
             body = str(json_resp)
 
@@ -573,7 +575,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         try:
             body_text = body.decode(charset)
         except UnicodeDecodeError as exc:
-            log.warning('Unable to decode JSON response as Unicode (%s) - this is odd.', str(exc))
+            log.warning(
+                'Unable to decode JSON response as Unicode (%s) ' '- this is odd.', str(exc)
+            )
             raise ServerResponseError(
                 resp, error=str(exc), body=body.decode(charset, errors='backslashreplace')
             )
@@ -801,7 +805,7 @@ class ObjectR(object):
         if not self.md5_checked:
             if checksum_warning:
                 log.warning(
-                    "Object closed prematurely, can't check MD5, and have to reset connection"
+                    "Object closed prematurely, can't check MD5, and have to " "reset connection"
                 )
             self.backend.conn.disconnect()
 

@@ -7,7 +7,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 from .logging import logging
-from . import CTRL_NAME, CTRL_INODE
+from . import deltadump, CTRL_NAME, CTRL_INODE
 from .backends.common import NoSuchObject, CorruptedObjectError
 from .common import get_path, parse_literal, time_ns
 from .database import NoSuchRowError
@@ -321,8 +321,11 @@ class Operations(pyfuse3.Operations):
             if self.failsafe or self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
 
+            if len(value) > deltadump.MAX_BLOB_SIZE:
+                raise FUSEError(errno.EINVAL)
+
             self.db.execute(
-                'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) VALUES(?, ?, ?)',
+                'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) ' 'VALUES(?, ?, ?)',
                 (id_, self._add_name(name), value),
             )
             self.inodes[id_].ctime_ns = time_ns()
@@ -775,7 +778,7 @@ class Operations(pyfuse3.Operations):
         name_id_old = self._del_name(name_old)
 
         self.db.execute(
-            "UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? AND parent_inode=?",
+            "UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? " "AND parent_inode=?",
             (name_id_new, id_p_new, name_id_old, id_p_old),
         )
 
@@ -968,7 +971,9 @@ class Operations(pyfuse3.Operations):
         dedup_size = self.db.get_val('SELECT SUM(length) FROM objects') or 0
 
         # Objects that are currently being uploaded/compressed have size == -1
-        compr_size = self.db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0') or 0
+        compr_size = (
+            self.db.get_val('SELECT SUM(phys_size) FROM objects ' 'WHERE phys_size > 0') or 0
+        )
 
         return struct.pack(
             'QQQQQQQQQQQQ',
@@ -982,21 +987,14 @@ class Operations(pyfuse3.Operations):
             *self.cache.get_usage()
         )
 
-    async def statfs(self, ctx, _cache=[]):
+    async def statfs(self, ctx):
         log.debug('started')
 
         stat_ = pyfuse3.StatvfsData()
 
-        # Some applications call statfs() very often and repeatedly (VSCode). Since the SELECT
-        # queries need to iterate over the full database, this is very expensive and slows other
-        # filesystem users down. To avoid that, we cache results for a short time.
-        if _cache and time.time() - _cache[3] < 30:
-            (objects, inodes, size) = _cache[:3]
-        else:
-            objects = self.db.get_val("SELECT COUNT(id) FROM objects")
-            inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-            size = self.db.get_val('SELECT SUM(length) FROM objects')
-            _cache[:] = (objects, inodes, size, time.time())
+        objects = self.db.get_val("SELECT COUNT(id) FROM objects")
+        inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
+        size = self.db.get_val('SELECT SUM(length) FROM objects')
 
         if size is None:
             size = 0

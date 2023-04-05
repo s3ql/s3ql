@@ -35,7 +35,7 @@ from base64 import b64encode, b64decode
 from email.utils import parsedate_tz, mktime_tz
 from ast import literal_eval
 from urllib.parse import urlsplit, quote, unquote
-from defusedxml import ElementTree
+import defusedxml.cElementTree as ElementTree
 from itertools import count
 import hashlib
 import os
@@ -227,7 +227,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Log the problem
         self.conn.discard()
         log.error(
-            'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
+            'Unexpected server response. Expected nothing, got:\n' '%d %s\n%s\n\n%s',
             resp.status,
             resp.reason,
             '\n'.join('%s: %s' % x for x in resp.headers.items()),
@@ -688,7 +688,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     if resp.status >= 400:  # Got error response
                         return resp
                     log.warning(
-                        'Server broke connection during upload, but signaled %d %s',
+                        'Server broke connection during upload, but signaled ' '%d %s',
                         resp.status,
                         resp.reason,
                     )
@@ -834,7 +834,7 @@ class ObjectR(object):
         if not self.md5_checked:
             if checksum_warning:
                 log.warning(
-                    "Object closed prematurely, can't check MD5, and have to reset connection"
+                    "Object closed prematurely, can't check MD5, and have to " "reset connection"
                 )
             self.backend.conn.disconnect()
 

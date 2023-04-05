@@ -81,7 +81,7 @@ def parse_args(args):
         "--data",
         action="store_true",
         default=False,
-        help="Read every object completely, instead of checking just the metadata.",
+        help="Read every object completely, instead of checking " "just the metadata.",
     )
 
     parser.add_argument(
@@ -93,7 +93,7 @@ def parse_args(args):
         default=0,
         type=int,
         metavar='<n>',
-        help="Skip over first <n> objects and with verifying object <n>+1.",
+        help="Skip over first <n> objects and with verifying " "object <n>+1.",
     )
 
     options = parser.parse_args(args)
@@ -255,7 +255,7 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
 
             if full and exp_size != size:
                 log.warning(
-                    'Object %d is corrupted (expected size %d, actual size %d)',
+                    'Object %d is corrupted (expected size %d, ' 'actual size %d)',
                     obj_id,
                     exp_size,
                     size,
