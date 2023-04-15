@@ -17,6 +17,7 @@ if __name__ == "__main__":
 import logging
 import tempfile
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 import pytest
 from pytest_checklogs import assert_logs
@@ -25,7 +26,7 @@ from t2_block_cache import random_data
 from s3ql import sqlite3ext
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
-from s3ql.database import Connection, download_metadata, upload_metadata
+from s3ql.database import Connection, download_metadata, expire_objects, upload_metadata
 
 # Page size is 4k, so block sizes smaller than that don't make sense
 BLOCKSIZE = 4096
@@ -66,7 +67,7 @@ def backend():
 def test_upload_download(backend, incremental):
     sqlite3ext.reset()
     rows = 11
-    params = {"metadata-block-size": BLOCKSIZE}
+    params = {"metadata-block-size": BLOCKSIZE, 'seq_no': 1}
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -74,13 +75,13 @@ def test_upload_download(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.checkpoint()
-        upload_metadata(backend, db, params, incremental)
+        upload_metadata(backend, db, params, incremental=incremental)
 
         # Shrink database
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
         db.checkpoint()
-        upload_metadata(backend, db, params, incremental)
+        upload_metadata(backend, db, params, incremental=incremental)
 
         db.close()
 
@@ -122,32 +123,114 @@ def get_metadata_obj_count(backend: AbstractBackend):
     return i
 
 
-def test_truncate(backend: AbstractBackend):
+def test_versioning(backend):
     sqlite3ext.reset()
     rows = 11
-    params = {"metadata-block-size": BLOCKSIZE}
+    params = {"metadata-block-size": BLOCKSIZE, 'seq_no': 1}
+    versions = []
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
         for i in range(rows):
-            db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
+            db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
-        db.checkpoint()
-        upload_metadata(backend, db, params)
-        obj_count = get_metadata_obj_count(backend)
-        assert obj_count >= rows
+        def upload():
+            db.checkpoint()
+            upload_metadata(backend, db, params)
+            tmpfh.seek(0)
+            versions.append((params.copy(), tmpfh.read()))
+            params['seq_no'] += 1
 
-        # Shrink database
+        upload()
+
+        # Make some modifications
+        db.execute('INSERT INTO foo(id, data) VALUES(?, ?)', (rows + 1, b'short data'))
+        upload()
+
+        db.execute('INSERT INTO foo(id, data) VALUES(?, ?)', (2 * rows + 1, DUMMY_DATA))
+        upload()
+
+        db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
+        db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), rows // 2))
+        upload()
+
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
-        db.checkpoint()
-
-        # Incremental upload should not remove objects
-        upload_metadata(backend, db, params, incremental=True)
-        assert get_metadata_obj_count(backend) == obj_count
-
-        # Full upload should remove some objects
-        upload_metadata(backend, db, params, incremental=False)
-        assert obj_count - get_metadata_obj_count(backend) >= rows // 2
+        upload()
 
         db.close()
+
+    for (params, ref_db) in versions:
+        with tempfile.NamedTemporaryFile() as tmpfh2:
+            download_metadata(backend, tmpfh2.name, params)
+            assert tmpfh2.read() == ref_db
+
+
+def test_expiration():
+    def do_test(present, should_keep, versions):
+        present_objs = [
+            's3ql_metadata_%012x_%010x' % (blockno, seq)
+            for (blockno, seqs) in enumerate(present)
+            for seq in seqs
+        ]
+        wanted_objs = [
+            's3ql_metadata_%012x_%010x' % (blockno, seq)
+            for (blockno, seqs) in enumerate(should_keep)
+            for seq in seqs
+        ]
+        to_delete = set(present_objs) - set(wanted_objs)
+
+        def delete_multi(objs):
+            assert set(objs) == to_delete
+
+        backend = MagicMock()
+        backend.list.return_value = present_objs
+        backend.delete_multi.side_effect = delete_multi
+
+        expire_objects(backend, versions_to_keep=versions)
+
+        assert backend.delete_multi.call_count == 1
+
+    do_test(
+        present=[
+            [0, 1, 2, 3, 4, 5],  # block 1
+            [0, 1, 2, 3, 4, 5],  # block 2
+            [0, 1, 2, 3, 4, 5],  # block 3
+            [0, 1, 2, 3, 4, 5],  # block 4
+        ],
+        should_keep=[
+            [5, 4, 3],  # block 1
+            [5, 4, 3],  # block 2
+            [5, 4, 3],  # block 3
+            [5, 4, 3],  # block 4
+        ],
+        versions=3,
+    )
+
+    do_test(
+        present=[
+            [5, 3, 2, 1],  # block 1
+            [5, 3, 1],  # block 2
+            [5, 2, 1],  # block 3
+        ],
+        should_keep=[
+            [5, 3, 2],  # block 1
+            [5, 3, 1],  # block 2
+            [5, 2, 2],  # block 3
+        ],
+        versions=3,
+    )
+
+    do_test(
+        present=[
+            [3, 2, 1, 0],  # block 1
+            [5, 1, 0],  # block 2
+            [3, 1, 0],  # block 3
+        ],
+        should_keep=[
+            [3, 3, 2],  # block 1
+            [5, 1, 1],  # block 2
+            [3, 3, 1],  # block 3
+        ],
+        versions=3,
+    )

@@ -10,6 +10,7 @@ import _thread
 import argparse
 import atexit
 import faulthandler
+import functools
 import logging
 import os
 import platform
@@ -34,6 +35,7 @@ from .daemonize import daemonize
 from .database import (
     Connection,
     download_metadata,
+    expire_objects,
     read_params,
     store_and_upload_params,
     upload_metadata,
@@ -207,7 +209,9 @@ async def main_async(options, stdout_log_handler):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_task = MetadataUploadTask(backend_pool, db, options.metadata_upload_interval)
+    metadata_upload_task = MetadataUploadTask(
+        param, backend_pool, db, options.metadata_upload_interval
+    )
 
     async with trio.open_nursery() as nursery:
         async with AsyncExitStack() as cm:
@@ -329,6 +333,7 @@ async def main_async(options, stdout_log_handler):
         param['last-modified'] = time.time()
         upload_metadata(backend, db, param)
         store_and_upload_params(backend, cachepath, param)
+        expire_objects(backend)
 
     log.info('All done.')
 
@@ -604,7 +609,7 @@ def parse_args(args):
         type=int,
         default=10 * 60,
         metavar='<seconds>',
-        help='Interval between metadata uploads in seconds. Default: 10 min ',
+        help='Interval between metadata uploads in seconds. Default: 10 min',
     )
     parser.add_argument(
         "--threads",
@@ -644,13 +649,14 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    def __init__(self, backend_pool, db, interval):
+    def __init__(self, params, backend_pool, db, interval):
         super().__init__()
         self.backend_pool = backend_pool
         self.db = db
         self.interval = interval
         self.event = trio.Event()
         self.quit = False
+        self.params = params
 
     async def run(self):
         log.debug('started')
@@ -666,7 +672,18 @@ class MetadataUploadTask:
                 break
 
             with self.backend_pool() as backend:
-                await trio.to_thread.run_sync(upload_metadata, backend, self.db, None)
+                self.db.checkpoint()
+                await trio.to_thread.run_sync(
+                    functools.partial(
+                        upload_metadata,
+                        backend,
+                        self.db,
+                        self.params,
+                        update_params=False,
+                        incremental=True,
+                    )
+                )
+                await trio.to_thread.run_sync(expire_objects, backend)
 
         log.debug('finished')
 
