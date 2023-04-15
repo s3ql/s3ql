@@ -14,16 +14,16 @@ Module Attributes:
 '''
 
 
+import collections
 import logging
 import os
 import re
 import time
-from contextlib import contextmanager
-from typing import List, Optional, Union
+from typing import Dict, List, Optional
 
 import apsw
 
-from . import BUFSIZE, CURRENT_FS_REV, sqlite3ext
+from . import CURRENT_FS_REV, sqlite3ext
 from .backends.common import AbstractBackend, NoSuchObject
 from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
 from .logging import QuietError
@@ -399,6 +399,26 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
+def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
+    '''Get list of objects holding versions of each block'''
+
+    block_list = collections.defaultdict(list)
+    log.info('Scanning metadata objects...')
+    for obj in backend.list('s3ql_metadata_'):
+        hit = re.match('^s3ql_metadata_([0-9a-f]+)_([0-9a-f]+)$', obj)
+        if not hit:
+            log.warning('Unexpected object in backend: %s, ignoring', obj)
+            continue
+        blockno = int(hit.group(1), base=16)
+        seq_no = int(hit.group(2), base=16)
+        block_list[blockno].append(seq_no)
+
+    for l in block_list.values():
+        l.sort()
+
+    return block_list
+
+
 def download_metadata(backend: AbstractBackend, db_file: str, params: dict, failsafe=False):
     '''Download metadata from backend into *db_file*
 
@@ -409,18 +429,18 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
     blocksize = params['metadata-block-size']
     file_size = params['db-size']
 
+    # Determine which objects hold the most recent database snapshot
+    block_list = get_block_objects(backend)
+
+    log.info('Downloading metadata...')
     with open(db_file, 'w+b', buffering=0) as fh:
-        log.info('Downloading metadata...')
-        for obj in backend.list('s3ql_metadata_'):
-            hit = re.match('^s3ql_metadata_([0-9a-f]+)$', obj)
-            if not hit:
-                log.warning('Unexpected object in backend: %s, ignoring', obj)
-                continue
-            blockno = int(hit.group(1), base=16)
+        for (blockno, candidates) in block_list.items():
             off = blockno * blocksize
             if off > file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete object %s', obj)
                 continue
+            seq_no = first_le_than(candidates, params['seq_no'])
+            obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
             log.debug('download_metadata: storing %s at pos %d', obj, off)
             fh.seek(off)
             backend.readinto(obj, fh)
@@ -438,17 +458,60 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
     return Connection(db_file, blocksize)
 
 
+def first_le_than(l: List[int], threshold: int):
+    '''Return first element of *l* less or equal than *threshold*
+
+    Assumes that *l* is sorted in ascending order
+    '''
+
+    for e in l[::-1]:
+        if e <= threshold:
+            return e
+
+
+def expire_objects(backend, versions_to_keep=32):
+    '''Delete metadata objects that are no longer needed'''
+
+    block_list = get_block_objects(backend)
+    to_remove = []
+
+    all_seq_nos = set()
+    for seq_nos in block_list.values():
+        all_seq_nos.update(seq_nos)
+
+    # Determine which objects we still need
+    to_keep = collections.defaultdict(set)
+    for seq_no in sorted(all_seq_nos)[-versions_to_keep:]:
+        for (blockno, candidates) in block_list.items():
+            to_keep[blockno].add(first_le_than(candidates, seq_no))
+
+    # Remove what's no longer needed
+    to_remove = []
+    for (blockno, candidates) in block_list.items():
+        for seq_no in candidates:
+            if seq_no in to_keep[blockno]:
+                continue
+            to_remove.append('s3ql_metadata_%012x_%010x' % (blockno, seq_no))
+    backend.delete_multi(to_remove)
+
+
 def upload_metadata(
-    backend: AbstractBackend, db: Connection, params: Optional[dict], incremental: bool = True
+    backend: AbstractBackend,
+    db: Connection,
+    params: dict,
+    incremental: bool = True,
+    update_params: bool = True,
 ) -> None:
     '''Upload metadata to backend
 
-    If *params* is given, calculate checksum and update *params* in place. If *incremental* is
-    false, upload all objects (rather than just known dirty ones) and remove objects holding data
-    beyond the current file size.
+    If *incremental* is false, upload all objects (rather than just known dirty ones).
+
+    If *update_params* is false, do not calculate checksum and update *params* with current database
+    size and checksum.
     '''
 
     blocksize = db.blocksize
+    seq_no = params['seq_no']
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)
         if incremental:
@@ -468,24 +531,12 @@ def upload_metadata(
             except KeyError:
                 break
 
-            log.debug('upload_metadata: uploading block %d', blockno)
+            obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
+            log.debug('upload_metadata: uploading %s', obj)
             fh.seek(blockno * blocksize)
-            backend.store('s3ql_metadata_%012x' % blockno, fh.read(blocksize))
+            backend.store(obj, fh.read(blocksize))
 
-        if not incremental:
-            to_remove = []
-            for obj in backend.list('s3ql_metadata_'):
-                hit = re.match('^s3ql_metadata_([0-9a-f]+)$', obj)
-                if not hit:
-                    log.warning('Unexpected object in backend: %s, ignoring', obj)
-                    continue
-                blockno = int(hit.group(1), base=16)
-                off = blockno * blocksize
-                if off > db_size:
-                    to_remove.append(obj)
-            backend.delete_multi(to_remove)
-
-        if params is None:
+        if not update_params:
             return
 
         log.info('Calculating metadata checksum...')

@@ -27,8 +27,10 @@ from .backends.local import Backend as LocalBackend
 from .common import get_backend, get_path, inode_for_path, is_mounted, sha256_fh, time_ns
 from .database import (
     Connection,
+    DatabaseChecksumError,
     NoSuchRowError,
     download_metadata,
+    expire_objects,
     read_params,
     store_and_upload_params,
     upload_metadata,
@@ -1378,6 +1380,7 @@ def main(args=None):
     # always upload the full metadata in fsck.
     upload_metadata(backend, db, param, incremental=False)
     store_and_upload_params(backend, cachepath, param)
+    expire_objects(backend)
 
     log.info('Completed fsck of %s', options.storage_url)
 
