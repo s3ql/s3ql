@@ -20,33 +20,41 @@ from argparse import Namespace
 
 import pytest
 from pytest_checklogs import assert_logs
+from t2_block_cache import random_data
 
-from s3ql import database, sqlite3ext
+from s3ql import sqlite3ext
 from s3ql.backends import local
+from s3ql.backends.common import AbstractBackend
 from s3ql.database import Connection, download_metadata, upload_metadata
+
+# Page size is 4k, so block sizes smaller than that don't make sense
+BLOCKSIZE = 4096
+
+# Make sure every row requires at least one block of storage
+DUMMY_DATA = random_data(BLOCKSIZE)
 
 
 def test_track_dirty():
-    blocksize = 4096
+    rows = 11
     sqlite3ext.reset()
     with tempfile.NamedTemporaryFile() as tmpfh:
-        db = Connection(tmpfh.name, blocksize)
-        db.execute("CREATE TABLE foo (id INT);")
-        db.execute("INSERT INTO FOO VALUES(?)", (23,))
-        db.execute("INSERT INTO FOO VALUES(?)", (25,))
-        db.execute("INSERT INTO FOO VALUES(?)", (30,))
+        db = Connection(tmpfh.name, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT, data BLOB);")
+        for i in range(rows):
+            db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.checkpoint()
-        assert db.dirty_blocks.get_count() >= 1
+        assert db.dirty_blocks.get_count() >= rows
 
         db.dirty_blocks.clear()
         assert db.dirty_blocks.get_count() == 0
 
-        db.execute("UPDATE FOO SET id=24 WHERE ID=23")
+        db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
         db.checkpoint()
-        assert db.dirty_blocks.get_count() >= 1
+        assert rows > db.dirty_blocks.get_count() > 0
 
         db.close()
+
 
 @pytest.fixture
 def backend():
@@ -56,17 +64,24 @@ def backend():
 
 @pytest.mark.parametrize("incremental", (True, False))
 def test_upload_download(backend, incremental):
-    blocksize = 1024
     sqlite3ext.reset()
+    rows = 11
+    params = {"metadata-block-size": BLOCKSIZE}
     with tempfile.NamedTemporaryFile() as tmpfh:
-        db = Connection(tmpfh.name, blocksize)
-        db.execute("CREATE TABLE foo (val TEXT);")
-        for i in range(50):
-            db.execute("INSERT INTO FOO VALUES(?)", ("foo" * i,))
+        db = Connection(tmpfh.name, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT, data BLOB);")
+        for i in range(rows):
+            db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.checkpoint()
-        params = {"metadata-block-size": blocksize}
         upload_metadata(backend, db, params, incremental)
+
+        # Shrink database
+        db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
+        db.execute('VACUUM')
+        db.checkpoint()
+        upload_metadata(backend, db, params, incremental)
+
         db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
@@ -97,3 +112,11 @@ def test_checkpoint():
 
         q.close()
         db.checkpoint()
+        db.close()
+
+
+def get_metadata_obj_count(backend: AbstractBackend):
+    i = 0
+    for _ in backend.list('s3ql_metadata_'):
+        i += 1
+    return i
