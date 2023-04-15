@@ -48,7 +48,8 @@ def sqlite3_log(errcode, message):
         errstr = apsw.mapping_extended_result_codes.get(
             errcode, apsw.mapping_result_codes[errcode & 255]
         )
-        log.warning('sqlite3: %s (%s)', message, errstr)
+        # Interpolate the log message directly so that it is available for pytest_checklogs
+        log.warning(f'sqlite3: {message} ({errstr})')
 
 
 apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
