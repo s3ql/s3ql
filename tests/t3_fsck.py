@@ -565,7 +565,7 @@ class fsck_tests(unittest.TestCase):
                     1,
                 ),
             )
-            for dummy in range(3)
+            for _ in range(3)
         ]
 
         inodes.append(inodes[0])

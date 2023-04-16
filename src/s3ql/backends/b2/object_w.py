@@ -61,7 +61,7 @@ class ObjectW:
         self.headers['X-Bz-Content-Sha1'] = self.sha1.hexdigest()
 
         try:
-            response = self.backend._do_upload_request(self.headers, self.fh)
+            self.backend._do_upload_request(self.headers, self.fh)
         except BadDigestError:
             # delete may fail, but we don't want to loose the BadDigest exception
             try:

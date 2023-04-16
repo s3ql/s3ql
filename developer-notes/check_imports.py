@@ -2,11 +2,6 @@
 
 import ast
 import os
-import re
-import shutil
-import subprocess
-import sys
-from argparse import ArgumentParser
 
 
 def get_definitions(path):

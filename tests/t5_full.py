@@ -24,7 +24,6 @@ import t4_fuse
 from common import NoTestSection, get_remote_test_info, populate_dir, skip_without_rsync
 
 from s3ql import backends
-from s3ql.database import Connection
 
 
 class TestFull(t4_fuse.TestFuse):

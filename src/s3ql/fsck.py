@@ -27,7 +27,6 @@ from .backends.local import Backend as LocalBackend
 from .common import get_backend, get_path, inode_for_path, is_mounted, sha256_fh, time_ns
 from .database import (
     Connection,
-    DatabaseChecksumError,
     NoSuchRowError,
     download_metadata,
     expire_objects,
@@ -1012,7 +1011,7 @@ class Fsck:
         log.info('Checking for temporary objects and empty directories (backend)...')
 
         empty_dirs = 0
-        for (path, dirnames, filenames) in os.walk(plain_backend.prefix, topdown=False):
+        for path, _, filenames in os.walk(plain_backend.prefix, topdown=False):
             for name in filenames:
                 if not re.search(r'^[^#]+#[0-9]+--?[0-9]+\.tmp$', name):
                     continue
@@ -1035,15 +1034,10 @@ class Fsck:
 
         log.info('Checking objects (backend)...')
 
-        lof_id = self.conn.get_val(
-            "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
-            (b"lost+found", ROOT_INODE),
-        )
-
         # We use this table to keep track of the objects that we have seen
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
-            for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
+            for i, obj_name in enumerate(self.backend.list('s3ql_data_')):
                 log.info(
                     'Processed %d objects so far',
                     i,

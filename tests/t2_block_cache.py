@@ -24,7 +24,6 @@ import threading
 from argparse import Namespace
 from contextlib import contextmanager
 from queue import Full as QueueFull
-from unittest.mock import patch
 
 import pytest
 import trio

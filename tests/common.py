@@ -22,7 +22,7 @@ import pytest
 
 def get_clock_granularity():
     resolution = float('inf')
-    for i in range(50):
+    for _ in range(50):
         stamp1 = time.time()
         stamp2 = stamp1
         while stamp1 == stamp2:

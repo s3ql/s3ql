@@ -14,7 +14,6 @@ import os
 import signal
 import sys
 import textwrap
-import time
 from queue import Full as QueueFull
 from queue import Queue
 
@@ -119,7 +118,7 @@ def main(args=None):
 
     # Retrieve metadata
     with backend_factory() as backend:
-        (param, db) = get_metadata(backend, options.cachepath)
+        (_, db) = get_metadata(backend, options.cachepath)
 
     retrieve_objects(
         db,
@@ -167,7 +166,8 @@ def retrieve_objects(
         extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
         if full:
             log.info(
-                'Checked %d objects (%.2f%%) / %s (%.2f%%)' % i,
+                'Checked %d objects (%.2f%%) / %s (%.2f%%)',
+                i,
                 i / total_count * 100,
                 delay_eval(pretty_print_size, size_acc),
                 size_acc / total_size * 100,

@@ -91,8 +91,7 @@ class TestCp(t4_fuse.TestFuse):
     def test_cp_inode_invalidate(self):
         # check if we can write to drop_caches
         try:
-            with open("/proc/sys/vm/drop_caches", "w") as drop_caches:
-                pass
+            open("/proc/sys/vm/drop_caches", "w").close()
         except OSError:
             pytest.skip('test_cp_inode_invalidate requires drop_caches to be writable, skipping.')
 
