@@ -517,7 +517,8 @@ def upload_metadata(
         if incremental:
             next_dirty_block = db.dirty_blocks.get_block
         else:
-            all_blocks = iter(range(0, db_size // blocksize + 1))
+            total = (db_size + blocksize - 1) // blocksize
+            all_blocks = iter(range(0, total))
 
             def next_dirty_block():
                 try:
