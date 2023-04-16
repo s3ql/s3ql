@@ -217,18 +217,10 @@ def clear(options, on_return):
         t.start()
         threads.append(t)
 
-    stamp = time.time()
     for (i, obj_id) in enumerate(backend.list()):
-        stamp2 = time.time()
-        if stamp2 - stamp > 1:
-            sys.stdout.write('\r..deleted %d objects so far..' % i)
-            sys.stdout.flush()
-            stamp = stamp2
-
-            # Terminate early if any thread failed with an exception
-            for t in threads:
-                if not t.is_alive():
-                    t.join_and_raise()
+        log.info(
+            'Deleting objects (%d so far)...', i, extra={'rate_limit': 1, 'update_console': True}
+        )
 
         # Avoid blocking if all threads terminated
         while True:
@@ -249,7 +241,6 @@ def clear(options, on_return):
     for t in threads:
         t.join_and_raise()
 
-    sys.stdout.write('\n')
     log.info('All visible objects deleted.')
 
 

@@ -10,7 +10,9 @@ import logging
 import logging.handlers
 import os.path
 import sys
+import time
 import warnings
+from typing import Callable
 
 
 class QuietError(Exception):
@@ -60,6 +62,42 @@ class MyFormatter(logging.Formatter):
         if record.levelno > logging.INFO:
             s = '%s: %s' % (record.levelname, s)
         return s
+
+
+class ConsoleHandler(logging.StreamHandler):
+    """Write log messages to stderr.
+
+    If stderr is a console, then log messages where the *extra* parameter's `update_console` key is
+    true are printed in the same line (updating the contents) as long as no other log messages are
+    interspersed. Adding *is_last* ensures that the next log message is printed on a new line.
+    """
+
+    def __init__(self):
+        super().__init__(sys.stderr)
+        self.last_msg = None
+        self.is_console = sys.stderr.isatty()
+
+    def emit(self, record: logging.LogRecord):
+        if self.is_console and getattr(record, 'update_console', False):
+            id_ = hash((record.name, record.levelno, record.msg))
+            if self.last_msg == id_:
+                sys.stderr.write('\r')
+            elif self.last_msg:
+                sys.stderr.write('\n')
+            if getattr(record, 'is_last', False):
+                self.terminator = '\n'
+                self.last_msg = None
+            else:
+                self.last_msg = id_
+                self.terminator = ''
+            super().emit(record)
+            self.flush()
+        else:
+            if self.last_msg:
+                sys.stderr.write('\n')
+                self.last_msg = None
+            self.terminator = '\n'
+            super().emit(record)
 
 
 def create_handler(target):
@@ -189,11 +227,11 @@ def add_stdout_logging(quiet=False, systemd=False):
     '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
+    handler = ConsoleHandler()
     if systemd:
         formatter = SystemdFormatter('%(message)s')
     else:
         formatter = MyFormatter('%(message)s')
-    handler = logging.StreamHandler(sys.stderr)
     if not systemd and quiet:
         handler.setLevel(logging.WARNING)
     else:
@@ -204,24 +242,65 @@ def add_stdout_logging(quiet=False, systemd=False):
 
 
 class LogFilter:
-    '''
-    Log messages that are emitted with an *log_once* attribute in the
-    *extra* parameter are only emitted once.
-    '''
+    """
+    Log messages with an *log_once* attribute in the *extra* parameter are only
+    emitted once in the lifetime of the filter.
+
+    Log messages with a *rate_limit* attribute in the *extra* parameter are
+    emitted at most once every *rate_limit* seconds - unless they also have
+    an *is_last* attribute.
+    """
 
     def __init__(self):
         super().__init__()
-        self.log_cache = set()
+        self.log_once_cache = set()
+        self.rl_cache = dict()
 
     def filter(self, record):
-        if hasattr(record, 'log_once') and record.log_once:
+        if getattr(record, 'log_once', False):
             id_ = hash((record.name, record.levelno, record.msg, record.args, record.exc_info))
-            if id_ in self.log_cache:
+            if id_ in self.log_once_cache:
                 return False
-            self.log_cache.add(id_)
+            self.log_once_cache.add(id_)
+
+        ratelimit = getattr(record, 'rate_limit', None)
+        if ratelimit:
+            id_ = hash((record.name, record.levelno, record.msg))
+            last_log = self.rl_cache.get(id_, 0)
+            now = time.monotonic()
+            if now - last_log < ratelimit and not getattr(record, 'is_last', False):
+                return False
+            self.rl_cache[id_] = now
+
         return True
 
 
-# Convenience object for use in logging calls, e.g.
-# log.warning('This will be printed only once', extra=LOG_ONCE)
+class delay_eval:
+    """When stringified, evaluate specified function and return its result.
+
+    This can be used for lazy evaluation of arguments to log messages. For
+    example:
+
+    def difficult_to_compute():
+        time.sleep(10)
+        return 'foo'
+
+    # Will only take 10 seconds if debug logging is enabled
+    log.debug('The value is: %s', delay_eval(difficult_to_compute))
+    """
+
+    __slots__ = ('fn', 'args', 'kwargs')
+
+    def __init__(self, fn: Callable, *args, **kwargs) -> None:
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
+
+    def __str__(self) -> str:
+        return str(self.fn(*self.args, **self.kwargs))
+
+
+# Convenience objects for use in logging calls' extra argument.
+
+# Print only once in the lifetime of the program
 LOG_ONCE = {'log_once': True}

@@ -177,19 +177,17 @@ class Fsck:
             return
         candidates = os.listdir(self.cachedir)
 
-        if sys.stdout.isatty():
-            stamp1 = 0
-        else:
-            stamp1 = float('inf')
-
         total = len(candidates)
         for (i, filename) in enumerate(candidates):
             i += 1  # start at 1
-            stamp2 = time.time()
-            if stamp2 - stamp1 > 1 or i == total - 1:
-                sys.stdout.write('\r..processed %d/%d files (%d%%)..' % (i, total, i / total * 100))
-                sys.stdout.flush()
-                stamp1 = stamp2
+
+            log.info(
+                'Processed %d/%d dirty cache objects (%d%%)',
+                i,
+                total,
+                i / total * 100,
+                extra={'rate_limit': 1, 'update_console': True, 'is_last': i == total},
+            )
 
             match = re.match('^(\\d+)-(\\d+)$', filename)
             if match:
@@ -1043,18 +1041,14 @@ class Fsck:
         )
 
         # We use this table to keep track of the objects that we have seen
-        if sys.stdout.isatty():
-            stamp1 = 0
-        else:
-            stamp1 = float('inf')
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
             for (i, obj_name) in enumerate(self.backend.list('s3ql_data_')):
-                stamp2 = time.time()
-                if stamp2 - stamp1 > 1:
-                    sys.stdout.write('\r..processed %d objects so far..' % i)
-                    sys.stdout.flush()
-                    stamp1 = stamp2
+                log.info(
+                    'Processed %d objects so far',
+                    i,
+                    extra={'rate_limit': 1, 'update_console': True},
+                )
 
                 # We only bother with data objects
                 try:
@@ -1096,9 +1090,6 @@ class Fsck:
                 self.conn.execute("DELETE FROM objects WHERE id=?", (obj_id,))
 
         finally:
-            if sys.stdout.isatty():
-                sys.stdout.write('\n')
-
             self.conn.execute('DROP TABLE obj_ids')
             self.conn.execute('DROP TABLE IF EXISTS missing')
 
