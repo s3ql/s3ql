@@ -97,8 +97,7 @@ def main(args=None):
 
     # Ensure the inode of the target folder stays in the kernel dentry cache
     # (We invalidate it during the copy)
-    with os.scandir(options.target) as it:
-
+    with os.scandir(options.target):
         fstat_t = os.stat(options.target)
         pyfuse3.setxattr(ctrlfile, 'copy', ('(%d, %d)' % (fstat_s.st_ino, fstat_t.st_ino)).encode())
 

@@ -46,7 +46,7 @@ from getpass import getpass
 
 from . import RELEASE
 from .backends import prefix_map
-from .common import _escape
+from .common import escape
 
 DEFAULT_USAGE = object()
 log = logging.getLogger(__name__)
@@ -320,7 +320,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
             cachedir = os.path.abspath(options.cachedir)
             os.environ['SQLITE_TMPDIR'] = cachedir
-            options.cachepath = os.path.join(cachedir, _escape(options.storage_url))
+            options.cachepath = os.path.join(cachedir, escape(options.storage_url))
 
         return options
 

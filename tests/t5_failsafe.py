@@ -27,7 +27,6 @@ from common import NoTestSection, get_remote_test_info
 import s3ql.ctrl
 from s3ql import BUFSIZE
 from s3ql.backends import gs
-from s3ql.backends.local import Backend as LocalBackend
 
 
 @pytest.mark.usefixtures('pass_reg_output')

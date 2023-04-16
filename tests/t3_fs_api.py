@@ -425,7 +425,7 @@ async def test_rename2(ctx):
 
     inode_dst_folder = await ctx.server.mkdir(ROOT_INODE, dst_folder_name, dir_mode(), some_ctx)
     inode_src_folder = await ctx.server.mkdir(ROOT_INODE, src_folder_name, dir_mode(), some_ctx)
-    (_, inode_file) = await ctx.server.create(
+    await ctx.server.create(
         inode_src_folder.st_ino, src_file_name, file_mode(), os.O_RDWR, some_ctx
     )
 

@@ -18,11 +18,20 @@
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.namespace": "sameLine",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.type": "sameLine",
     "python.analysis.extraPaths": [
-        "src/s3ql"
+        "src"
     ],
     "python.analysis.diagnosticMode": "workspace",
     "python.analysis.diagnosticSeverityOverrides": {
-        "reportShadowedImports": "none"
+        "reportShadowedImports": "none",
+        "reportUnusedVariable": "warning",
+        "reportUnusedImport": "warning",
+        "reportUnusedClass": "warning",
+        "reportUnusedFunction": "warning",
+        "reportFunctionMemberAccess": "warning",
+        "reportDuplicateImport": "warning",
+        "reportDeprecated": "information",
+        "reportUnnecessaryIsInstance": "warning",
+        "reportUnnecessaryTypeIgnoreComment": "warning",
     },
     "[python]": {
         "editor.codeActionsOnSave": {

@@ -10,11 +10,10 @@ import logging
 import sys
 import textwrap
 
-import requests
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
-from .logging import QuietError, setup_logging, setup_warnings
+from .logging import setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
@@ -37,31 +36,6 @@ def parse_args(args):
     parser.add_version()
 
     return parser.parse_args(args)
-
-
-def _log_response(r):
-    '''Log server response'''
-
-    if not log.isEnabledFor(logging.DEBUG):
-        return
-
-    s = ['Server response:', '%03d %s' % (r.status_code, r.reason)]
-    for tup in r.headers.items():
-        s.append('%s: %s' % tup)
-
-    s.append('')
-    s.append(r.text)
-
-    log.debug('\n'.join(s))
-
-
-def _parse_response(r):
-
-    _log_response(r)
-    if r.status_code != requests.codes.ok:
-        raise QuietError('Connection failed with: %d %s' % (r.status_code, r.reason))
-
-    return r.json()
 
 
 def main(args=None):

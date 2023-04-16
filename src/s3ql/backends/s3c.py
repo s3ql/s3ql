@@ -752,7 +752,7 @@ class Backend(AbstractBackend):
 def _tag_xmlns_uri(elem):
     '''Extract the XML namespace (xmlns) URI from an element'''
     if elem.tag[0] == '{':
-        uri, ignore, tag = elem.tag[1:].partition("}")
+        uri = elem.tag[1:].partition("}")[0]
     else:
         uri = None
     return uri

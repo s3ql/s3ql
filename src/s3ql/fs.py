@@ -428,7 +428,7 @@ class Operations(pyfuse3.Operations):
                 )
                 reinserted = False
 
-                for (name, name_id, id_) in query_chunk:
+                for (name, _, id_) in query_chunk:
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         # First delete subdirectories
                         if not reinserted:

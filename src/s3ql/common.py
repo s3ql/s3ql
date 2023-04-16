@@ -135,7 +135,7 @@ def get_path(id_, conn, name=None):
     return b'/'.join(path)
 
 
-def _escape(s):
+def escape(s):
     '''Escape '/', '=' and '\0' in s'''
 
     s = s.replace('=', '=3D')

@@ -24,7 +24,7 @@ from os.path import join as pjoin
 import pytest
 import t4_fuse
 
-from s3ql.common import _escape
+from s3ql.common import escape
 
 with open(__file__, 'rb') as fh:
     TEST_DATA = fh.read()
@@ -73,7 +73,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount_fuse()
 
         # Update cache files
-        cache_file = pjoin(self.cache_dir, _escape(self.storage_url) + '-cache', '4-0')
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '4-0')
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
         self.fsck(expect_retcode=128)
@@ -104,7 +104,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount()
 
         # Taint cache file, so we'll get an error if it's re-used
-        cache_file = pjoin(self.cache_dir, _escape(self.storage_url) + '-cache', '%d-0' % (ino,))
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '%d-0' % (ino,))
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
 
@@ -153,7 +153,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount_fuse()
 
         # Update cache files
-        cache_file = pjoin(self.cache_dir, _escape(self.storage_url) + '-cache', '4-0')
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '4-0')
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
 

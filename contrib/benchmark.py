@@ -75,7 +75,6 @@ def parse_args(args):
 
 
 def test_write_speed(size, blocksize, cachedir, rnd_fh):
-
     with contextlib.ExitStack() as mgr:
         mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
         mgr.callback(shutil.rmtree, mnt_dir)

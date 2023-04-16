@@ -294,7 +294,7 @@ class B2Backend(AbstractBackend):
         api_call_url_path = api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        response, body = self._do_request(
+        _, body = self._do_request(
             self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body
         )
 
@@ -306,7 +306,7 @@ class B2Backend(AbstractBackend):
         path = '/file/' + self.bucket_name + '/' + self._b2_url_encode(key_with_prefix)
 
         try:
-            response, body = self._do_request(
+            response, _ = self._do_request(
                 self._get_download_connection(), method, path, download_body=False
             )
         except HTTPError as exc:
@@ -327,7 +327,7 @@ class B2Backend(AbstractBackend):
         upload_url_info['isUploading'] = True
 
         try:
-            response, response_body = self._do_request(
+            _, response_body = self._do_request(
                 upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body
             )
         except B2Error as exc:

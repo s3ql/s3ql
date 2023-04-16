@@ -16,7 +16,6 @@ to stdout/stderr), and a `assert_logs` function (for logging messages).
 import functools
 import logging
 import re
-import sys
 from contextlib import contextmanager
 
 import pytest

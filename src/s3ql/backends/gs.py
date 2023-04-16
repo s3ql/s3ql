@@ -39,7 +39,6 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
-    checksum_basic_mapping,
     get_proxy,
     get_ssl_context,
     retry,

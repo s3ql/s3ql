@@ -17,7 +17,6 @@ except ModuleNotFoundError:
     )
 import faulthandler
 import os
-import re
 import subprocess
 import sys
 from glob import glob

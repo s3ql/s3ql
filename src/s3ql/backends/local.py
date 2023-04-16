@@ -12,7 +12,6 @@ import logging
 import os
 import struct
 
-from .. import BUFSIZE
 from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
 

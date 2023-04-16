@@ -438,10 +438,8 @@ def test_complex_meta(backend):
 # ComprencBackend should just forward this 1:1 to the raw backend.
 @pytest.mark.with_backend('*/aes')
 def test_list(backend):
-    keys = ['prefixa' + newname() for dummy in range(6)] + [
-        'prefixb' + newname() for dummy in range(6)
-    ]
-    values = [newvalue() for dummy in range(12)]
+    keys = ['prefixa' + newname() for _ in range(6)] + ['prefixb' + newname() for _ in range(6)]
+    values = [newvalue() for _ in range(12)]
 
     assert set(backend.list()) == empty_set
     for i in range(12):
@@ -639,7 +637,7 @@ def test_multi_packet(backend):
     key = newname()
 
     def do_write(fh):
-        for i in range(5):
+        for _ in range(5):
             fh.write(b'\xFF' * BUFSIZE)
 
     backend.perform_write(do_write, key)
@@ -721,10 +719,8 @@ def test_replay(backend):
 
 @pytest.mark.with_backend('s3c/raw', require_mock_server=True)
 def test_list_bug(backend, monkeypatch):
-    keys = ['prefixa' + newname() for dummy in range(6)] + [
-        'prefixb' + newname() for dummy in range(6)
-    ]
-    values = [newvalue() for dummy in range(12)]
+    keys = ['prefixa' + newname() for _ in range(6)] + ['prefixb' + newname() for _ in range(6)]
+    values = [newvalue() for _ in range(12)]
 
     assert set(backend.list()) == empty_set
     for i in range(12):
