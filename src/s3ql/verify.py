@@ -21,7 +21,7 @@ from queue import Queue
 from . import BUFSIZE
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .common import AsyncFn, get_backend_factory, pretty_print_size
-from .logging import setup_logging, setup_warnings
+from .logging import delay_eval, setup_logging, setup_warnings
 from .mount import get_metadata
 from .parse_args import ArgumentParser
 
@@ -162,43 +162,35 @@ def retrieve_objects(
 
     sql = 'SELECT id, phys_size, length FROM objects ORDER BY id'
     i = 0  # Make sure this is set if there are zero objects
-    stamp1 = 0
-    try:
-        for (i, (obj_id, obj_size, block_size)) in enumerate(db.query(sql)):
-            i += 1  # start at 1
-            stamp2 = time.time()
-            if stamp2 - stamp1 > 1 or i == total_count:
-                stamp1 = stamp2
-                progress = '%d objects (%.2f%%)' % (i, i / total_count * 100)
-                if full:
-                    s = pretty_print_size(size_acc)
-                    progress += ' / %s (%.2f%%)' % (s, size_acc / total_size * 100)
-                sys.stdout.write('\r..processed %s so far..' % progress)
-                sys.stdout.flush()
+    for (i, (obj_id, obj_size, block_size)) in enumerate(db.query(sql)):
+        i += 1  # start at 1
+        extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
+        if full:
+            log.info(
+                'Checked %d objects (%.2f%%) / %s (%.2f%%)' % i,
+                i / total_count * 100,
+                delay_eval(pretty_print_size, size_acc),
+                size_acc / total_size * 100,
+                extra=extra,
+            )
+        else:
+            log.info('Checked %d objects (%.2f%%)', i, i / total_count * 100, extra=extra)
 
-                # Terminate early if any thread failed with an exception
-                for t in threads:
-                    if not t.is_alive():
-                        t.join_and_raise()
+        size_acc += obj_size
+        if i < offset:
+            continue
 
-            size_acc += obj_size
-            if i < offset:
-                continue
-
-            # Avoid blocking if all threads terminated
-            while True:
-                try:
-                    queue.put((obj_id, block_size), timeout=1)
-                except QueueFull:
-                    pass
-                else:
-                    break
-                for t in threads:
-                    if not t.is_alive():
-                        t.join_and_raise()
-
-    finally:
-        sys.stdout.write('\n')
+        # Avoid blocking if all threads terminated
+        while True:
+            try:
+                queue.put((obj_id, block_size), timeout=1)
+            except QueueFull:
+                pass
+            else:
+                break
+            for t in threads:
+                if not t.is_alive():
+                    t.join_and_raise()
 
     queue.maxsize += len(threads)
     for t in threads:
