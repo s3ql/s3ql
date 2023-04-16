@@ -13,7 +13,6 @@ import re
 import shutil
 import ssl
 import urllib.parse
-from distutils.version import LooseVersion
 from urllib.parse import urlsplit
 
 from dugong import (
@@ -23,6 +22,7 @@ from dugong import (
     HTTPConnection,
     is_temp_network_error,
 )
+from packaging.version import Version
 
 from .. import BUFSIZE
 from ..logging import LOG_ONCE, QuietError
@@ -702,9 +702,7 @@ class Backend(AbstractBackend):
                 log.debug('%s:%s/info returns %s', hostname, port, info)
 
                 swift_version_string = swift_info.get('version', None)
-                if swift_version_string and LooseVersion(swift_version_string) >= LooseVersion(
-                    '2.8'
-                ):
+                if swift_version_string and Version(swift_version_string) >= Version('2.8'):
                     detected_features.has_copy = True
 
                 # Default metadata value length constrain is 256 bytes

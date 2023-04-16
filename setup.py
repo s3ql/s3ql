@@ -20,7 +20,6 @@ import os
 import re
 import subprocess
 import sys
-from distutils.version import LooseVersion
 from glob import glob
 
 from setuptools import Extension
