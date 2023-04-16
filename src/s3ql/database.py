@@ -431,6 +431,8 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
 
     # Determine which objects hold the most recent database snapshot
     block_list = get_block_objects(backend)
+    total = len(block_list)
+    processed = 0
 
     log.info('Downloading metadata...')
     with open(db_file, 'w+b', buffering=0) as fh:
@@ -440,8 +442,15 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
                 log.debug('download_metadata: skipping obsolete object %s', obj)
                 continue
             seq_no = first_le_than(candidates, params['seq_no'])
+            processed += 1
+            log.info(
+                'Downloaded %d/%d metadata blocks (%d%%)',
+                processed,
+                total,
+                processed * 100 / total,
+                extra={'rate_limit': 1, 'update_console': True, 'is_last': processed == total},
+            )
             obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
-            log.debug('download_metadata: storing %s at pos %d', obj, off)
             fh.seek(off)
             backend.readinto(obj, fh)
 
@@ -512,10 +521,12 @@ def upload_metadata(
 
     blocksize = db.blocksize
     seq_no = params['seq_no']
+    log.info('Uploading metadata...')
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)
         if incremental:
             next_dirty_block = db.dirty_blocks.get_block
+            total = db.dirty_blocks.get_count()
         else:
             total = (db_size + blocksize - 1) // blocksize
             all_blocks = iter(range(0, total))
@@ -526,14 +537,22 @@ def upload_metadata(
                 except StopIteration:
                     raise KeyError()
 
+        processed = 0
         while True:
             try:
                 blockno = next_dirty_block()
             except KeyError:
                 break
 
+            processed += 1
+            log.info(
+                'Uploaded %d out of ~%d dirty blocks (%d%%)',
+                processed,
+                total,
+                processed * 100 / total,
+                extra={'rate_limit': 1, 'update_console': True},
+            )
             obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
-            log.debug('upload_metadata: uploading %s', obj)
             fh.seek(blockno * blocksize)
             backend.store(obj, fh.read(blocksize))
 
