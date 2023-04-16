@@ -3,7 +3,7 @@
     "pythonIndent.keepHangingBracketOnLine": true,
     "files.trimTrailingWhitespace": true,
     "pythonIndent.trimLinesWithOnlyWhitespace": true,
-    "python.analysis.importFormat": "relative",
+    "python.analysis.importFormat": "absolute",
     "python.formatting.provider": "black",
     "python.formatting.blackArgs": [
         "--line-length=100",
