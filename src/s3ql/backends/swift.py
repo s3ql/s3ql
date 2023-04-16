@@ -764,7 +764,7 @@ def _split_response_status(line):
     Returns 2-tuple (int, string)
 
     Raises ValueError when line is not parsable'''
-    hit = re.match('^([0-9]{3})\s+(.*)$', line)
+    hit = re.match(r'^([0-9]{3})\s+(.*)$', line)
     if not hit:
         log.error('Expected valid Response Status, got: %s', line)
         raise ValueError('Expected valid Response Status, got: %s' % line)
