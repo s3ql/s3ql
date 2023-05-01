@@ -20,7 +20,13 @@ from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends import s3
 from .backends.comprenc import ComprencBackend
 from .common import get_backend, split_by_n, time_ns
-from .database import Connection, create_tables, store_and_upload_params, upload_metadata
+from .database import (
+    Connection,
+    FsAttributes,
+    create_tables,
+    store_and_upload_params,
+    upload_metadata,
+)
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -191,20 +197,20 @@ def main(args=None):
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 
-    param = dict()
-    param['revision'] = CURRENT_FS_REV
-    param['seq_no'] = int(time.time())
-    param['label'] = options.label
-    param['data-block-size'] = options.data_block_size * 1024
-    param['metadata-block-size'] = options.metadata_block_size * 1024
-    param['needs_fsck'] = False
-    param['is_mounted'] = False
-    param['inode_gen'] = 0
-    param['last_fsck'] = time.time()
-    param['last-modified'] = time.time()
+    param = FsAttributes()
+    param.revision = CURRENT_FS_REV
+    param.seq_no = int(time.time())
+    param.label = options.label
+    param.data_block_size = options.data_block_size * 1024
+    param.metadata_block_size = options.metadata_block_size * 1024
+    param.needs_fsck = False
+    param.is_mounted = False
+    param.inode_gen = 0
+    param.last_fsck = time.time()
+    param.last_modified = time.time()
 
     log.info('Creating metadata tables...')
-    db = Connection(cachepath + '.db', param['metadata-block-size'])
+    db = Connection(cachepath + '.db', param.metadata_block_size)
     create_tables(db)
     init_tables(db)
 
