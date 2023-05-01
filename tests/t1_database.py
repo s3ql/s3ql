@@ -14,10 +14,11 @@ if __name__ == "__main__":
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+
 import logging
 import tempfile
 from argparse import Namespace
-from unittest.mock import MagicMock
+from typing import List
 
 import pytest
 from pytest_checklogs import assert_logs
@@ -26,7 +27,14 @@ from t2_block_cache import random_data
 from s3ql import sqlite3ext
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
-from s3ql.database import Connection, download_metadata, expire_objects, upload_metadata
+from s3ql.database import (
+    METADATA_OBJ_NAME,
+    Connection,
+    download_metadata,
+    expire_objects,
+    store_and_upload_params,
+    upload_metadata,
+)
 
 # Page size is 4k, so block sizes smaller than that don't make sense
 BLOCKSIZE = 4096
@@ -142,6 +150,7 @@ def test_versioning(backend):
             params['seq_no'] += 1
 
         upload()
+        base_count = len(list(backend.list('s3ql_metadata_')))
 
         # Make some modifications
         db.execute('INSERT INTO foo(id, data) VALUES(?, ?)', (rows + 1, b'short data'))
@@ -165,72 +174,161 @@ def test_versioning(backend):
             download_metadata(backend, tmpfh2.name, params)
             assert tmpfh2.read() == ref_db
 
+    # Make sure that we did not store a full copy of every version
+    obj_count = len(list(backend.list('s3ql_metadata_')))
+    versions = len(versions) - 1
+    assert obj_count - base_count <= versions * base_count * 0.5
 
-def test_expiration():
-    def do_test(present, should_keep, versions):
-        present_objs = [
-            's3ql_metadata_%012x_%010x' % (blockno, seq)
-            for (blockno, seqs) in enumerate(present)
-            for seq in seqs
-        ]
-        wanted_objs = [
-            's3ql_metadata_%012x_%010x' % (blockno, seq)
-            for (blockno, seqs) in enumerate(should_keep)
-            for seq in seqs
-        ]
-        to_delete = set(present_objs) - set(wanted_objs)
 
-        def delete_multi(objs):
-            assert set(objs) == to_delete
+def _test_expiration(
+    backend: AbstractBackend,
+    contents_pre: List[List[int]],
+    contents_post: List[List[int]],
+    db_sizes: List[int],
+    versions_to_keep: int,
+):
 
-        backend = MagicMock()
-        backend.list.return_value = present_objs
-        backend.delete_multi.side_effect = delete_multi
+    id_seq_map = {}
+    for blockno, versions in enumerate(contents_pre):
+        assert len(db_sizes) == len(versions)
+        last_id = None
+        for (seq_no, block_id) in enumerate(versions):
+            if last_id != block_id:
+                last_id = block_id
+                if block_id is None:
+                    continue
+                block_seq_no = seq_no
+                id_seq_map[(blockno, block_id)] = block_seq_no
+                backend[METADATA_OBJ_NAME % (blockno, block_seq_no)] = str(block_id).encode()
 
-        expire_objects(backend, versions_to_keep=versions)
+    for seq_no, size in enumerate(db_sizes):
+        params = {
+            "metadata-block-size": BLOCKSIZE,
+            'seq_no': seq_no,
+            'db-size': BLOCKSIZE * size,
+        }
+        store_and_upload_params(backend, cachepath=None, params=params)
 
-        assert backend.delete_multi.call_count == 1
+    expire_objects(backend, versions_to_keep=versions_to_keep)
 
-    do_test(
-        present=[
-            [0, 1, 2, 3, 4, 5],  # block 1
-            [0, 1, 2, 3, 4, 5],  # block 2
-            [0, 1, 2, 3, 4, 5],  # block 3
-            [0, 1, 2, 3, 4, 5],  # block 4
-        ],
-        should_keep=[
-            [5, 4, 3],  # block 1
-            [5, 4, 3],  # block 2
-            [5, 4, 3],  # block 3
-            [5, 4, 3],  # block 4
-        ],
-        versions=3,
-    )
+    expected_objects = set()
+    for blockno, versions in enumerate(contents_post):
+        for block_id in versions:
+            if block_id is None:
+                continue
+            block_seq_no = id_seq_map[(blockno, block_id)]
+            expected_objects.add(METADATA_OBJ_NAME % (blockno, block_seq_no))
 
-    do_test(
-        present=[
-            [5, 3, 2, 1],  # block 1
-            [5, 3, 1],  # block 2
-            [5, 2, 1],  # block 3
-        ],
-        should_keep=[
-            [5, 3, 2],  # block 1
-            [5, 3, 1],  # block 2
-            [5, 2, 2],  # block 3
-        ],
-        versions=3,
-    )
+    all_objs = set(backend.list('s3ql_metadata_'))
+    assert expected_objects == all_objs
 
-    do_test(
-        present=[
-            [3, 2, 1, 0],  # block 1
-            [5, 1, 0],  # block 2
-            [3, 1, 0],  # block 3
-        ],
-        should_keep=[
-            [3, 3, 2],  # block 1
-            [5, 1, 1],  # block 2
-            [3, 3, 1],  # block 3
-        ],
-        versions=3,
-    )
+
+def test_expiration_nodup(backend):
+    # Trivial case, every block is stored in every version
+    contents_pre = [
+        [10, 11, 12, 13, 14, 15],  # block 0
+        [20, 21, 22, 23, 24, 25],  # block 1
+        [30, 31, 32, 33, 34, 35],  # block 2
+        [40, 41, 42, 43, 44, 45],  # block 3
+    ]
+    db_sizes = [4, 4, 4, 4, 4, 4]
+    contents_post = [
+        [13, 14, 15],  # block 0
+        [23, 24, 25],  # block 1
+        [33, 34, 35],  # block 2
+        [43, 44, 45],  # block 3
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+
+
+def test_expiration_dup1(backend):
+    # Some old blocks are used repeatedly, but all expired
+    contents_pre = [
+        [10, 11, 12, 13, 14, 15],  # block 0
+        [20, 20, 20, 21, 22, 23],  # block 1
+        [30, 31, 32, 33, 34, 35],  # block 2
+        [40, 40, 41, 42, 43, 44],  # block 3
+    ]
+    db_sizes = [4, 4, 4, 4, 4, 4]
+    contents_post = [
+        [13, 14, 15],  # block 0
+        [21, 22, 23],  # block 1
+        [33, 34, 35],  # block 2
+        [42, 43, 44],  # block 3
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+
+
+def test_expiration_dup2(backend):
+    # Some old blocks are used repeatedly and thus not removed
+    contents_pre = [
+        [10, 11, 12, 13, 14, 15],  # block 0
+        [20, 20, 20, 21, 22, 23],  # block 1
+        [30, 31, 32, 33, 34, 35],  # block 2
+        [40, 40, 41, 42, 43, 44],  # block 3
+    ]
+    db_sizes = [4, 4, 4, 4, 4, 4]
+
+    contents_post = [
+        [12, 13, 14, 15],  # block 0
+        [20, 21, 22, 23],  # block 1
+        [32, 33, 34, 35],  # block 2
+        [41, 42, 43, 44],  # block 3
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=4)
+
+
+def test_expiration_dup3(backend):
+    # Some new blocks are used repeatedly
+    contents_pre = [
+        [10, 11, 12, 13, 13, 13],  # block 0
+        [20, 20, 20, 21, 22, 22],  # block 1
+        [30, 31, 32, 33, 34, 35],  # block 2
+        [40, 40, 41, 42, 43, 44],  # block 3
+    ]
+    db_sizes = [4, 4, 4, 4, 4, 4]
+
+    contents_post = [
+        [13, 13, 13],  # block 0
+        [21, 22, 22],  # block 1
+        [33, 34, 35],  # block 2
+        [42, 43, 44],  # block 3
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+
+
+def test_expiration_smaller(backend):
+    # Database size reduced
+    contents_pre = [
+        [10, 11, 12, 13, 14, 15],  # block 0
+        [20, 21, 22, 23, 24, 25],  # block 1
+        [30, 31, 32, 33, None, None],  # block 2
+        [40, 41, 42, None, None, None],  # block 3
+    ]
+    db_sizes = [4, 4, 4, 3, 2, 2]
+
+    contents_post = [
+        [13, 14, 15],  # block 0
+        [23, 24, 25],  # block 1
+        [33, None, None],  # block 2
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+
+
+def test_expiration_downup(backend):
+    # Database size reduced and then increased again
+    contents_pre = [
+        [10, 11, 12, 13, 13],  # block 0
+        [20, 21, 23, 23, 24],  # block 1
+        [30, 31, None, 33, 34],  # block 2
+        [40, None, None, 40, None],  # block 3
+    ]
+    db_sizes = [4, 3, 2, 4, 3]
+
+    contents_post = [
+        [12, 13, 13],  # block 0
+        [23, 23, 24],  # block 1
+        [None, 33, 34],  # block 2
+        [None, 40, None],  # block 3
+    ]
+    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)

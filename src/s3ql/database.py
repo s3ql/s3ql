@@ -445,7 +445,7 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
         for (blockno, candidates) in block_list.items():
             off = blockno * blocksize
             if off > file_size and not failsafe:
-                log.debug('download_metadata: skipping obsolete object %s', obj)
+                log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
             seq_no = first_le_than(candidates, params['seq_no'])
             processed += 1
@@ -490,18 +490,32 @@ def expire_objects(backend, versions_to_keep=32):
     block_list = get_block_objects(backend)
     to_remove = []
 
-    all_seq_nos = set()
-    for seq_nos in block_list.values():
-        all_seq_nos.update(seq_nos)
+    metadata_objs = []
+    for obj in backend.list('s3ql_params_'):
+        hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)
+        if not hit:
+            log.warning('Unexpected object in backend: %s, ignoring', obj)
+            continue
+        seq_no = int(hit.group(1), base=16)
+        metadata_objs.append(seq_no)
+    metadata_objs.sort()
+    seq_to_keep = metadata_objs[-versions_to_keep:]
+    to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
 
     # Determine which objects we still need
     to_keep = collections.defaultdict(set)
-    for seq_no in sorted(all_seq_nos)[-versions_to_keep:]:
+    for seq_no in seq_to_keep:
+        params = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
+        assert params['seq_no'] == seq_no
+        blocksize = params['metadata-block-size']
+        max_blockno = (params['db-size'] + blocksize - 1) // blocksize
+
         for (blockno, candidates) in block_list.items():
+            if blockno >= max_blockno:
+                continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
     # Remove what's no longer needed
-    to_remove = []
     for (blockno, candidates) in block_list.items():
         for seq_no in candidates:
             if seq_no in to_keep[blockno]:
@@ -572,9 +586,13 @@ def upload_metadata(
         params['db-md5'] = digest
 
 
-def store_and_upload_params(backend, cachepath: str, params: dict):
+def store_and_upload_params(backend: AbstractBackend, cachepath: Optional[str], params: dict):
     buf = freeze_basic_mapping(params)
     backend['s3ql_params'] = buf
+    backend['s3ql_params_%010x' % params['seq_no']] = buf
+
+    if cachepath is None:
+        return
 
     filename = cachepath + '.params'
     tmpname = filename + '.tmp'
