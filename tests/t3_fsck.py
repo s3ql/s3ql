@@ -26,7 +26,7 @@ from argparse import Namespace
 from s3ql import ROOT_INODE
 from s3ql.backends import local
 from s3ql.common import time_ns
-from s3ql.database import Connection, NoSuchRowError, create_tables
+from s3ql.database import Connection, FsAttributes, NoSuchRowError, create_tables
 from s3ql.fsck import Fsck
 from s3ql.mkfs import init_tables
 
@@ -48,7 +48,7 @@ class fsck_tests(unittest.TestCase):
         init_tables(self.db)
 
         self.fsck = Fsck(
-            self.cachedir, self.backend, {'data-block-size': self.max_obj_size}, self.db
+            self.cachedir, self.backend, FsAttributes(data_block_size=self.max_obj_size), self.db
         )
 
     def tearDown(self):

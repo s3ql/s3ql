@@ -58,7 +58,7 @@ class Fsck:
         self.expect_errors = False
         self.found_errors = False
         self.uncorrectable_errors = False
-        self.max_obj_size = param['data-block-size']
+        self.max_obj_size = param.data_block_size
         self.conn = conn
 
         # Set of objects that have been unlinked by check_cache.
@@ -1224,20 +1224,20 @@ def main(args=None):
     (local_param, param) = read_params(backend, cachepath)
     if local_param is not None:
         assert os.path.exists(cachepath + '.db')
-        if local_param['seq_no'] >= param['seq_no']:
+        if local_param.seq_no >= param.seq_no:
             log.info('Using cached metadata.')
             param = local_param
-            db = Connection(cachepath + '.db', param['metadata-block-size'])
-            if param['is_mounted']:
+            db = Connection(cachepath + '.db', param.metadata_block_size)
+            if param.is_mounted:
                 log.info('File system was not unmounted cleanly')
-                param['needs_fsck'] = True
-            if local_param['seq_no'] > param['seq_no']:
+                param.needs_fsck = True
+            if local_param.seq_no > param.seq_no:
                 log.info('Remote metadata is outdated.')
-                param['needs_fsck'] = True
+                param.needs_fsck = True
         else:
             log.info('Ignoring locally cached metadata (outdated).')
 
-    if param['is_mounted'] and local_param is not param:
+    if param.is_mounted and local_param is not param:
         print(
             textwrap.fill(
                 textwrap.dedent(
@@ -1267,10 +1267,10 @@ def main(args=None):
             raise QuietError('(in batch mode, exiting)', exitcode=41)
         elif sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
-        param['needs_fsck'] = True
+        param.needs_fsck = True
 
     if (
-        not param['needs_fsck'] and (time.time() - param['last_fsck']) < 60 * 60 * 24 * 31
+        not param.needs_fsck and (time.time() - param.last_fsck) < 60 * 60 * 24 * 31
     ):  # last check more than 1 month ago
         if options.force:
             log.info('File system seems clean, checking anyway.')
@@ -1289,7 +1289,7 @@ def main(args=None):
                     break
         except FileNotFoundError:
             pass
-    if outdated_cachedir and param['needs_fsck']:
+    if outdated_cachedir and param.needs_fsck:
         for i in itertools.count():
             bak_name = '%s-cache.bak%d' % (cachepath, i)
             if not os.path.exists(bak_name):
@@ -1305,7 +1305,7 @@ def main(args=None):
 
     # We only read cache files if the filesystem was not unmounted cleanly. On a clean unmount, the
     # cache files can not be dirty.
-    if db and param['is_mounted']:
+    if db and param.is_mounted:
         if options.keep_cache:
             check_cache = 'keep'
         else:
@@ -1316,7 +1316,7 @@ def main(args=None):
     if not db:
         # When file system was not unmounted cleanly, the checksum and size may not have been
         # updated.
-        db = download_metadata(backend, cachepath + '.db', param, failsafe=param['is_mounted'])
+        db = download_metadata(backend, cachepath + '.db', param, failsafe=param.is_mounted)
 
     log.info('Checking DB integrity...')
     try:
@@ -1333,8 +1333,8 @@ def main(args=None):
             exitcode=43,
         )
 
-    param['is_mounted'] = True
-    param['seq_no'] += 1
+    param.is_mounted = True
+    param.seq_no += 1
     store_and_upload_params(backend, cachepath, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
@@ -1343,16 +1343,16 @@ def main(args=None):
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.", exitcode=44 + 128)
 
-    if fsck.found_errors and not param['needs_fsck']:
+    if fsck.found_errors and not param.needs_fsck:
         log.error('File system was marked as clean, yet fsck found problems.')
         log.error(
             'Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql'
         )
 
-    param['needs_fsck'] = False
-    param['is_mounted'] = False
-    param['last_fsck'] = time.time()
-    param['last-modified'] = time.time()
+    param.needs_fsck = False
+    param.is_mounted = False
+    param.last_fsck = time.time()
+    param.last_modified = time.time()
 
     # Since we're uploading the full database anyway, might as well try
     # to reduce the size.

@@ -30,6 +30,7 @@ from s3ql.backends.common import AbstractBackend
 from s3ql.database import (
     METADATA_OBJ_NAME,
     Connection,
+    FsAttributes,
     download_metadata,
     expire_objects,
     store_and_upload_params,
@@ -75,7 +76,10 @@ def backend():
 def test_upload_download(backend, incremental):
     sqlite3ext.reset()
     rows = 11
-    params = {"metadata-block-size": BLOCKSIZE, 'seq_no': 1}
+    params = FsAttributes(
+        metadata_block_size=BLOCKSIZE,
+        seq_no=1,
+    )
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -134,7 +138,11 @@ def get_metadata_obj_count(backend: AbstractBackend):
 def test_versioning(backend):
     sqlite3ext.reset()
     rows = 11
-    params = {"metadata-block-size": BLOCKSIZE, 'seq_no': 1}
+    params = FsAttributes(
+        metadata_block_size=BLOCKSIZE,
+        seq_no=1,
+    )
+
     versions = []
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
@@ -147,7 +155,7 @@ def test_versioning(backend):
             upload_metadata(backend, db, params)
             tmpfh.seek(0)
             versions.append((params.copy(), tmpfh.read()))
-            params['seq_no'] += 1
+            params.seq_no += 1
 
         upload()
         base_count = len(list(backend.list('s3ql_metadata_')))
@@ -202,11 +210,11 @@ def _test_expiration(
                 backend[METADATA_OBJ_NAME % (blockno, block_seq_no)] = str(block_id).encode()
 
     for seq_no, size in enumerate(db_sizes):
-        params = {
-            "metadata-block-size": BLOCKSIZE,
-            'seq_no': seq_no,
-            'db-size': BLOCKSIZE * size,
-        }
+        params = FsAttributes(
+            metadata_block_size=BLOCKSIZE,
+            seq_no=seq_no,
+            db_size=BLOCKSIZE * size,
+        )
         store_and_upload_params(backend, cachepath=None, params=params)
 
     expire_objects(backend, versions_to_keep=versions_to_keep)

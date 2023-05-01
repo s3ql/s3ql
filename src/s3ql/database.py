@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import time
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import apsw
 
@@ -59,6 +59,59 @@ def sqlite3_log(errcode, message):
 
 
 apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+
+
+class FsAttributes:
+    __slots__ = [
+        'seq_no',
+        'db_size',
+        'revision',
+        'label',
+        'data_block_size',
+        'metadata_block_size',
+        'needs_fsck',
+        'is_mounted',
+        'inode_gen',
+        'last_fsck',
+        'last_modified',
+        'db_md5',
+    ]
+
+    def __init__(self, **kwargs) -> None:
+        for (k, v) in kwargs.items():
+            setattr(self, k, v)
+
+    def copy(self):
+        c = FsAttributes()
+        for k in self.__slots__:
+            try:
+                setattr(c, k, getattr(self, k))
+            except AttributeError:
+                continue
+        return c
+
+    @staticmethod
+    def from_dict(d: dict):
+        params = FsAttributes()
+        for k in params.__slots__:
+            try:
+                v = d[k]
+            except KeyError:  # Fallback for old fs revisions
+                try:
+                    v = d[k.replace('_', '-')]
+                except KeyError:
+                    continue
+            setattr(params, k, v)
+        return params
+
+    def to_dict(self) -> dict:
+        d = {}
+        for k in self.__slots__:
+            try:
+                d[k] = getattr(self, k)
+            except AttributeError:
+                continue
+        return d
 
 
 class Connection:
@@ -425,15 +478,15 @@ def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
     return block_list
 
 
-def download_metadata(backend: AbstractBackend, db_file: str, params: dict, failsafe=False):
+def download_metadata(backend: AbstractBackend, db_file: str, params: FsAttributes, failsafe=False):
     '''Download metadata from backend into *db_file*
 
     If *failsafe* is True, do not truncate file and do not verify
     checksum.
     '''
 
-    blocksize = params['metadata-block-size']
-    file_size = params['db-size']
+    blocksize = params.metadata_block_size
+    file_size = params.db_size
 
     # Determine which objects hold the most recent database snapshot
     block_list = get_block_objects(backend)
@@ -447,7 +500,7 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
             if off > file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
-            seq_no = first_le_than(candidates, params['seq_no'])
+            seq_no = first_le_than(candidates, params.seq_no)
             processed += 1
             log.info(
                 'Downloaded %d/%d metadata blocks (%d%%)',
@@ -467,8 +520,8 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
             log.info('Calculating metadata checksum...')
             digest = sha256_fh(fh).hexdigest()
             log.debug('download_metadata: digest is %s', digest)
-            if params['db-md5'] != digest:
-                raise DatabaseChecksumError(db_file, params['db-md5'], digest)
+            if params.db_md5 != digest:
+                raise DatabaseChecksumError(db_file, params.db_md5, digest)
 
     return Connection(db_file, blocksize)
 
@@ -505,10 +558,10 @@ def expire_objects(backend, versions_to_keep=32):
     # Determine which objects we still need
     to_keep = collections.defaultdict(set)
     for seq_no in seq_to_keep:
-        params = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
-        assert params['seq_no'] == seq_no
-        blocksize = params['metadata-block-size']
-        max_blockno = (params['db-size'] + blocksize - 1) // blocksize
+        params = FsAttributes.from_dict(thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no]))
+        assert params.seq_no == seq_no
+        blocksize = params.metadata_block_size
+        max_blockno = (params.db_size + blocksize - 1) // blocksize
 
         for (blockno, candidates) in block_list.items():
             if blockno >= max_blockno:
@@ -527,7 +580,7 @@ def expire_objects(backend, versions_to_keep=32):
 def upload_metadata(
     backend: AbstractBackend,
     db: Connection,
-    params: dict,
+    params: FsAttributes,
     incremental: bool = True,
     update_params: bool = True,
 ) -> None:
@@ -540,7 +593,6 @@ def upload_metadata(
     '''
 
     blocksize = db.blocksize
-    seq_no = params['seq_no']
     log.info('Uploading metadata...')
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)
@@ -572,7 +624,7 @@ def upload_metadata(
                 processed * 100 / total,
                 extra={'rate_limit': 1, 'update_console': True},
             )
-            obj = METADATA_OBJ_NAME % (blockno, seq_no)
+            obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
             fh.seek(blockno * blocksize)
             backend.store(obj, fh.read(blocksize))
 
@@ -580,16 +632,18 @@ def upload_metadata(
             return
 
         log.info('Calculating metadata checksum...')
-        params['db-size'] = db_size
+        params.db_size = db_size
         digest = sha256_fh(fh).hexdigest()
         log.debug('upload_metadata: digest is %s', digest)
-        params['db-md5'] = digest
+        params.db_md5 = digest
 
 
-def store_and_upload_params(backend: AbstractBackend, cachepath: Optional[str], params: dict):
-    buf = freeze_basic_mapping(params)
+def store_and_upload_params(
+    backend: AbstractBackend, cachepath: Optional[str], params: FsAttributes
+):
+    buf = freeze_basic_mapping(params.to_dict())
     backend['s3ql_params'] = buf
-    backend['s3ql_params_%010x' % params['seq_no']] = buf
+    backend['s3ql_params_%010x' % params.seq_no] = buf
 
     if cachepath is None:
         return
@@ -615,25 +669,25 @@ def store_and_upload_params(backend: AbstractBackend, cachepath: Optional[str], 
         os.close(dirfd)
 
 
-def read_params(backend, cachepath: str):
+def read_params(backend, cachepath: str) -> Tuple[FsAttributes, FsAttributes]:
     try:
         buf = backend['s3ql_params']
     except NoSuchObject:
         # Perhaps this is an old filesystem revision
-        params = backend.lookup('s3ql_metadata')
+        params = FsAttributes.from_dict(backend.lookup('s3ql_metadata'))
     else:
-        params = thaw_basic_mapping(buf)
+        params = FsAttributes.from_dict(thaw_basic_mapping(buf))
 
     filename = cachepath + '.params'
     local_params = None
     if os.path.exists(filename):
         with open(filename, 'rb') as fh:
-            local_params = thaw_basic_mapping(fh.read())
+            local_params = FsAttributes.from_dict(thaw_basic_mapping(fh.read()))
 
-    if local_params is None or params['seq_no'] > local_params['seq_no']:
-        rev = params['revision']
+    if local_params is None or params.seq_no > local_params.seq_no:
+        rev = params.revision
     else:
-        rev = local_params['revision']
+        rev = local_params.revision
     if rev < CURRENT_FS_REV:
         raise QuietError(
             'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32

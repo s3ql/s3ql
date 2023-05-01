@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 from contextlib import AsyncExitStack
+from typing import Tuple
 
 import pyfuse3
 import trio
@@ -34,6 +35,7 @@ from .common import get_backend_factory, is_mounted
 from .daemonize import daemonize
 from .database import (
     Connection,
+    FsAttributes,
     download_metadata,
     expire_objects,
     read_params,
@@ -189,7 +191,7 @@ async def main_async(options, stdout_log_handler):
         (param, db) = get_metadata(backend, cachepath)
 
     # Handle --cachesize
-    rec_cachesize = options.max_cache_entries * param['data-block-size'] / 2
+    rec_cachesize = options.max_cache_entries * param.data_block_size / 2
     avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
     if options.cachesize is None:
         options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
@@ -227,8 +229,8 @@ async def main_async(options, stdout_log_handler):
             operations = fs.Operations(
                 block_cache,
                 db,
-                max_obj_size=param['data-block-size'],
-                inode_cache=InodeCache(db, param['inode_gen']),
+                max_obj_size=param.data_block_size,
+                inode_cache=InodeCache(db, param.inode_gen),
                 upload_task=metadata_upload_task,
             )
             cm.push_async_callback(operations.destroy)
@@ -264,8 +266,8 @@ async def main_async(options, stdout_log_handler):
                 faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
                 daemonize(options.cachedir)
 
-            param['seq_no'] += 1
-            param['is_mounted'] = True
+            param.seq_no += 1
+            param.is_mounted = True
             store_and_upload_params(backend, cachepath, param)
 
             block_cache.init(options.threads)
@@ -320,17 +322,17 @@ async def main_async(options, stdout_log_handler):
             unmount_clean = True
 
     # At this point, there should be no other threads left
-    param['is_mounted'] = False
+    param.is_mounted = False
     db.close()
 
     # Do not update .params yet, dump_metadata() may fail if the database is
     # corrupted, in which case we want to force an fsck.
     if operations.failsafe:
         log.warning('File system errors encountered, marking for fsck.')
-        param['needs_fsck'] = True
+        param.needs_fsck = True
 
     with backend_pool() as backend:
-        param['last-modified'] = time.time()
+        param.last_modified = time.time()
         upload_metadata(backend, db, param)
         store_and_upload_params(backend, cachepath, param)
         expire_objects(backend)
@@ -416,28 +418,28 @@ def determine_threads(options):
         return threads
 
 
-def get_metadata(backend, cachepath):
+def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None
     (local_param, param) = read_params(backend, cachepath)
     if local_param is not None:
-        if local_param['seq_no'] < param['seq_no']:
+        if local_param.seq_no < param.seq_no:
             log.info('Ignoring locally cached metadata (outdated).')
-        elif local_param['seq_no'] > param['seq_no']:
+        elif local_param.seq_no > param.seq_no:
             raise QuietError("File system not unmounted cleanly, run fsck!", exitcode=30)
         else:
             log.info('Using cached metadata.')
-            db = Connection(cachepath + '.db', param['metadata-block-size'])
+            db = Connection(cachepath + '.db', param.metadata_block_size)
 
-    if param['is_mounted']:
+    if param.is_mounted:
         raise QuietError(
             'Backend reports that fs is still mounted elsewhere, aborting.', exitcode=31
         )
 
-    if param['needs_fsck']:
+    if param.needs_fsck:
         raise QuietError("File system damaged or not unmounted cleanly, run fsck!", exitcode=30)
-    if time.time() - param['last_fsck'] > 60 * 60 * 24 * 31:
+    if time.time() - param.last_fsck > 60 * 60 * 24 * 31:
         log.warning(
             'Last file system check was more than 1 month ago, running fsck.s3ql is recommended.'
         )
@@ -649,7 +651,7 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    def __init__(self, params, backend_pool, db, interval):
+    def __init__(self, params: FsAttributes, backend_pool, db, interval):
         super().__init__()
         self.backend_pool = backend_pool
         self.db = db

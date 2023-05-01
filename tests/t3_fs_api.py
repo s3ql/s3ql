@@ -36,7 +36,7 @@ from s3ql.backends import local
 from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
-from s3ql.database import Connection, create_tables
+from s3ql.database import Connection, FsAttributes, create_tables
 from s3ql.fsck import Fsck
 from s3ql.inode_cache import CACHE_SIZE as INODE_CACHE_SIZE
 from s3ql.inode_cache import InodeCache
@@ -124,7 +124,9 @@ def random_data(len_):
 async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
-    fsck = Fsck(ctx.cachedir + '/cache', ctx.backend, {'data-block-size': ctx.max_obj_size}, ctx.db)
+    fsck = Fsck(
+        ctx.cachedir + '/cache', ctx.backend, FsAttributes(data_block_size=ctx.max_obj_size), ctx.db
+    )
     fsck.check()
     assert not fsck.found_errors
 
