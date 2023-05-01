@@ -30,6 +30,12 @@ from .logging import QuietError
 
 log = logging.getLogger(__name__)
 
+# Format for metadata object names. Block number and seq no need
+# to be interpolated.
+METADATA_OBJ_NAME = 's3ql_metadata_%012x_%010x'
+METADATA_OBJ_RE = re.compile(r'^s3ql_metadata_([0-9a-f]+)_([0-9a-f]+)$')
+
+
 sqlite_ver = tuple([int(x) for x in apsw.sqlitelibversion().split('.')])
 if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
@@ -405,7 +411,7 @@ def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
     block_list = collections.defaultdict(list)
     log.info('Scanning metadata objects...')
     for obj in backend.list('s3ql_metadata_'):
-        hit = re.match('^s3ql_metadata_([0-9a-f]+)_([0-9a-f]+)$', obj)
+        hit = METADATA_OBJ_RE.match(obj)
         if not hit:
             log.warning('Unexpected object in backend: %s, ignoring', obj)
             continue
@@ -450,7 +456,7 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: dict, fail
                 processed * 100 / total,
                 extra={'rate_limit': 1, 'update_console': True, 'is_last': processed == total},
             )
-            obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
+            obj = METADATA_OBJ_NAME % (blockno, seq_no)
             fh.seek(off)
             backend.readinto(obj, fh)
 
@@ -500,7 +506,7 @@ def expire_objects(backend, versions_to_keep=32):
         for seq_no in candidates:
             if seq_no in to_keep[blockno]:
                 continue
-            to_remove.append('s3ql_metadata_%012x_%010x' % (blockno, seq_no))
+            to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
     backend.delete_multi(to_remove)
 
 
@@ -552,7 +558,7 @@ def upload_metadata(
                 processed * 100 / total,
                 extra={'rate_limit': 1, 'update_console': True},
             )
-            obj = 's3ql_metadata_%012x_%010x' % (blockno, seq_no)
+            obj = METADATA_OBJ_NAME % (blockno, seq_no)
             fh.seek(blockno * blocksize)
             backend.store(obj, fh.read(blocksize))
 
