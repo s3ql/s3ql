@@ -14,6 +14,7 @@ if __name__ == '__main__':
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import os.path
 import re
 import shutil
 import subprocess
@@ -22,6 +23,7 @@ import unittest
 from argparse import Namespace
 
 import pytest
+from t4_fuse import TestFuse
 
 from s3ql.backends import local
 from s3ql.backends.common import CorruptedObjectError
@@ -166,3 +168,56 @@ class AdmTests(unittest.TestCase):
         backend = ComprencBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
 
         backend.fetch('s3ql_passphrase')  # will fail with wrong pw
+
+
+class TestMetadataRestore(TestFuse):
+    def restore_backup(self):
+        proc = subprocess.Popen(
+            self.s3ql_cmd_argv('s3qladm')
+            + [
+                '--quiet',
+                '--log',
+                'none',
+                '--authfile',
+                '/dev/null',
+                '--cachedir',
+                self.cache_dir,
+                'restore-metadata',
+                self.storage_url,
+            ],
+            stdin=subprocess.PIPE,
+            universal_newlines=True,
+        )
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+        # Restore second metadata backup
+        print('1', file=proc.stdin)
+        proc.stdin.close()
+        assert proc.wait() == 0
+
+    def test(self):
+        self.mkfs()
+        self.mount()
+        with open(self.mnt_dir + "/mount1.txt", 'w') as fh:
+            print('Data written on first mount', file=fh)
+        self.umount()
+
+        self.mount()
+        with open(self.mnt_dir + "/mount2.txt", 'w') as fh:
+            print('Data written on second mount', file=fh)
+        self.umount()
+
+        self.restore_backup()
+
+        self.reg_output(
+            r'^WARNING: Deleted spurious object \d+$',
+            count=1,
+        )
+        self.fsck(expect_retcode=128)
+
+        self.mount()
+        assert not os.path.exists(self.mnt_dir + '/mount2.txt')
+        assert os.path.exists(self.mnt_dir + '/mount1.txt')

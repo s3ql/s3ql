@@ -38,9 +38,11 @@ from .database import (
     FsAttributes,
     download_metadata,
     expire_objects,
-    read_params,
-    store_and_upload_params,
+    read_cached_params,
+    read_remote_params,
     upload_metadata,
+    upload_params,
+    write_params,
 )
 from .inode_cache import InodeCache
 from .logging import QuietError, setup_logging, setup_warnings
@@ -268,7 +270,8 @@ async def main_async(options, stdout_log_handler):
 
             param.seq_no += 1
             param.is_mounted = True
-            store_and_upload_params(backend, cachepath, param)
+            write_params(cachepath, param)
+            upload_params(backend, param)
 
             block_cache.init(options.threads)
 
@@ -334,7 +337,8 @@ async def main_async(options, stdout_log_handler):
     with backend_pool() as backend:
         param.last_modified = time.time()
         upload_metadata(backend, db, param)
-        store_and_upload_params(backend, cachepath, param)
+        write_params(cachepath, param)
+        upload_params(backend, param)
         expire_objects(backend)
 
     log.info('All done.')
@@ -422,7 +426,8 @@ def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None
-    (local_param, param) = read_params(backend, cachepath)
+    local_param = read_cached_params(cachepath)
+    param = read_remote_params(backend)
     if local_param is not None:
         if local_param.seq_no < param.seq_no:
             log.info('Ignoring locally cached metadata (outdated).')

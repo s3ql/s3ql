@@ -24,8 +24,9 @@ from .database import (
     Connection,
     FsAttributes,
     create_tables,
-    store_and_upload_params,
     upload_metadata,
+    upload_params,
+    write_params,
 )
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
@@ -217,7 +218,8 @@ def main(args=None):
     log.info('Uploading metadata...')
     db.close()
     upload_metadata(backend, db, param)
-    store_and_upload_params(backend, cachepath, param)
+    write_params(cachepath, param)
+    upload_params(backend, param)
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 
