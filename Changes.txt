@@ -11,10 +11,6 @@ UNRELEASED CHANGES
 
   * S3QL no longer supports storage backends that do not provide immediate consistency.
 
-  * S3QL no longer creates metadata backups in the storage backend. It is is recommended
-    that users create their own periodic backups (by copying the *.db file in the cache
-    directory) according to their needs.
-
   * S3QL no longer maintains entire filesystem metadata in a single storage
     object. Instead, the database file is distributed across multiple backend objects with
     a block size configured at mkfs time. This means that (1) S3QL also no longer needs to
