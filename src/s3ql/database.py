@@ -19,7 +19,7 @@ import logging
 import os
 import re
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 import apsw
 
@@ -537,20 +537,25 @@ def first_le_than(l: List[int], threshold: int):
             return e
 
 
-def expire_objects(backend, versions_to_keep=32):
-    '''Delete metadata objects that are no longer needed'''
-
-    block_list = get_block_objects(backend)
-    to_remove = []
-
-    metadata_objs = []
+def get_available_seq_nos(backend: AbstractBackend) -> List[int]:
+    nos = []
     for obj in backend.list('s3ql_params_'):
         hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)
         if not hit:
             log.warning('Unexpected object in backend: %s, ignoring', obj)
             continue
         seq_no = int(hit.group(1), base=16)
-        metadata_objs.append(seq_no)
+        nos.append(seq_no)
+    return nos
+
+
+def expire_objects(backend, versions_to_keep=32):
+    '''Delete metadata objects that are no longer needed'''
+
+    block_list = get_block_objects(backend)
+    to_remove = []
+
+    metadata_objs = get_available_seq_nos(backend)
     metadata_objs.sort()
     seq_to_keep = metadata_objs[-versions_to_keep:]
     to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
@@ -638,16 +643,14 @@ def upload_metadata(
         params.db_md5 = digest
 
 
-def store_and_upload_params(
-    backend: AbstractBackend, cachepath: Optional[str], params: FsAttributes
-):
+def upload_params(backend: AbstractBackend, params: FsAttributes):
     buf = freeze_basic_mapping(params.to_dict())
     backend['s3ql_params'] = buf
     backend['s3ql_params_%010x' % params.seq_no] = buf
 
-    if cachepath is None:
-        return
 
+def write_params(cachepath: str, params: FsAttributes):
+    buf = freeze_basic_mapping(params.to_dict())
     filename = cachepath + '.params'
     tmpname = filename + '.tmp'
     with open(tmpname, 'wb') as fh:
@@ -669,35 +672,51 @@ def store_and_upload_params(
         os.close(dirfd)
 
 
-def read_params(backend, cachepath: str) -> Tuple[FsAttributes, FsAttributes]:
-    try:
-        buf = backend['s3ql_params']
-    except NoSuchObject:
-        # Perhaps this is an old filesystem revision
-        params = FsAttributes.from_dict(backend.lookup('s3ql_metadata'))
-    else:
-        params = FsAttributes.from_dict(thaw_basic_mapping(buf))
-
+def read_cached_params(cachepath: str) -> Optional[FsAttributes]:
     filename = cachepath + '.params'
-    local_params = None
     if os.path.exists(filename):
         with open(filename, 'rb') as fh:
-            local_params = FsAttributes.from_dict(thaw_basic_mapping(fh.read()))
-
-    if local_params is None or params.seq_no > local_params.seq_no:
-        rev = params.revision
+            params = FsAttributes.from_dict(thaw_basic_mapping(fh.read()))
     else:
-        rev = local_params.revision
-    if rev < CURRENT_FS_REV:
+        return None
+
+    if params.revision < CURRENT_FS_REV:
         raise QuietError(
             'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
         )
-    elif rev > CURRENT_FS_REV:
+    elif params.revision > CURRENT_FS_REV:
         raise QuietError(
             'File system revision too new, please update your S3QL installation.', exitcode=33
         )
 
-    return (local_params, params)
+    return params
+
+
+def read_remote_params(backend, seq_no: Optional[int] = None) -> FsAttributes:
+    try:
+        if seq_no is None:
+            buf = backend['s3ql_params']
+        else:
+            buf = backend['s3ql_params_%010x' % seq_no]
+    except NoSuchObject:
+        # Perhaps this is an old filesystem revision
+        if seq_no is None:
+            params = FsAttributes.from_dict(backend.lookup('s3ql_metadata'))
+        else:
+            raise
+    else:
+        params = FsAttributes.from_dict(thaw_basic_mapping(buf))
+
+    if params.revision < CURRENT_FS_REV:
+        raise QuietError(
+            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
+        )
+    elif params.revision > CURRENT_FS_REV:
+        raise QuietError(
+            'File system revision too new, please update your S3QL installation.', exitcode=33
+        )
+
+    return params
 
 
 class NoUniqueValueError(Exception):

@@ -12,14 +12,24 @@ import re
 import shutil
 import sys
 import textwrap
+import time
 from base64 import b64decode
+from datetime import datetime
 from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
 
+from s3ql.database import (
+    FsAttributes,
+    download_metadata,
+    get_available_seq_nos,
+    read_remote_params,
+    write_params,
+)
+
 from . import REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend, handle_on_return, is_mounted
+from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -49,6 +59,12 @@ def parse_args(args):
 
     subparsers = parser.add_subparsers(metavar='<action>', dest='action', help='may be either of')
     subparsers.add_parser("passphrase", help="change file system passphrase", parents=[pparser])
+    subparsers.add_parser(
+        "restore-metadata",
+        help="Interactively restore metadata backups.",
+        parents=[pparser],
+    )
+
     sparser = subparsers.add_parser(
         "clear", help="delete file system and all data", parents=[pparser]
     )
@@ -101,6 +117,9 @@ def main(args=None):
     with get_backend(options) as backend:
         if options.action == 'passphrase':
             return change_passphrase(backend)
+
+        elif options.action == 'restore-metadata':
+            return restore_metadata_cmd(backend, options)
 
 
 def change_passphrase(backend):
@@ -260,6 +279,52 @@ def upgrade(options, on_return):
     '''Upgrade file system to newest revision'''
 
     print('This version of S3QL does not support upgrading.')
+
+
+def restore_metadata_cmd(backend, options):
+    backups = sorted(get_available_seq_nos(backend))
+
+    if not backups:
+        raise QuietError('No metadata backups found.')
+
+    print('The following backups are available:')
+    print('Idx    Seq No: Last Modified:')
+    for (i, seq_no) in enumerate(backups):
+        params = FsAttributes.from_dict(thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no]))
+        assert params.seq_no == seq_no
+        date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
+        print(f'{i:3d} {seq_no:010x} {date}')
+
+    print(
+        'Restoring a metadata backup will almost always result in partial data loss and',
+        'should only be done if the filesystem metadata has been corruped beyond repair.',
+        sep='\n',
+    )
+
+    seq_no = None
+    while seq_no is None:
+        buf = input('Enter index to revert to: ')
+        try:
+            seq_no = backups[int(buf.strip())]
+        except:
+            print('Invalid selection.')
+
+    params = read_remote_params(backend, seq_no=seq_no)
+    conn = download_metadata(backend, options.cachepath + ".db", params)
+    conn.close()
+
+    params.is_mounted = False
+    params.needs_fsck = True
+    new_seq = max(int(time.time()), backups[-1] + 1)
+    params.seq_no = new_seq
+
+    write_params(options.cachepath, params)
+
+    print(
+        'Backup restored into local metadata. Run fsck.s3ql to commit changes to',
+        'backend and ensure file system consisteny',
+        sep='\n',
+    )
 
 
 if __name__ == '__main__':

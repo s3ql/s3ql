@@ -30,9 +30,11 @@ from .database import (
     NoSuchRowError,
     download_metadata,
     expire_objects,
-    read_params,
-    store_and_upload_params,
+    read_cached_params,
+    read_remote_params,
     upload_metadata,
+    upload_params,
+    write_params,
 )
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
@@ -1221,7 +1223,8 @@ def main(args=None):
     cachepath = options.cachepath
     db = None
 
-    (local_param, param) = read_params(backend, cachepath)
+    local_param = read_cached_params(cachepath)
+    param = read_remote_params(backend)
     if local_param is not None:
         assert os.path.exists(cachepath + '.db')
         if local_param.seq_no >= param.seq_no:
@@ -1335,7 +1338,8 @@ def main(args=None):
 
     param.is_mounted = True
     param.seq_no += 1
-    store_and_upload_params(backend, cachepath, param)
+    write_params(cachepath, param)
+    upload_params(backend, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     fsck.check(check_cache)
@@ -1364,7 +1368,10 @@ def main(args=None):
     # that have not been uploaded yet are not tracked through the VFS. Therefore,
     # always upload the full metadata in fsck.
     upload_metadata(backend, db, param, incremental=False)
-    store_and_upload_params(backend, cachepath, param)
+
+    write_params(cachepath, param)
+    upload_params(backend, param)
+
     expire_objects(backend)
 
     log.info('Completed fsck of %s', options.storage_url)

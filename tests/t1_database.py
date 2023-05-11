@@ -33,8 +33,8 @@ from s3ql.database import (
     FsAttributes,
     download_metadata,
     expire_objects,
-    store_and_upload_params,
     upload_metadata,
+    upload_params,
 )
 
 # Page size is 4k, so block sizes smaller than that don't make sense
@@ -215,7 +215,7 @@ def _test_expiration(
             seq_no=seq_no,
             db_size=BLOCKSIZE * size,
         )
-        store_and_upload_params(backend, cachepath=None, params=params)
+        upload_params(backend, params)
 
     expire_objects(backend, versions_to_keep=versions_to_keep)
 
