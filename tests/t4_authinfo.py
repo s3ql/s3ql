@@ -131,9 +131,6 @@ def test_passphrase(context, reg_output, s3ql_cmd_argv):
     print(passphrase, file=proc.stdin)
     proc.stdin.close()
     assert proc.wait() == 0
-    reg_output(
-        r'^WARNING: Maximum object sizes less than 1 MiB will degrade performance\.$', count=1
-    )
 
     with tempfile.NamedTemporaryFile('wt') as fh:
         print(
