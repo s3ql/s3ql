@@ -39,5 +39,8 @@
             "source.organizeImports": true
         }
     },
-    "isort.check": true
+    "isort.check": true,
+    "python.analysis.exclude": [
+        "s3ql.old/"
+    ]
 }

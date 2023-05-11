@@ -304,15 +304,8 @@ def get_backend_factory(options):
                 )
         else:
             data_pw = None
-            # Try to read metadata to detect old file system revision
-            try:
-                tmp_backend.fetch('s3ql_params')
-            except CorruptedObjectError:
-                raise QuietError(
-                    'File system revision needs upgrade (or backend data is corrupted)',
-                    exitcode=32,
-                )
-            except NoSuchObject:
+            # Allow for old versions, since this function is also used during upgrades
+            if not (backend.contains('s3ql_params') or backend.contains('s3ql_metadata')):
                 raise QuietError('No S3QL file system found at given storage URL.', exitcode=18)
 
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))

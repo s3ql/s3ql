@@ -11,6 +11,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import textwrap
 import time
 from base64 import b64decode
@@ -20,16 +21,19 @@ from queue import Full as QueueFull
 from queue import Queue
 
 from s3ql.database import (
+    Connection,
     FsAttributes,
     download_metadata,
     get_available_seq_nos,
     read_remote_params,
+    upload_metadata,
+    upload_params,
     write_params,
 )
 
-from . import REV_VER_MAP
+from . import BUFSIZE, CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend, handle_on_return, is_mounted
+from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -75,7 +79,15 @@ def parse_args(args):
     sparser = subparsers.add_parser(
         "upgrade", help="upgrade file system to newest revision", parents=[pparser]
     )
-    sparser.add_argument("--threads", type=int, default=20, help='Number of threads to use')
+    sparser.add_argument(
+        "--metadata-block-size",
+        type=int,
+        default=64,
+        metavar='<size>',
+        help="Block size (in KiB) to use for storing filesystem metadata. "
+        "Backend object size may be smaller than this due to compression. "
+        "Default: %(default)d KiB.",
+    )
 
     parser.add_storage_url()
     parser.add_debug()
@@ -107,10 +119,8 @@ def main(args=None):
 
     if options.action == 'clear':
         return clear(options)
-    elif options.action == 'upgrade':
-        return upgrade(options)
 
-    if options.action == 'recover-key':
+    elif options.action == 'recover-key':
         with get_backend(options, raw=True) as backend:
             return recover(backend, options)
 
@@ -120,6 +130,9 @@ def main(args=None):
 
         elif options.action == 'restore-metadata':
             return restore_metadata_cmd(backend, options)
+
+        elif options.action == 'upgrade':
+            return upgrade(backend, options)
 
 
 def change_passphrase(backend):
@@ -274,11 +287,126 @@ def get_old_rev_msg(rev, prog):
     )
 
 
-@handle_on_return
-def upgrade(options, on_return):
+def upgrade(backend, options):
     '''Upgrade file system to newest revision'''
 
-    print('This version of S3QL does not support upgrading.')
+    params_path = options.cachepath + '.params'
+    if not os.path.exists(options.cachepath + '.db') or not os.path.exists(params_path):
+        print(
+            'To upgrade the filesystem, first download file system metadata using the previous',
+            'version of S3QL (eg. by running fsck.s3ql)',
+            sep='\n',
+        )
+        sys.exit(1)
+
+    with open(params_path, 'rb') as fh:
+        local_params = thaw_basic_mapping(fh.read())
+    remote_params = backend.lookup('s3ql_metadata')
+
+    if local_params['seq_no'] < remote_params['seq_no']:
+        print(
+            'Local metadata copy is not up-to-date. To upgrade the filesystem, first download',
+            'file system metadata using the previous  version of S3QL (eg. by running fsck.s3ql)',
+            sep='\n',
+        )
+        sys.exit(1)
+
+    elif local_params['seq_no'] > remote_params['seq_no'] or local_params['needs_fsck']:
+        print(
+            'Filesystem was not cleanly unmounted. Check file system using fsck.s3ql',
+            'from the previous version of S3QL.',
+            get_old_rev_msg(local_params['revision'], 'fsck.s3ql'),
+            sep='\n',
+        )
+        sys.exit(30)
+
+    if local_params['revision'] < CURRENT_FS_REV - 1:
+        print(
+            textwrap.dedent(
+                '''\
+            File system revision too old to upgrade!
+
+            You need to use an older S3QL version to upgrade to a more recent revision before you
+            can use this version to upgrade to the newest revsion.
+            '''
+            )
+        )
+        print(get_old_rev_msg(params['revision'] + 1, 's3qladm'))
+        raise QuietError()
+
+    elif local_params['revision'] >= CURRENT_FS_REV:
+        print('File system already at most-recent revision')
+        return
+
+    print(
+        textwrap.dedent(
+            f'''
+        I am about to update the file system to the newest revision. You will not be able to access
+        the file system with any older version of S3QL after this operation.
+
+        You should make very sure that this command is not interrupted and that no one else tries to
+        mount, fsck or upgrade the file system at the same time. You may interrupt the update with
+        Ctrl+C and resume at a later time, but the filesystem will not be in a usable state until
+        the upgrade is complete.
+
+        Filesystem metadata will be split into {options.metadata_block_size} kB blocks for remote
+        storage. This value CAN NOT BE CHANGED after upgrade. To use a different value, restart the
+        update with a different --metadata-block-size parameter.
+        '''
+        )
+    )
+
+    print('Please enter "yes" to continue.', '> ', sep='\n', end='')
+    sys.stdout.flush()
+
+    if sys.stdin.readline().strip().lower() != 'yes':
+        raise QuietError()
+
+    log.info('Upgrading from revision %d to %d...', local_params['revision'], CURRENT_FS_REV)
+
+    new_params = {k.replace('-', '_'): v for k, v in local_params.items()}
+    new_params['data_block_size'] = new_params['max_obj_size']
+    del new_params['max_obj_size']
+    new_params['metadata_block_size'] = options.metadata_block_size * 1024
+    new_params['revision'] = CURRENT_FS_REV
+    params = FsAttributes(**new_params)
+
+    db = Connection(options.cachepath + '.db', options.metadata_block_size * 1024)
+
+    params.last_modified = time.time()
+    params.seq_no += 1
+
+    upload_metadata(backend, db, params, incremental=False)
+    write_params(options.cachepath, params)
+    upload_params(backend, params)
+
+    # Re-upload the old metadata object to make sure that we don't accidentally
+    # re-mount the filesystem with an older S3QL version.
+    log.info('Backing up old metadata...')
+    local_params['revision'] = CURRENT_FS_REV
+    with tempfile.TemporaryFile() as tmpfh:
+
+        def do_read(fh):
+            tmpfh.seek(0)
+            while True:
+                buf = fh.read(BUFSIZE)
+                if not buf:
+                    break
+                tmpfh.write(buf)
+
+        backend.perform_read(do_read, 's3ql_metadata')
+
+        def do_write(fh):
+            tmpfh.seek(0)
+            while True:
+                buf = tmpfh.read(BUFSIZE)
+                if not buf:
+                    break
+                fh.write(buf)
+
+        backend.perform_write(do_write, "s3ql_metadata", metadata=local_params, is_compressed=True)
+
+    print('File system upgrade complete.')
 
 
 def restore_metadata_cmd(backend, options):

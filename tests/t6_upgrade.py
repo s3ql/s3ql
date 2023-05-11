@@ -31,7 +31,6 @@ from s3ql import backends
 @pytest.mark.usefixtures('pass_reg_output')
 class TestUpgrade(t4_fuse.TestFuse):
     def setup_method(self, method):
-        pytest.skip('upgrades not yet supported')
         skip_without_rsync()
 
         basedir_old = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 's3ql.old'))
@@ -53,7 +52,7 @@ class TestUpgrade(t4_fuse.TestFuse):
             os.path.join(self.basedir_old, 'bin', 'mkfs.s3ql'),
             '-L',
             'test fs',
-            '--data-block-size',
+            '--max-obj-size',
             str(max_obj_size),
             '--cachedir',
             self.cache_dir,
@@ -195,16 +194,15 @@ class TestUpgrade(t4_fuse.TestFuse):
 
         # Try to access with new version (should fail)
         if not with_cache:
-            shutil.rmtree(self.cache_dir)
+            old_cache = self.cache_dir
             self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
 
-        self.mount(expect_fail=32)
         self.reg_output(r'^ERROR: File system revision too old', count=1)
-
-        # Upgrade
+        self.mount(expect_fail=32)
         if not with_cache:
             shutil.rmtree(self.cache_dir)
-            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+            self.cache_dir = old_cache
+
         self.upgrade()
 
         # ...and test
@@ -214,12 +212,6 @@ class TestUpgrade(t4_fuse.TestFuse):
         self.fsck()
         self.mount()
         self.compare()
-
-        # Try if we can still write (we messed this up in the upgrade
-        # from 2.16 to 2.17).
-        with open('%s/some_new_file' % (self.mnt_dir,), 'w') as fh:
-            fh.write('hello, world')
-
         self.umount()
 
 
