@@ -78,6 +78,7 @@ def test_upload_download(backend, incremental):
     rows = 11
     params = FsAttributes(
         metadata_block_size=BLOCKSIZE,
+        data_block_size=BLOCKSIZE,
         seq_no=1,
     )
     with tempfile.NamedTemporaryFile() as tmpfh:
@@ -140,6 +141,7 @@ def test_versioning(backend):
     rows = 11
     params = FsAttributes(
         metadata_block_size=BLOCKSIZE,
+        data_block_size=BLOCKSIZE,
         seq_no=1,
     )
 
@@ -214,6 +216,7 @@ def _test_expiration(
             metadata_block_size=BLOCKSIZE,
             seq_no=seq_no,
             db_size=BLOCKSIZE * size,
+            data_block_size=BLOCKSIZE,
         )
         upload_params(backend, params)
 

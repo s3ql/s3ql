@@ -125,7 +125,13 @@ async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
     fsck = Fsck(
-        ctx.cachedir + '/cache', ctx.backend, FsAttributes(data_block_size=ctx.max_obj_size), ctx.db
+        ctx.cachedir + '/cache',
+        ctx.backend,
+        FsAttributes(
+            data_block_size=ctx.max_obj_size,
+            metadata_block_size=ctx.max_obj_size,
+        ),
+        ctx.db,
     )
     fsck.check()
     assert not fsck.found_errors

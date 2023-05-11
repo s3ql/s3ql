@@ -48,7 +48,10 @@ class fsck_tests(unittest.TestCase):
         init_tables(self.db)
 
         self.fsck = Fsck(
-            self.cachedir, self.backend, FsAttributes(data_block_size=self.max_obj_size), self.db
+            self.cachedir,
+            self.backend,
+            FsAttributes(data_block_size=self.max_obj_size, metadata_block_size=self.max_obj_size),
+            self.db,
         )
 
     def tearDown(self):

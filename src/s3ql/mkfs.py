@@ -198,17 +198,15 @@ def main(args=None):
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 
-    param = FsAttributes()
-    param.revision = CURRENT_FS_REV
-    param.seq_no = int(time.time())
-    param.label = options.label
-    param.data_block_size = options.data_block_size * 1024
-    param.metadata_block_size = options.metadata_block_size * 1024
-    param.needs_fsck = False
-    param.is_mounted = False
-    param.inode_gen = 0
-    param.last_fsck = time.time()
-    param.last_modified = time.time()
+    param = FsAttributes(
+        revision=CURRENT_FS_REV,
+        seq_no=int(time.time()),
+        label=options.label,
+        data_block_size=options.data_block_size * 1024,
+        metadata_block_size=options.metadata_block_size * 1024,
+        last_fsck=time.time(),
+        last_modified=time.time(),
+    )
 
     log.info('Creating metadata tables...')
     db = Connection(cachepath + '.db', param.metadata_block_size)

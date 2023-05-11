@@ -15,6 +15,8 @@ Module Attributes:
 
 
 import collections
+import copy
+import dataclasses
 import logging
 import os
 import re
@@ -61,57 +63,35 @@ def sqlite3_log(errcode, message):
 apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
 
 
+@dataclasses.dataclass
 class FsAttributes:
-    __slots__ = [
-        'seq_no',
-        'db_size',
-        'revision',
-        'label',
-        'data_block_size',
-        'metadata_block_size',
-        'needs_fsck',
-        'is_mounted',
-        'inode_gen',
-        'last_fsck',
-        'last_modified',
-        'db_md5',
-    ]
-
-    def __init__(self, **kwargs) -> None:
-        for (k, v) in kwargs.items():
-            setattr(self, k, v)
+    data_block_size: int
+    metadata_block_size: int
+    seq_no: int = 0
+    db_size: Optional[int] = None
+    revision: int = CURRENT_FS_REV
+    label: str = '<unnamed>'
+    needs_fsck: bool = False
+    is_mounted: bool = False
+    inode_gen: int = 0
+    last_fsck: float = 0
+    last_modified: float = 0
+    db_md5: Optional[str] = None
 
     def copy(self):
-        c = FsAttributes()
-        for k in self.__slots__:
-            try:
-                setattr(c, k, getattr(self, k))
-            except AttributeError:
-                continue
-        return c
+        return copy.copy(self)
 
     @staticmethod
-    def from_dict(d: dict):
-        params = FsAttributes()
-        for k in params.__slots__:
-            try:
-                v = d[k]
-            except KeyError:  # Fallback for old fs revisions
-                try:
-                    v = d[k.replace('_', '-')]
-                except KeyError:
-                    continue
-            setattr(params, k, v)
-        return params
+    def deserialize(buf: bytes):
+        d = thaw_basic_mapping(buf)
 
-    def to_dict(self) -> dict:
-        d = {}
-        for k in self.__slots__:
-            try:
-                d[k] = getattr(self, k)
-            except AttributeError:
-                continue
-        return d
+        # For compatibility with old fs revisions
+        d = {k.replace('-', '_'): v for k, v in d.items()}
+
+        return FsAttributes(**d)
+
+    def serialize(self):
+        return freeze_basic_mapping(dataclasses.asdict(self))
 
 
 class Connection:
@@ -563,7 +543,7 @@ def expire_objects(backend, versions_to_keep=32):
     # Determine which objects we still need
     to_keep = collections.defaultdict(set)
     for seq_no in seq_to_keep:
-        params = FsAttributes.from_dict(thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no]))
+        params = FsAttributes.deserialize(backend['s3ql_params_%010x' % seq_no])
         assert params.seq_no == seq_no
         blocksize = params.metadata_block_size
         max_blockno = (params.db_size + blocksize - 1) // blocksize
@@ -644,13 +624,13 @@ def upload_metadata(
 
 
 def upload_params(backend: AbstractBackend, params: FsAttributes):
-    buf = freeze_basic_mapping(params.to_dict())
+    buf = params.serialize()
     backend['s3ql_params'] = buf
     backend['s3ql_params_%010x' % params.seq_no] = buf
 
 
 def write_params(cachepath: str, params: FsAttributes):
-    buf = freeze_basic_mapping(params.to_dict())
+    buf = params.serialize()
     filename = cachepath + '.params'
     tmpname = filename + '.tmp'
     with open(tmpname, 'wb') as fh:
@@ -676,7 +656,7 @@ def read_cached_params(cachepath: str) -> Optional[FsAttributes]:
     filename = cachepath + '.params'
     if os.path.exists(filename):
         with open(filename, 'rb') as fh:
-            params = FsAttributes.from_dict(thaw_basic_mapping(fh.read()))
+            params = FsAttributes.deserialize(fh.read())
     else:
         return None
 
@@ -701,11 +681,11 @@ def read_remote_params(backend, seq_no: Optional[int] = None) -> FsAttributes:
     except NoSuchObject:
         # Perhaps this is an old filesystem revision
         if seq_no is None:
-            params = FsAttributes.from_dict(backend.lookup('s3ql_metadata'))
+            params = FsAttributes(backend.lookup('s3ql_metadata'))
         else:
             raise
     else:
-        params = FsAttributes.from_dict(thaw_basic_mapping(buf))
+        params = FsAttributes.deserialize(buf)
 
     if params.revision < CURRENT_FS_REV:
         raise QuietError(
