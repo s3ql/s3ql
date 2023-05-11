@@ -29,7 +29,7 @@ from s3ql.database import (
 
 from . import REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
+from .common import AsyncFn, get_backend, handle_on_return, is_mounted
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -290,7 +290,7 @@ def restore_metadata_cmd(backend, options):
     print('The following backups are available:')
     print('Idx    Seq No: Last Modified:')
     for (i, seq_no) in enumerate(backups):
-        params = FsAttributes.from_dict(thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no]))
+        params = FsAttributes.deserialize(backend['s3ql_params_%010x' % seq_no])
         assert params.seq_no == seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
         print(f'{i:3d} {seq_no:010x} {date}')
