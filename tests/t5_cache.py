@@ -88,7 +88,7 @@ class TestPerstCache(t4_fuse.TestFuse):
 
     def upload_meta(self):
         subprocess.check_call(
-            self.s3ql_cmd_argv('s3qlctrl') + ['--quiet', 'upload-meta', self.mnt_dir]
+            self.s3ql_cmd_argv('s3qlctrl') + ['--quiet', 'backup-metadata', self.mnt_dir]
         )
 
     # Check that cache is ignored if fs was mounted elsewhere

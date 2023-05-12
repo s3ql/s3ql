@@ -13,7 +13,7 @@ import textwrap
 import pyfuse3
 
 from .common import assert_fs_owner
-from .logging import setup_logging, setup_warnings
+from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
@@ -55,7 +55,9 @@ def parse_args(args):
     subparsers.required = True
     subparsers.add_parser('flushcache', help='flush file system cache', parents=[pparser])
     subparsers.add_parser('dropcache', help='drop file system cache', parents=[pparser])
-    subparsers.add_parser('upload-meta', help='Upload metadata', parents=[pparser])
+    subparsers.add_parser(
+        'backup-metadata', help='Trigger immediate metadata backup', parents=[pparser]
+    )
 
     sparser = subparsers.add_parser('cachesize', help='Change cache size', parents=[pparser])
     sparser.add_argument('cachesize', metavar='<size>', type=int, help='New cache size in KiB')
@@ -107,7 +109,7 @@ def main(args=None):
     elif options.action == 'dropcache':
         pyfuse3.setxattr(ctrlfile, 's3ql_dropcache!', b'dummy')
 
-    elif options.action == 'upload-meta':
+    elif options.action == 'backup-metadata':
         pyfuse3.setxattr(ctrlfile, 'upload-meta', b'dummy')
 
     elif options.action == 'log':
@@ -117,6 +119,9 @@ def main(args=None):
 
     elif options.action == 'cachesize':
         pyfuse3.setxattr(ctrlfile, 'cachesize', ('%d' % (options.cachesize * 1024,)).encode())
+
+    else:
+        raise QuietError('Need to specify subcommand')
 
 
 if __name__ == '__main__':

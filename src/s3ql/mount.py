@@ -213,9 +213,7 @@ async def main_async(options, stdout_log_handler):
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_task = MetadataUploadTask(
-        param, backend_pool, db, options.metadata_upload_interval
-    )
+    metadata_upload_task = MetadataUploadTask(param, backend_pool, db, options)
 
     async with trio.open_nursery() as nursery:
         async with AsyncExitStack() as cm:
@@ -611,12 +609,14 @@ def parse_args(args):
         "to make use of journald.",
     )
     parser.add_argument(
-        "--metadata-upload-interval",
+        "--metadata-backup-interval",
         action="store",
         type=int,
-        default=10 * 60,
+        default=6 * 60 * 60,
         metavar='<seconds>',
-        help='Interval between metadata uploads in seconds. Default: 10 min',
+        help='Interval between metadata backups. Should the filesystem crash while mounted, '
+        'modifications made after the most recent metadata backup may be lost. During '
+        'backups, the filesystem will be unresponsile. Default: 6h',
     )
     parser.add_argument(
         "--threads",
@@ -643,8 +643,8 @@ def parse_args(args):
     if not options.log and not (options.fg or options.systemd):
         parser.error("Please activate logging to a file or syslog, or use the --fg option.")
 
-    if options.metadata_upload_interval == 0:
-        options.metadata_upload_interval = None
+    if options.metadata_backup_interval == 0:
+        options.metadata_backup_interval = None
 
     return options
 
@@ -656,40 +656,57 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    def __init__(self, params: FsAttributes, backend_pool, db, interval):
+    def __init__(self, params: FsAttributes, backend_pool, db, options):
         super().__init__()
         self.backend_pool = backend_pool
         self.db = db
-        self.interval = interval
         self.event = trio.Event()
         self.quit = False
         self.params = params
+        self.options = options
 
     async def run(self):
         log.debug('started')
 
         while not self.quit:
-            if self.interval is None:
+            with trio.move_on_after(self.options.metadata_backup_interval):
                 await self.event.wait()
-            else:
-                with trio.move_on_after(self.interval):
-                    await self.event.wait()
-            self.event = trio.Event()  # reset
+
             if self.quit:
                 break
 
+            self.event = trio.Event()  # reset
+
             with self.backend_pool() as backend:
+                # Upload asynchronously twice to reduce the amount of data left for
+                # synchronous upload.
                 self.db.checkpoint()
-                await trio.to_thread.run_sync(
-                    functools.partial(
-                        upload_metadata,
-                        backend,
-                        self.db,
-                        self.params,
-                        update_params=False,
-                        incremental=True,
+                for _ in range(2):
+                    await trio.to_thread.run_sync(
+                        functools.partial(
+                            upload_metadata,
+                            backend,
+                            self.db,
+                            self.params,
+                            update_params=False,
+                            incremental=True,
+                        )
                     )
+
+                # Now upload synchronously to get consistent snapshot (at the cost
+                # of stopping file system operation). As a future optimization, we could
+                # first copy all modified blocks locally, and then upload async...
+                self.params.last_modified = time.time()
+                upload_metadata(
+                    backend,
+                    self.db,
+                    self.params,
+                    update_params=True,
+                    incremental=True,
                 )
+                write_params(self.options.cachepath, self.params)
+                upload_params(backend, self.params)
+                self.params.seq_no += 1
                 await trio.to_thread.run_sync(expire_objects, backend)
 
         log.debug('finished')

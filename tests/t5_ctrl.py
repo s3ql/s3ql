@@ -14,7 +14,9 @@ if __name__ == '__main__':
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
+import os
 import sys
+import time
 
 import t4_fuse
 
@@ -29,8 +31,24 @@ class TestCtrl(t4_fuse.TestFuse):
         self.tst_ctrl_drop()
         self.tst_ctrl_log()
         self.tst_ctrl_cachesize()
+        self.tst_backup_metadata()
         self.umount()
         self.fsck()
+
+    def tst_backup_metadata(self):
+        cnt1 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+
+        # First call just finalizes the already increased sequence number
+        s3ql.ctrl.main(['backup-metadata', self.mnt_dir])
+        time.sleep(1)
+        cnt2 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+        assert cnt2 == cnt1
+
+        # Second call creates a new one
+        s3ql.ctrl.main(['backup-metadata', self.mnt_dir])
+        time.sleep(1)
+        cnt2 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+        assert cnt2 == cnt1 + 1
 
     def tst_ctrl_flush(self):
         try:
