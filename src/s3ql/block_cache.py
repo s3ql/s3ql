@@ -10,7 +10,6 @@ import hashlib
 import logging
 import os
 import re
-import shutil
 import sys
 import threading
 import time
@@ -327,15 +326,6 @@ class BlockCache:
         This method runs in a separate thread outside the trio event loop.
         '''
 
-        def do_write(fh):
-            el.seek(0)
-            while True:
-                buf = el.read(BUFSIZE)
-                if not buf:
-                    break
-                fh.write(buf)
-            return fh
-
         success = False
 
         async def with_event_loop(exc_info):
@@ -375,18 +365,15 @@ class BlockCache:
 
         try:
             with self.backend_pool() as backend:
+                el.seek(0)
                 if log.isEnabledFor(logging.DEBUG):
                     time_ = time.time()
-                    obj_size = backend.perform_write(
-                        do_write, 's3ql_data_%d' % obj_id
-                    ).get_obj_size()
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
                     time_ = time.time() - time_
                     rate = el.size / (1024**2 * time_) if time_ != 0 else 0
                     log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
                 else:
-                    obj_size = backend.perform_write(
-                        do_write, 's3ql_data_%d' % obj_id
-                    ).get_obj_size()
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
             success = True
         finally:
             self.in_transit.remove(el)
@@ -704,12 +691,6 @@ class BlockCache:
             log.debug('downloading object %d..', obj_id)
             tmpfh = open(filename + '.tmp', 'wb')
             try:
-
-                def do_read(fh):
-                    tmpfh.seek(0)
-                    tmpfh.truncate()
-                    shutil.copyfileobj(fh, tmpfh, BUFSIZE)
-
                 # Lock object. This ensures that we wait until the object
                 # is uploaded. We don't have to worry about deletion, because
                 # as long as the current cache entry exists, there will always be
@@ -720,7 +701,7 @@ class BlockCache:
 
                 def with_lock_released():
                     with self.backend_pool() as backend:
-                        backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+                        backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh)
 
                 await trio.to_thread.run_sync(with_lock_released)
 
