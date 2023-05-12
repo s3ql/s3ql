@@ -20,6 +20,7 @@ import threading
 import time
 from abc import ABCMeta, abstractmethod
 from functools import wraps
+from io import BytesIO
 from typing import BinaryIO
 
 from .. import BUFSIZE
@@ -297,27 +298,51 @@ class AbstractBackend(object, metaclass=ABCMeta):
         ``backend.fetch(key)[0]``.
         """
 
-        def do_read(fh):
-            data = fh.read()
-            return (data, fh.metadata)
+        fh = BytesIO()
+        metadata = self.readinto_fh(key, fh)
+        return (fh.getvalue(), metadata)
 
-        return self.perform_read(do_read, key)
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
 
-    def readinto(self, key: str, ofh: BinaryIO):
-        """Read data stored under `key` into *fh*, return metadata."""
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
 
-        off = ofh.tell()
+        off = fh.tell()
 
         def do_read(ifh: BinaryIO):
-            ofh.seek(off)
+            fh.seek(off)
             while True:
                 buf = ifh.read(BUFSIZE)
                 if not buf:
                     break
-                ofh.write(buf)
+                fh.write(buf)
             return ifh.metadata
 
         return self.perform_read(do_read, key)
+
+    def write_fh(self, key: str, fh: BinaryIO, metadata=None):
+        '''Upload data from *fh* under *key*.
+
+        The data will be read at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried. Returns the size of the resulting
+        storage object (which may be less due to compression)
+        '''
+
+        off = fh.tell()
+
+        def do_write(ofh: BinaryIO):
+            fh.seek(off)
+            while True:
+                buf = fh.read(BUFSIZE)
+                if not buf:
+                    break
+                ofh.write(buf)
+            return ofh
+
+        fh = self.perform_write(do_write, key, metadata)
+        return fh.get_obj_size()
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
@@ -331,7 +356,7 @@ class AbstractBackend(object, metaclass=ABCMeta):
         equivalent to ``backend.store(key, val)``.
         """
 
-        self.perform_write(lambda fh: fh.write(val), key, metadata)
+        return self.write_fh(key, BytesIO(val), metadata)
 
     @abstractmethod
     def is_temp_failure(self, exc):
@@ -361,38 +386,6 @@ class AbstractBackend(object, metaclass=ABCMeta):
     @abstractmethod
     def get_size(self, key):
         '''Return size of object stored under *key*'''
-        pass
-
-    @abstractmethod
-    def open_read(self, key):
-        """Open object for reading
-
-        Return a file-like object. Data can be read using the `read`
-        method. Metadata is returned in the file-like object's *metadata*
-        attribute and can be modified by the caller at will. The object must be
-        closed explicitly.
-        """
-
-        pass
-
-    @abstractmethod
-    def open_write(self, key, metadata=None, is_compressed=False):
-        """Open object for writing
-
-        `metadata` can be mapping with additional attributes to store with the
-        object. Keys have to be of type `str`, values have to be of elementary
-        type (`str`, `bytes`, `int`, `float` or `bool`).
-
-        Returns a file- like object. The object must be closed closed
-        explicitly. After closing, the *get_obj_size* may be used to retrieve
-        the size of the stored object (which may differ from the size of the
-        written data).
-
-        The *is_compressed* parameter indicates that the caller is going to
-        write compressed data, and may be used to avoid recompression by the
-        backend.
-        """
-
         pass
 
     def contains(self, key):

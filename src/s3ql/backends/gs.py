@@ -358,7 +358,7 @@ class Backend(AbstractBackend):
         return ObjectW(key, self, metadata)
 
     @retry
-    def write_fh(
+    def _write_fh(
         self,
         fh,
         key: str,
@@ -830,7 +830,7 @@ class ObjectW:
         if self.closed:
             return
 
-        self.backend.write_fh(
+        self.backend._write_fh(
             self.fh, self.key, self.md5.digest(), self.metadata, size=self.obj_size
         )
         self.closed = True

@@ -15,6 +15,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import functools
+from io import BytesIO
 import logging
 import re
 import shutil
@@ -33,7 +34,7 @@ from pytest_checklogs import assert_logs
 
 import s3ql.backends.common
 from s3ql import BUFSIZE, backends
-from s3ql.backends.common import CorruptedObjectError, NoSuchObject
+from s3ql.backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
 from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
@@ -399,6 +400,28 @@ def test_read_write(backend):
     assert value == value2
     assert metadata == metadata2
     assert lookup_object(backend, key) == metadata
+
+
+@pytest.mark.with_backend('*/raw', 'local/*')
+def test_readinto_write_fh(backend: AbstractBackend):
+    key = newname()
+    value = newvalue()
+    metadata = {'jimmy': 'jups@42'}
+    buf = BytesIO()
+
+    assert key not in backend
+    assert_raises(NoSuchObject, backend.lookup, key)
+    assert_raises(NoSuchObject, backend.readinto_fh, key, buf)
+
+    assert backend.write_fh(key, BytesIO(value), metadata) > 0
+
+    assert key in backend
+
+    metadata2 = backend.readinto_fh(key, buf)
+
+    assert value == buf.getvalue()
+    assert metadata == metadata2
+    assert backend.lookup(key) == metadata
 
 
 @pytest.mark.with_backend('swift/raw')
