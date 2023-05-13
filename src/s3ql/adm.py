@@ -390,16 +390,6 @@ def upgrade(backend, options):
     local_params['revision'] = CURRENT_FS_REV
     with tempfile.TemporaryFile() as tmpfh:
 
-        def do_read(fh):
-            tmpfh.seek(0)
-            while True:
-                buf = fh.read(BUFSIZE)
-                if not buf:
-                    break
-                tmpfh.write(buf)
-
-        backend.perform_read(do_read, 's3ql_metadata')
-
         def do_write(fh):
             tmpfh.seek(0)
             while True:
@@ -409,6 +399,7 @@ def upgrade(backend, options):
                 fh.write(buf)
 
         backend.perform_write(do_write, "s3ql_metadata", metadata=local_params, is_compressed=True)
+        backend.readinto_fh('s3ql_metadata', tmpfh)
 
     print('File system upgrade complete.')
 
