@@ -15,15 +15,15 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import functools
-from io import BytesIO
+import io
 import logging
 import re
 import shutil
-import struct
 import tempfile
 import threading
 import time
 from argparse import Namespace
+from io import BytesIO
 
 import mock_server
 import pytest
@@ -474,9 +474,7 @@ def test_list(backend):
     assert set(backend.list('prefixc')) == empty_set
 
 
-@pytest.mark.with_backend(
-    '*/raw', 'local/{plain,aes,zlib,aes+zlib}', require_immediate_consistency=True
-)
+@pytest.mark.with_backend('*/raw', require_immediate_consistency=True)
 def test_readslowly(backend):
     key = newname()
     value = newvalue()
@@ -665,36 +663,9 @@ def test_multi_packet(backend):
 
     backend.perform_write(do_write, key)
 
-    def do_read(fh):
-        buf = bytearray()
-        while True:
-            tmp = fh.read(BUFSIZE // 2)
-            if not tmp:
-                break
-            buf += tmp
-        return buf
-
-    res = backend.perform_read(do_read, key)
-    assert res == b'\xFF' * (5 * BUFSIZE)
-
-
-@pytest.mark.with_backend('local/{raw,plain,aes,aes+zlib,zlib}')
-def test_issue431(backend):
-    key = newname()
-    hdr_len = struct.calcsize(b'<I')
-
-    def do_write(fh):
-        fh.write(b'\xFF' * 50)
-        fh.write(b'\xFF' * 50)
-
-    backend.perform_write(do_write, key)
-
-    def do_read(fh):
-        fh.read(50 + 2 * hdr_len)
-        fh.read(50)
-        assert fh.read(50) == b''
-
-    backend.perform_read(do_read, key)
+    buf = io.BytesIO()
+    backend.readinto_fh(key, buf)
+    assert buf.getvalue() == b'\xFF' * (5 * BUFSIZE)
 
 
 @pytest.mark.with_backend('local/{aes,aes+zlib}')

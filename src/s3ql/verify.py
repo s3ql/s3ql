@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 import argparse
 import atexit
 import faulthandler
+import io
 import logging
 import os
 import signal
@@ -17,7 +18,6 @@ import textwrap
 from queue import Full as QueueFull
 from queue import Queue
 
-from . import BUFSIZE
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .common import AsyncFn, get_backend_factory, pretty_print_size
 from .logging import delay_eval, setup_logging, setup_warnings
@@ -215,17 +215,7 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
     '''
 
     with backend_factory() as backend:
-        size = None
-
-        def do_read(fh):
-            nonlocal size
-            size = 0
-            while True:
-                buf = fh.read(BUFSIZE)
-                size += len(buf)
-                if not buf:
-                    break
-
+        buf = io.BytesIO()
         while True:
             el = queue.get()
             if el is None:
@@ -236,7 +226,9 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
             key = 's3ql_data_%d' % obj_id
             try:
                 if full:
-                    backend.perform_read(do_read, key)
+                    buf.seek(0)
+                    backend.readinto_fh(key, buf)
+                    size = buf.tell()
                 else:
                     backend.lookup(key)
             except NoSuchObject:
