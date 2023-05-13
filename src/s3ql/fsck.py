@@ -20,7 +20,7 @@ from os.path import basename
 
 import apsw
 
-from . import BUFSIZE, CTRL_INODE, ROOT_INODE
+from . import CTRL_INODE, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
@@ -241,14 +241,8 @@ class Fsck:
                     (size, hash_should),
                 )
 
-                def do_write(obj_fh):
-                    with open(os.path.join(self.cachedir, filename), "rb") as fh:
-                        shutil.copyfileobj(fh, obj_fh, BUFSIZE)
-                    return obj_fh
-
-                obj_size = self.backend.perform_write(
-                    do_write, 's3ql_data_%d' % obj_id
-                ).get_obj_size()
+                with open(os.path.join(self.cachedir, filename), "rb") as fh:
+                    obj_size = self.backend.write_fh('s3ql_data_%d' % obj_id, fh)
 
                 self.conn.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
             else:

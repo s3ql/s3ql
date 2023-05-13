@@ -31,7 +31,7 @@ from s3ql.database import (
     write_params,
 )
 
-from . import BUFSIZE, CURRENT_FS_REV, REV_VER_MAP
+from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
 from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
 from .logging import QuietError, setup_logging, setup_warnings
@@ -389,17 +389,9 @@ def upgrade(backend, options):
     log.info('Backing up old metadata...')
     local_params['revision'] = CURRENT_FS_REV
     with tempfile.TemporaryFile() as tmpfh:
-
-        def do_write(fh):
-            tmpfh.seek(0)
-            while True:
-                buf = tmpfh.read(BUFSIZE)
-                if not buf:
-                    break
-                fh.write(buf)
-
-        backend.perform_write(do_write, "s3ql_metadata", metadata=local_params, is_compressed=True)
         backend.readinto_fh('s3ql_metadata', tmpfh)
+        tmpfh.seek(0)
+        backend.write_fh("s3ql_metadata", tmpfh, metadata=local_params, dont_compress=True)
 
     print('File system upgrade complete.')
 

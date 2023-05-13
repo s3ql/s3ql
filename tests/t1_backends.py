@@ -15,7 +15,6 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import functools
-import io
 import logging
 import re
 import shutil
@@ -652,22 +651,6 @@ def test_extra_data(backend):
         assert exc.value.str == 'Extraneous data at end of object'
 
 
-@pytest.mark.with_backend('*/{raw,plain,aes,aes+zlib,zlib}')
-def test_multi_packet(backend):
-    '''Write and read packet extending over multiple chunks'''
-    key = newname()
-
-    def do_write(fh):
-        for _ in range(5):
-            fh.write(b'\xFF' * BUFSIZE)
-
-    backend.perform_write(do_write, key)
-
-    buf = io.BytesIO()
-    backend.readinto_fh(key, buf)
-    assert buf.getvalue() == b'\xFF' * (5 * BUFSIZE)
-
-
 @pytest.mark.with_backend('local/{aes,aes+zlib}')
 def test_encryption(backend):
     plain_backend = backend.backend
@@ -804,12 +787,11 @@ def test_corrupted_put(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    fh = backend.open_write(key)
-    fh.write(value)
-    assert_raises(BadDigestError, fh.close)
+    with pytest.raises(BadDigestError):
+        backend.store(key, value)
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store(key, value)
 
     assert backend[key] == value
 
@@ -959,12 +941,11 @@ def test_put_s3error_early(backend, monkeypatch):
             return False
 
     monkeypatch.setattr(handler_class, 'handle_expect_100', handle_expect_100)
-    fh = backend.open_write(key)
-    fh.write(data)
-    assert_raises(OperationAbortedError, fh.close)
+    with pytest.raises(OperationAbortedError):
+        backend.store(key, data)
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store(key, data)
 
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
@@ -991,12 +972,11 @@ def test_put_s3error_med(backend, monkeypatch):
             self.close_connection = True
 
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
-    fh = backend.open_write(key)
-    fh.write(data)
-    assert_raises(OperationAbortedError, fh.close)
+    with pytest.raises(OperationAbortedError):
+        backend.store(key, data)
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store(key, data)
 
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
@@ -1017,12 +997,11 @@ def test_put_s3error_late(backend, monkeypatch):
             self.send_error(503, code='OperationAborted')
 
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
-    fh = backend.open_write(key)
-    fh.write(data)
-    assert_raises(OperationAbortedError, fh.close)
+    with pytest.raises(OperationAbortedError):
+        backend.store(key, data)
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store(key, data)
 
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
@@ -1048,14 +1027,14 @@ def test_issue58(backend, monkeypatch):
 
     # Write a big object. We need to write random data, or
     # compression while make the payload too small
+    with open('/dev/urandom', 'rb') as rnd:
+        buf = rnd.read(5 * BUFSIZE)
     with pytest.raises(S3Error) as exc_info:
-        with backend.open_write('borg') as fh, open('/dev/urandom', 'rb') as rnd:
-            for _ in range(5):
-                fh.write(rnd.read(BUFSIZE))
+        backend.store('borg', buf)
     assert exc_info.value.code == 'MalformedXML'
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store('borg', buf)
 
 
 @pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
@@ -1080,13 +1059,13 @@ def test_issue58_b(backend, monkeypatch):
 
     # Write a big object. We need to write random data, or
     # compression while make the payload too small
+    with open('/dev/urandom', 'rb') as rnd:
+        buf = rnd.read(5 * BUFSIZE)
     with pytest.raises(ConnectionClosed):
-        with backend.open_write('borg') as fh, open('/dev/urandom', 'rb') as rnd:
-            for _ in range(5):
-                fh.write(rnd.read(BUFSIZE))
+        backend.store('borg', buf)
 
     enable_temp_fail(backend)
-    fh.close()
+    backend.store('borg', buf)
 
 
 @pytest.mark.with_backend('gs/{raw,aes+zlib}', require_mock_server=True)

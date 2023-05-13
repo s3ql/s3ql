@@ -16,7 +16,7 @@ import shutil
 import struct
 import time
 import zlib
-from typing import BinaryIO
+from typing import Any, BinaryIO, Dict, Optional
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
@@ -217,51 +217,62 @@ class ComprencBackend(AbstractBackend):
 
         return meta
 
-    def open_write(self, key, metadata=None, is_compressed=False):
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        dont_compress: bool = False,
+    ):
+        '''Upload data from *fh* under *key*.
+
+        The data will be read at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried. Returns the size of the resulting
+        storage object (which may be less due to compression)
+        '''
 
         if metadata is None:
             metadata = dict()
-        elif not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         meta_buf = freeze_basic_mapping(metadata)
         meta_raw = dict(format_version=2)
 
-        if is_compressed or self.compression[0] is None:
-            compr = None
+        if dont_compress or self.compression[0] is None:
             meta_raw['compression'] = 'None'
-        elif self.compression[0] == 'zlib':
-            compr = zlib.compressobj(self.compression[1])
-            meta_raw['compression'] = 'ZLIB'
-        elif self.compression[0] == 'bzip2':
-            compr = bz2.BZ2Compressor(self.compression[1])
-            meta_raw['compression'] = 'BZIP2'
-        elif self.compression[0] == 'lzma':
-            compr = lzma.LZMACompressor(preset=self.compression[1])
-            meta_raw['compression'] = 'LZMA'
+        else:
+            if self.compression[0] == 'zlib':
+                compr = zlib.compressobj(self.compression[1])
+                meta_raw['compression'] = 'ZLIB'
+            elif self.compression[0] == 'bzip2':
+                compr = bz2.BZ2Compressor(self.compression[1])
+                meta_raw['compression'] = 'BZIP2'
+            elif self.compression[0] == 'lzma':
+                compr = lzma.LZMACompressor(preset=self.compression[1])
+                meta_raw['compression'] = 'LZMA'
+            buf = io.BytesIO()
+            compress_fh(fh, buf, compr)
+            buf.seek(0)
+            fh = buf
 
-        if self.passphrase is not None:
+        if self.passphrase is None:
+            meta_raw['encryption'] = 'None'
+            meta_raw['data'] = meta_buf
+        else:
             nonce = struct.pack('<d', time.time()) + key.encode('utf-8')
             meta_key = sha256(self.passphrase + nonce + b'meta')
-            data_key = sha256(self.passphrase + nonce)
             encryptor = aes_encryptor(meta_key)
             meta_raw['encryption'] = 'AES_v2'
             meta_raw['nonce'] = nonce
             meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
             meta_raw['object_id'] = key
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
-        else:
-            meta_raw['encryption'] = 'None'
-            meta_raw['data'] = meta_buf
+            data_key = sha256(self.passphrase + nonce)
+            buf = io.BytesIO()
+            encrypt_fh(fh, buf, data_key)
+            buf.seek(0)
+            fh = buf
 
-        fh = self.backend.open_write(key, meta_raw)
-
-        if self.passphrase is not None:
-            fh = EncryptFilter(fh, data_key)
-        if compr:
-            fh = CompressFilter(fh, compr)
-
-        return fh
+        return self.backend.write_fh(key, fh, meta_raw)
 
     def contains(self, key):
         return self.backend.contains(key)
@@ -279,120 +290,45 @@ class ComprencBackend(AbstractBackend):
         self.backend.close()
 
 
-class CompressFilter:
-    '''Compress data while writing'''
+def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr):
+    '''Compress *ifh* into *ofh* using compr'''
 
-    def __init__(self, fh, compr):
-        '''Initialize
-
-        *fh* should be a file-like object. *decomp* should be a fresh compressor
-        instance with a *compress* method.
-        '''
-        super().__init__()
-
-        self.fh = fh
-        self.compr = compr
-        self.obj_size = 0
-        self.closed = False
-
-    def write(self, data):
-        '''Write *data*'''
-
-        buf = self.compr.compress(data)
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = compr.compress(buf)
         if buf:
-            self.fh.write(buf)
-            self.obj_size += len(buf)
+            ofh.write(buf)
 
-    def close(self):
-        # There may be errors when calling fh.close(), so we make sure that a
-        # repeated call is forwarded to fh.close(), even if we already cleaned
-        # up.
-        if not self.closed:
-            buf = self.compr.flush()
-            if buf:
-                self.fh.write(buf)
-                self.obj_size += len(buf)
-            self.closed = True
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
+    buf = compr.flush()
+    if buf:
+        ofh.write(buf)
 
 
-class EncryptFilter:
-    '''Encrypt data while writing'''
+def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes):
+    '''Encrypt contents of *ifh* into *ofh*'''
 
-    def __init__(self, fh, key):
-        '''Initialize
+    encryptor = aes_encryptor(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
-        *fh* should be a file-like object.
-        '''
-        super().__init__()
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
 
-        self.fh = fh
-        self.obj_size = 0
-        self.closed = False
-        self.encryptor = aes_encryptor(key)
-        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+        header = struct.pack(b'<I', len(buf))
+        hmac_.update(header)
+        ofh.write(encryptor.update(header))
 
-    def write(self, data):
-        '''Write *data*
+        hmac_.update(buf)
+        ofh.write(encryptor.update(buf))
 
-        len(data) must be < 2**32.
-
-        Every invocation of `write` generates a packet that contains both the
-        length of the data and the data, so the passed data should have
-        reasonable size (if the data is written in e.g. 4 byte chunks, it is
-        blown up by 100%)
-        '''
-
-        if len(data) == 0:
-            return
-
-        buf = struct.pack(b'<I', len(data)) + data
-        self.hmac.update(buf)
-        buf2 = self.encryptor.update(buf)
-        assert len(buf2) == len(buf)
-        self.fh.write(buf2)
-        self.obj_size += len(buf2)
-
-    def close(self):
-        # There may be errors when calling fh.close(), so we make sure that a
-        # repeated call is forwarded to fh.close(), even if we already cleaned
-        # up.
-        if not self.closed:
-            # Packet length of 0 indicates end of stream, only HMAC follows
-            buf = struct.pack(b'<I', 0)
-            self.hmac.update(buf)
-            buf += self.hmac.digest()
-            buf2 = self.encryptor.update(buf)
-            assert len(buf) == len(buf2)
-            self.fh.write(buf2)
-            self.obj_size += len(buf2)
-            self.closed = True
-
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
+    # Packet length of 0 indicates end of stream, only HMAC follows
+    buf = struct.pack(b'<I', 0)
+    hmac_.update(buf)
+    ofh.write(encryptor.update(buf))
+    ofh.write(encryptor.update(hmac_.digest()))
 
 
 def decompress_fh(ifh: BinaryIO, ofh: BinaryIO, decompressor):
