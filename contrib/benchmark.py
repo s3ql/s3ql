@@ -216,20 +216,12 @@ def main(args=None):
         log.info('compressing with %s-6...', alg)
         backend = ComprencBackend(b'pass', (alg, 6), MockBackend())
 
-        def do_write(dst):  # pylint: disable=E0102
-            src.seek(0)
-            stamp = time.time()
-            while True:
-                buf = src.read(BUFSIZE)
-                if not buf:
-                    break
-                dst.write(buf)
-            return (dst, stamp)
-
-        (dst_fh, stamp) = backend.perform_write(do_write, 's3ql_testdata')
+        src.seek(0)
+        stamp = time.time()
+        obj_size = backend.write_fh('s3ql_testdata', src)
         dt = time.time() - stamp
         in_speed[alg] = size / dt
-        out_speed[alg] = dst_fh.get_obj_size() / dt
+        out_speed[alg] = obj_size / dt
         log.info('%s compression speed: %d KiB/sec per thread (in)', alg, in_speed[alg] / 1024)
         log.info('%s compression speed: %d KiB/sec per thread (out)', alg, out_speed[alg] / 1024)
 
