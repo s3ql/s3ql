@@ -366,9 +366,13 @@ def upgrade(backend, options):
 
     new_params = {k.replace('-', '_'): v for k, v in local_params.items()}
     new_params['data_block_size'] = new_params['max_obj_size']
-    del new_params['max_obj_size']
     new_params['metadata_block_size'] = options.metadata_block_size * 1024
     new_params['revision'] = CURRENT_FS_REV
+    # remove all deprecated attributes
+    valid_keys = FsAttributes.__init__.__code__.co_varnames
+    for k in list(new_params.keys()):
+        if k not in valid_keys:
+            del new_params[k]
     params = FsAttributes(**new_params)
 
     db = Connection(options.cachepath + '.db', options.metadata_block_size * 1024)
