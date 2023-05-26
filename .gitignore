@@ -16,3 +16,4 @@ __pycache__/
 /tests/test_crit.log
 /.history
 /.vscode/launch.json
+/.idea/
