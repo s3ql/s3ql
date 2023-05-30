@@ -17,6 +17,7 @@ jobs:
         deps: [ dist, latest ]
     steps:
       - uses: actions/checkout@v3
+      - run: 'sudo apt-get update'
       - run: tests/ci-prepare-${{ matrix.deps }}.sh ${{ matrix.os }}
       - run: python3 setup.py build_cython
       - run: python3 setup.py build_ext --inplace
