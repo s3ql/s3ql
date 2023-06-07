@@ -331,7 +331,7 @@ def upgrade(backend, options):
             '''
             )
         )
-        print(get_old_rev_msg(params['revision'] + 1, 's3qladm'))
+        print(get_old_rev_msg(local_params['revision'] + 1, 's3qladm'))
         raise QuietError()
 
     elif local_params['revision'] >= CURRENT_FS_REV:
