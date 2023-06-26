@@ -205,7 +205,7 @@ class InodeCache:
         inode = _Inode(self.generation)
 
         for (i, id_) in enumerate(ATTRIBUTES):
-            if id_ in ('atime_ns','ctime_ns','mtime_ns'):
+            if id_ in ('atime_ns', 'ctime_ns', 'mtime_ns'):
                 setattr(inode, id_, s2u_ns(attrs[i]))
             else:
                 setattr(inode, id_, attrs[i])
@@ -216,7 +216,11 @@ class InodeCache:
 
     def create_inode(self, **kw):
 
-        bindings = tuple(kw[x] if x not in ('atime_ns','ctime_ns','mtime_ns') else u2s_ns(kw[x]) for x in ATTRIBUTES if x in kw)
+        bindings = tuple(
+            kw[x] if x not in ('atime_ns', 'ctime_ns', 'mtime_ns') else u2s_ns(kw[x])
+            for x in ATTRIBUTES
+            if x in kw
+        )
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
 
@@ -230,7 +234,13 @@ class InodeCache:
 
         self.db.execute(
             "UPDATE inodes SET %s WHERE id=?" % UPDATE_STR,
-            [getattr(inode, x) if x not in ('atime_ns','ctime_ns','mtime_ns') else u2s_ns(getattr(inode, x)) for x in UPDATE_ATTRS] + [inode.id],
+            [
+                getattr(inode, x)
+                if x not in ('atime_ns', 'ctime_ns', 'mtime_ns')
+                else u2s_ns(getattr(inode, x))
+                for x in UPDATE_ATTRS
+            ]
+            + [inode.id],
         )
 
     def flush_id(self, id_):

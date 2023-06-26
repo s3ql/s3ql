@@ -26,8 +26,7 @@ from argparse import Namespace
 from s3ql import ROOT_INODE
 from s3ql.backends import local
 from s3ql.common import time_ns
-from s3ql.database import (Connection, FsAttributes, NoSuchRowError,
-                           create_tables, u2s_ns)
+from s3ql.database import Connection, FsAttributes, NoSuchRowError, create_tables, u2s_ns
 from s3ql.fsck import Fsck
 from s3ql.mkfs import init_tables
 

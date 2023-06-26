@@ -109,17 +109,19 @@ class cache_tests(unittest.TestCase):
 
     def test_filetimes(self):
 
-        for testtime in (0, 2, 2 ** 63):
+        for testtime in (0, 2, 2**63):
 
-            attrs = {'mode': 784,
-                    'refcount': 3,
-                    'uid': 7,
-                    'gid': 2,
-                    'size': 34674,
-                    'rdev': 11,
-                    'atime_ns': testtime,
-                    'ctime_ns': testtime,
-                    'mtime_ns': testtime }
+            attrs = {
+                'mode': 784,
+                'refcount': 3,
+                'uid': 7,
+                'gid': 2,
+                'size': 34674,
+                'rdev': 11,
+                'atime_ns': testtime,
+                'ctime_ns': testtime,
+                'mtime_ns': testtime,
+            }
 
             inode = self.cache.create_inode(**attrs)
 

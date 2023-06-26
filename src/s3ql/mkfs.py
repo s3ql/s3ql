@@ -112,7 +112,16 @@ def init_tables(conn):
     conn.execute(
         "INSERT INTO inodes (id,mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount) "
         "VALUES (?,?,?,?,?,?,?,?)",
-        (CTRL_INODE, stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR, 0, 0, u2s_ns(now_ns), u2s_ns(now_ns), u2s_ns(now_ns), 42),
+        (
+            CTRL_INODE,
+            stat.S_IFREG | stat.S_IRUSR | stat.S_IWUSR,
+            0,
+            0,
+            u2s_ns(now_ns),
+            u2s_ns(now_ns),
+            u2s_ns(now_ns),
+            42,
+        ),
     )
 
     # Insert lost+found directory

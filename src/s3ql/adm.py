@@ -380,7 +380,8 @@ def upgrade(backend, options):
     params.last_modified = time.time()
     params.seq_no += 1
 
-    db.execute("""
+    db.execute(
+        """
     CREATE TABLE inodes_new (
         -- id has to specified *exactly* as follows to become
         -- an alias for the rowid.
@@ -395,7 +396,8 @@ def upgrade(backend, options):
         size      INT NOT NULL DEFAULT 0,
         rdev      INT NOT NULL DEFAULT 0,
         locked    BOOLEAN NOT NULL DEFAULT 0
-    )""")
+    )"""
+    )
 
     db.execute('INSERT INTO inodes_new SELECT * from inodes')
 
