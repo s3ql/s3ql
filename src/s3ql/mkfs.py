@@ -20,8 +20,16 @@ from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends import s3
 from .backends.comprenc import ComprencBackend
 from .common import get_backend, split_by_n, time_ns
-from .database import (Connection, FsAttributes, create_tables, u2s_ns,
-                       upload_metadata, upload_params, write_params)
+from .database import (
+    Connection,
+    FsAttributes,
+    create_tables,
+    u2s_ns,
+    upload_metadata,
+    upload_params,
+    write_params,
+)
+
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 

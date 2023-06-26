@@ -20,14 +20,20 @@ from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
 
-from s3ql.database import (Connection, FsAttributes, download_metadata,
-                           get_available_seq_nos, read_remote_params,
-                           upload_metadata, upload_params, write_params)
+from s3ql.database import (
+    Connection,
+    FsAttributes,
+    download_metadata,
+    get_available_seq_nos,
+    read_remote_params,
+    upload_metadata,
+    upload_params,
+    write_params,
+)
 
 from . import BUFSIZE, CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import (AsyncFn, get_backend, handle_on_return, is_mounted,
-                     thaw_basic_mapping)
+from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -373,6 +379,7 @@ def upgrade(backend, options):
 
     params.last_modified = time.time()
     params.seq_no += 1
+
     db.execute("""
     CREATE TABLE inodes_new (
         -- id has to specified *exactly* as follows to become
