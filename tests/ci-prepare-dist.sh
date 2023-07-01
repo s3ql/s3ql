@@ -23,7 +23,7 @@ sudo apt install -y \
 
 # The python3-attr that is shipped with Ubuntu 20.04 is incompatible
 # with python3-trio. *sigh*
-if [ "${os}" = "Ubuntu-22.04" ]; then
+if [ "${os}" = "Ubuntu-20.04" ]; then
     sudo python3 -m pip install "attrs >= 20.1.0, < 21.0.0 "
 else
     sudo apt install -y python3-attr
@@ -34,7 +34,7 @@ fi
 sudo python3 -m pip install \
      "pytest_trio == 0.6.0"
 
-if [ "${os}" = "Ubuntu-22.04" ]; then
+if [ "${os}" = "Ubuntu-20.04" ]; then
     sudo apt install -y \
          python3-dugong
     sudo python3 -m pip install \

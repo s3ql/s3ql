@@ -30,7 +30,7 @@ sudo ldconfig
 
 # Upgrading cryptography results in an AttributeError in OpenSSL/crypto.py. My
 # guess is that this is due to a non-declared version dependency on OpenSSL.
-if [ "${os}" = "Ubuntu-22.04" ]; then
+if [ "${os}" = "Ubuntu-20.04" ]; then
     sudo apt install -y \
          python3-cryptography
 else
