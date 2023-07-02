@@ -1,5 +1,6 @@
 [default.extend-identifiers]
+# rsync options
 "aHAX" = "aHAX"
 "anciHAX" = "anciHAX"
-# https://pkg.go.dev/os#pkg-constants
+# https://docs.python.org/3/library/os.html#os.O_WRONLY
 "O_WRONLY" = "O_WRONLY"
