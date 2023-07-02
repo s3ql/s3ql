@@ -14,7 +14,7 @@
 * `git push && git push --tags`, create release on Github
 * `./setup.py upload_docs`
 * Write announcement to mailing list
-  * Get contributors: `git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | sort -u`
+  * Get contributors: `git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | grep -v '<none@none>$' | sort -u`
 
 ## Email template
 
