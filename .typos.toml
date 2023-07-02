@@ -3,11 +3,3 @@
 [default.extend-identifiers]
 # https://pkg.go.dev/os#pkg-constants
 "O_WRONLY" = "O_WRONLY"
-# Typos
-contiguities = "continuities"
-intension = "intention"
-intensional = "intentional"
-intensionally = "intentionally"
-intensionaly = "intentionally"
-pervious = "previous"
-perviously = "previously"
