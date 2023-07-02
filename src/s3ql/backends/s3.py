@@ -127,11 +127,11 @@ class Backend(s3c.Backend):
 
             error_tags = root.findall(ns_p + 'Error')
             if not error_tags:
-                # No errors occured, everything has been deleted
+                # No errors occurred, everything has been deleted
                 del keys[:]
                 return
 
-            # Some errors occured, so we need to determine what has
+            # Some errors occurred, so we need to determine what has
             # been deleted and what hasn't
             offset = len(self.prefix)
             for tag in root.findall(ns_p + 'Deleted'):

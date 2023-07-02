@@ -218,7 +218,7 @@ async def test_getxattr(ctx):
     await ctx.server.release(fh)
 
     with assert_raises(FUSEError):
-        await ctx.server.getxattr(inode.st_ino, b'nonexistant-attr', some_ctx)
+        await ctx.server.getxattr(inode.st_ino, b'nonexistent-attr', some_ctx)
 
     await ctx.server.setxattr(inode.st_ino, b'my-attr', b'strabumm!', some_ctx)
     assert await ctx.server.getxattr(inode.st_ino, b'my-attr', some_ctx) == b'strabumm!'
@@ -312,7 +312,7 @@ async def test_readdir(ctx, monkeypatch):
         await ctx.server.release(fh)
         await ctx.server.forget([(inode.st_ino, 1)])
 
-    # Delete some to make sure that we don't have continous rowids
+    # Delete some to make sure that we don't have continuous rowids
     remove_no = [0, 2, 3, 5, 9]
     for i in remove_no:
         await ctx.server.unlink(ROOT_INODE, names[i], some_ctx)

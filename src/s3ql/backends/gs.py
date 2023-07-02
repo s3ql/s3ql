@@ -132,22 +132,22 @@ class Backend(AbstractBackend):
 
         if self.login == 'adc':
             if g_auth is None:
-                raise QuietError('ADC authentification requires the google.auth module')
+                raise QuietError('ADC authentication requires the google.auth module')
             elif self.adc is None:
                 import google.auth.transport.urllib3
                 import urllib3
 
-                # Deliberately ignore proxy and SSL context when attemping
+                # Deliberately ignore proxy and SSL context when attempting
                 # to connect to Compute Engine Metadata server.
-                requestor = google.auth.transport.urllib3.Request(urllib3.PoolManager())
+                requester = google.auth.transport.urllib3.Request(urllib3.PoolManager())
                 try:
                     credentials, _ = g_auth.default(
-                        request=requestor,
+                        request=requester,
                         scopes=['https://www.googleapis.com/auth/devstorage.full_control'],
                     )
                 except g_auth.exceptions.DefaultCredentialsError as exc:
                     raise QuietError('ADC found no valid credential sources: ' + str(exc))
-                type(self).adc = (credentials, requestor)
+                type(self).adc = (credentials, requester)
         elif self.login != 'oauth2':
             raise QuietError("Google Storage backend requires OAuth2 or ADC authentication")
 

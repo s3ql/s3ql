@@ -160,7 +160,7 @@ request of 100 MB is cheaper than downloading it with 100 requests of
 
 When choosing a block size, you have to find a balance
 between these two effects. The bigger the size, the less requests will
-be used, but the more data is transfered uselessly. The smaller the
+be used, but the more data is transferred uselessly. The smaller the
 size, the more requests will be used, but less traffic will be wasted.
 
 Generally you should go with the default unless you have a good reason
@@ -190,7 +190,7 @@ would like to have an S3QL mountpoint with persistent cache at
    * Periodically running rsync, e.g. by calling
      ``rsync -aHA --delete-during --partial`` from cron, or
 
-   * Continously synchronizing using e.g. `watch.sh
+   * Continuously synchronizing using e.g. `watch.sh
      <https://github.com/drunomics/syncd/blob/master/watch.sh>`_ or
      `lsyncd <https://code.google.com/p/lsyncd/>`_ (these programs use
      *inotify* to constantly monitor the source directory and

@@ -560,7 +560,7 @@ def test_delete_multi(backend):
     # Without full consistency, deleting an non-existing object
     # may not give an error
     # Swift backend does not return a list of actually deleted objects
-    # so to_delete wil always be empty for Swift and this assertion fails
+    # so to_delete will always be empty for Swift and this assertion fails
     if not isinstance(backend.backend, SwiftBackend):
         assert backend.unittest_info.retry_time or len(to_delete) > 0
 
