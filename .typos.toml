@@ -1,5 +1,5 @@
-[default.extend-words]
-"hax" = "hax"
 [default.extend-identifiers]
+"aHAX" = "aHAX"
+"anciHAX" = "anciHAX"
 # https://pkg.go.dev/os#pkg-constants
 "O_WRONLY" = "O_WRONLY"
