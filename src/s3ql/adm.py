@@ -203,7 +203,7 @@ def clear(options, on_return):
     print(
         'I am about to DELETE ALL DATA in %s.' % backend,
         'This includes not just S3QL file systems but *all* stored objects.',
-        'Depending on the storage service, it may be neccessary to run this command',
+        'Depending on the storage service, it may be necessary to run this command',
         'several times to delete all data, and it may take a while until the ',
         'removal becomes effective.',
         'Please enter "yes" to continue.',
@@ -327,7 +327,7 @@ def upgrade(backend, options):
             File system revision too old to upgrade!
 
             You need to use an older S3QL version to upgrade to a more recent revision before you
-            can use this version to upgrade to the newest revsion.
+            can use this version to upgrade to the newest revision.
             '''
             )
         )
@@ -454,7 +454,7 @@ def restore_metadata_cmd(backend, options):
 
     print(
         'Backup restored into local metadata. Run fsck.s3ql to commit changes to',
-        'backend and ensure file system consisteny',
+        'backend and ensure file system consistency',
         sep='\n',
     )
 

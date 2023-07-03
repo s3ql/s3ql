@@ -10,7 +10,7 @@ Known Issues
   despite having different contents, this can lead to problems. If two
   such blocks are stored in an S3QL file system, the data in one block
   will be lost and replaced by the data in the other block. However,
-  the chances of this occuring for any two blocks are about 1 in 10^77
+  the chances of this occurring for any two blocks are about 1 in 10^77
   (2^256). For a file system that holds a total of 10^34 blocks, the
   chances of a collision increase to about 1 in 10^9. Storing more
   than 10^34 blocks (or about 10^25 TB with an (extremely small) block

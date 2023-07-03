@@ -999,7 +999,7 @@ class Fsck:
         """Remove temporary objects"""
 
         # Tests may provide a plain backend directly, but in regular operation
-        # we'll always work with a ComprencBackend (even if there is neiter
+        # we'll always work with a ComprencBackend (even if there is neither
         # compression nor encryption)
         if isinstance(self.backend, ComprencBackend):
             plain_backend = self.backend.backend
@@ -1251,7 +1251,7 @@ def main(args=None):
 
               You may also continue and use whatever metadata is available in the backend.
               However, in that case YOU MAY LOOSE ALL DATA THAT HAS BEEN UPLOADED OR MODIFIED
-              SINCE THE LAST SUCCESSFULL METADATA UPLOAD. Moreover, files and directories that
+              SINCE THE LAST SUCCESSFUL METADATA UPLOAD. Moreover, files and directories that
               you have deleted since then MAY REAPPEAR WITH SOME OF THEIR CONTENT LOST.
               '''
                 )

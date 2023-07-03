@@ -513,11 +513,11 @@ class Backend(AbstractBackend):
             raise RuntimeError('Unexpected server reply')
 
         if resp_status_code == 200:
-            # No errors occured, everything has been deleted
+            # No errors occurred, everything has been deleted
             del keys[:]
             return
 
-        # Some errors occured, so we need to determine what has
+        # Some errors occurred, so we need to determine what has
         # been deleted and what hasn't
         failed_keys = []
         offset = len(esc_prefix)

@@ -100,7 +100,7 @@ this case, :program:`fsck.s3ql` will not learn anything by just
 querying the list of objects.
 
 This effect can be mitigated to some degree by using the
-:program:`s3ql_verify` command in additon to
+:program:`s3ql_verify` command in addition to
 :program:`fsck.s3ql`. :program:`s3ql_verify` asks the storage service
 to look up every stored object and may therefore take much longer than
 running :program:`fsck.s3ql`, but can also offer a much stronger
