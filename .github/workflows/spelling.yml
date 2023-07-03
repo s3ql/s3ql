@@ -15,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   typos_check:
-    name: '文A Typos check'
+    name: 'Typos check'
     runs-on: ubuntu-latest
     timeout-minutes: 1
     steps:
