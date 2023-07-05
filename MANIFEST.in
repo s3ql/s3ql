@@ -4,12 +4,14 @@ graft contrib
 graft tests
 graft util
 graft bin
-recursive-include src *.py *.c *.pyx *.h
+recursive-include src *.py *.c *.pyx *.h *.cpp
 include Changes.txt
 include README.rst
 include LICENSE
 exclude WARNING
 exclude MANIFEST.in
+exclude signify/*.sec
+include signify/*.pub
 prune tests/.cache
 prune tests/.pytest_cache
 prune doc/doctrees

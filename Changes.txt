@@ -21,6 +21,16 @@ UNRELEASED CHANGES
     validation of the bucket.
 
 
+2023-07-05, S3QL 4.0.1
+
+Future S3QL releases will be signed with `signify`_ rather than PGP (rationale_). This
+release is the last to be signed with PGP and contains the signify public key for current
+(4.0.0) and upcoming  (5.0.X) minor release cycle.
+
+.. _signify:  https://www.openbsd.org/papers/bsdcan-signify.html
+.. _rationale: https://latacora.micro.blog/2019/07/16/the-pgp-problem.html
+
+
 2022-06-10, S3QL 4.0.0
 
   * The internal file system revision has changed. File systems created with this version
@@ -51,7 +61,7 @@ UNRELEASED CHANGES
 
 
   * This is the last release from the current maintainer. S3QL is now no longer maintained
-    or developed. Github issue tracking and pull reuests have therefore been disabled. The
+    or developed. Github issue tracking and pull requests have therefore been disabled. The
     mailing list continuens to be available for use.
 
     If you would like to take over this project, you are welcome to do so. Please fork it
@@ -364,7 +374,7 @@ UNRELEASED CHANGES
     or make newly created files appear to have vanished.
 
     Furthermore, an attacker could freely to set the "needs-fsck"
-    flag, the filesystem revison number, and filesystem block
+    flag, the filesystem revision number, and filesystem block
     size. Manipulating the filesystem revision number would result in
     most S3QL commands refusing to work, attempting to upgrade the
     revision with s3qladm would likely result in errors. Manipulating
@@ -688,7 +698,7 @@ UNRELEASED CHANGES
   * Fixed a crash when using Google OAuth2 and the first request after
     the access token has expired is a write request.
 
-  * mount.s3ql now supports systemd-style readyness notification. To
+  * mount.s3ql now supports systemd-style readiness notification. To
     use this feature, make sure that you have the 'systemd' module
     installed for Python 3.
 
@@ -1033,7 +1043,7 @@ UNRELEASED CHANGES
   * Reduced CPU consumption when S3QL is idle.
 
   * S3QL now automatically retries requests when S3 reports an
-    "internal error" (this functionaly got accidentally broken
+    "internal error" (this functionality got accidentally broken
     in S3QL 1.13).
 
   * Fixed a hang when using s3qlrm to delete a directory with
@@ -1058,7 +1068,7 @@ UNRELEASED CHANGES
   * Fixed issues when trying to access a directory at the root
     of the file system that has recently been removed with s3qlrm.
     (In that case the directory was no longer included in the
-    readdir() output, but it was still posssible to stat() it because
+    readdir() output, but it was still possible to stat() it because
     was still present in the kernel's dentry cache).
 
   * When trying to connect to the backend, S3QL now also retries at
@@ -1501,7 +1511,7 @@ UNRELEASED CHANGES
     around after umount.
 
   * Fixed a bug that caused S3QL to consider all downloaded blocks as
-    dirty and resulted in unneccessary checksum calculations on
+    dirty and resulted in unnecessary checksum calculations on
     expiration.
 
   * s3qlctrl can now change the log level at runtime.

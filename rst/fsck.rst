@@ -27,7 +27,7 @@ Checking and repairing internal file system errors
 
 :program:`fsck.s3ql` checks that the internal file system structure is
 consistent and attempts to correct any problems it finds. If an S3QL
-file system has not been unmounted correcly for any reason, you need
+file system has not been unmounted correctly for any reason, you need
 to run :program:`fsck.s3ql` before you can mount the file system
 again.
 

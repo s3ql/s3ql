@@ -146,4 +146,4 @@ The S3QL source code is available on GitHub_.
 .. _`S3QL Wiki`: https://github.com/s3ql/s3ql/wiki
 .. _`S3QL Mailing List`: https://groups.google.com/g/s3ql
 .. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
-.. _GitHub: https://github.com/s3ql/main
+.. _GitHub: https://github.com/s3ql/s3ql

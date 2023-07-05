@@ -111,7 +111,7 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             self.send_error(400, message='Missing Content-Length', code='MissingContentLength')
             return
         elif encoding and encoding != 'identity':
-            self.send_error(501, message='Unsupport encoding', code='NotImplemented')
+            self.send_error(501, message='Unsupported encoding', code='NotImplemented')
             return
 
         return int(self.headers['Content-Length'])

@@ -198,7 +198,7 @@ class BlockCache:
         else:
             os.mkdir(self.path)
 
-        # Initialized fromt the outside to prevent cyclic dependency,
+        # Initialized from the outside to prevent cyclic dependency,
         # used only to set failsafe attribute
         self.fs = Namespace()
 
@@ -350,7 +350,7 @@ class BlockCache:
                 # to be de-duplicated against this (missing) one. However, this
                 # may already have happened during the attempted upload. The
                 # only way to avoid this problem is to insert the hash into the
-                # objects table *after* successfull upload. But this would open
+                # objects table *after* successful upload. But this would open
                 # a window without de-duplication just to handle the special
                 # case of an upload failing.
                 #

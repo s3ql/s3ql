@@ -218,7 +218,7 @@ async def test_getxattr(ctx):
     await ctx.server.release(fh)
 
     with assert_raises(FUSEError):
-        await ctx.server.getxattr(inode.st_ino, b'nonexistant-attr', some_ctx)
+        await ctx.server.getxattr(inode.st_ino, b'nonexistent-attr', some_ctx)
 
     await ctx.server.setxattr(inode.st_ino, b'my-attr', b'strabumm!', some_ctx)
     assert await ctx.server.getxattr(inode.st_ino, b'my-attr', some_ctx) == b'strabumm!'
@@ -312,7 +312,7 @@ async def test_readdir(ctx, monkeypatch):
         await ctx.server.release(fh)
         await ctx.server.forget([(inode.st_ino, 1)])
 
-    # Delete some to make sure that we don't have continous rowids
+    # Delete some to make sure that we don't have continuous rowids
     remove_no = [0, 2, 3, 5, 9]
     for i in remove_no:
         await ctx.server.unlink(ROOT_INODE, names[i], some_ctx)
@@ -618,6 +618,25 @@ async def test_setattr_two(ctx):
     ):
         assert getattr(inode_old, name) == getattr(inode_new, name)
     assert inode_old.st_ctime_ns < inode_new.st_ctime_ns
+
+    await ctx.server.release(fh)
+    await ctx.server.forget([(inode_old.st_ino, 1)])
+    await fsck(ctx)
+
+
+async def test_setattr_large(ctx):
+    (fi, inode_old) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
+    fh = fi.fh
+
+    attr = await ctx.server.getattr(inode_old.st_ino, some_ctx)
+    attr.st_mtime_ns = int(2**63 + 1)
+    sf = SetattrFields(update_mtime=True)
+
+    with pytest.raises(FUSEError) as exc:
+        await ctx.server.setattr(inode_old.st_ino, attr, sf, None, some_ctx)
+    assert exc.value.errno == errno.EINVAL
 
     await ctx.server.release(fh)
     await ctx.server.forget([(inode_old.st_ino, 1)])

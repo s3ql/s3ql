@@ -1,3 +1,5 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow
+
 name: 'Build & Test'
 on:
   push:
@@ -6,6 +8,9 @@ on:
   pull_request:
     branches:
       - master
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: '${{ matrix.os }}'
@@ -18,7 +23,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - run: 'sudo apt-get update'
-      - run: tests/ci-prepare-${{ matrix.deps }}.sh ${{ matrix.os }}
+      - run: tests/ci-prepare-${{ matrix.deps }}.sh
       - run: python3 setup.py build_cython
       - run: python3 setup.py build_ext --inplace
       - run: python3 -m pytest -r s tests/
