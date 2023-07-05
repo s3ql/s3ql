@@ -38,7 +38,7 @@ assert logging.LOG_ONCE  # prevent warnings about unused module
 
 from pyfuse3 import ROOT_INODE
 
-VERSION = '4.0.0'
+VERSION = '4.0.1'
 RELEASE = '%s' % VERSION
 CURRENT_FS_REV = 25
 
