@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow
+
+name: 'Spelling'
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+permissions:
+  contents: read
+concurrency:
+  group: '${{ github.workflow }}-${{ github.ref }}'
+  cancel-in-progress: true
+jobs:
+  typos_check:
+    name: 'Typos check'
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - uses: actions/checkout@v3
+      - uses: crate-ci/typos@master

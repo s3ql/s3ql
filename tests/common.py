@@ -138,7 +138,7 @@ def populate_dir(path, entries=1000, size=20 * 1024 * 1024, pooldir='/usr/bin', 
     files in *pooldir* are used as a source of directory names and file
     contents.
 
-    *seed* is used to initalize the random number generator and can be used to
+    *seed* is used to initialize the random number generator and can be used to
     make the created structure reproducible (provided that the contents of
     *pooldir* don't change).
     '''

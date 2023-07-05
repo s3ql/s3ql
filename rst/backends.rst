@@ -322,7 +322,7 @@ Rackspace CloudFiles
 
 Rackspace_ CloudFiles uses OpenStack_ internally, so it is possible to
 just use the OpenStack/Swift backend (see above) with
-``auth.api.rackspacecloud.com`` as the host name. For convenince,
+``auth.api.rackspacecloud.com`` as the host name. For convenience,
 there is also a special ``rackspace`` backend that uses a storage URL
 of the form ::
 
@@ -399,7 +399,7 @@ The S3 compatible backend accepts the following backend options:
    option should only be used if you are certain that your storage
    server only returns ``200 OK`` when the copy operation has been
    completely and successfully carried out. Using this option may be
-   neccessary if your storage server does not return a valid response
+   necessary if your storage server does not return a valid response
    body for a successful copy operation.
 
 .. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html

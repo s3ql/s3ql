@@ -30,7 +30,7 @@ log = logging.getLogger(__name__)
 
 class RateTracker:
     '''
-    Maintain an average occurence rate for events over a configurable time
+    Maintain an average occurrence rate for events over a configurable time
     window. The rate is computed with one second resolution.
     '''
 
@@ -44,7 +44,7 @@ class RateTracker:
         self.lock = threading.Lock()
 
     def register(self, _not_really=False):
-        '''Register occurence of an event.
+        '''Register occurrence of an event.
 
         The keyword argument is for class-internal use only.
         '''
@@ -65,7 +65,7 @@ class RateTracker:
             self.last_update = now
 
     def get_rate(self):
-        '''Return average rate of event occurance'''
+        '''Return average rate of event occurrence'''
 
         self.register(_not_really=True)
         return sum(self.buckets) / len(self.buckets)

@@ -70,9 +70,15 @@ Installing S3QL
 To build and install S3QL itself, proceed as follows:
 
 1. Download S3QL from https://github.com/s3ql/s3ql/releases
-2. Unpack it into a folder of your choice
-3. Run `python3 setup.py build_ext --inplace` to build S3QL.
-4. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
+2. Validate the release: `signify -V -z -m s3ql-XX.tar.gz -p s3ql-XX.pub` (the
+   `s3ql-XX.pub` file contains the signing key and needs to be obtained from a trustworthy
+   source. Each S3QL release contains the signing key for the release after it in the
+   `signify` directory, so you only need to manually acquire this file once when you
+   install S3QL for the first time).
+3. Unpack it (`tar xzf s3ql-XX.tar.gz`) and change into the newly created `s3ql-XX`
+   directory.
+4. Run `python3 setup.py build_ext --inplace` to build S3QL.
+5. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <https://github.com/s3ql/s3ql/issues>`_.
@@ -93,7 +99,7 @@ Development Version
 ===================
 
 If you have checked out the unstable development version from the
-Mercurial repository, a bit more effort is required. You'll also need:
+Git repository, a bit more effort is required. You'll also need:
 
 * Version 0.28.1 or newer of the Cython_ compiler.
 
@@ -106,14 +112,12 @@ tested with ::
   python3 setup.py build_ext --inplace
   python3 -m pytest tests
 
-Note that when building from the Mercurial or Git repository, building
-and testing is done with several additional checks. This may cause
-compilation and/or tests to fail even though there are no problems
-with functionality. For example, any use of functions that are
-scheduled for deprecation in future Python version will cause tests to
-fail. If you would rather just check for functionality, you can delete
-the :file:`MANIFEST.in` file. In that case, the build system will
-behave as it does for a regular release.
+Note that when building from the Git repository, building and testing is done with several
+additional checks. This may cause compilation and/or tests to fail even though there are
+no problems with functionality. For example, any use of functions that are scheduled for
+deprecation in future Python version will cause tests to fail. If you would rather just
+check for functionality, you can delete the :file:`MANIFEST.in` file. In that case, the
+build system will behave as it does for a regular release.
 
 The HTML and PDF documentation can be generated with ::
 

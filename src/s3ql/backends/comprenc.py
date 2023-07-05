@@ -568,12 +568,12 @@ class DecryptFilter(InputFilter):
             # from next packet
             outbuf += inbuf[: self.remaining]
             self.hmac.update(inbuf[:to_next])
-            paket_size = struct.unpack(b'<I', inbuf[self.remaining : to_next])[0]
+            packet_size = struct.unpack(b'<I', inbuf[self.remaining : to_next])[0]
             inbuf = inbuf[to_next:]
-            self.remaining = paket_size
+            self.remaining = packet_size
 
             # End of file, read and check HMAC
-            if paket_size == 0:
+            if packet_size == 0:
                 while len(inbuf) < HMAC_SIZE:
                     # Don't read exactly the missing amount, we wan't to detect
                     # if there's extraneous data
@@ -636,7 +636,7 @@ class ObjectNotEncrypted(Exception):
     Raised by the backend if an object was requested from an encrypted
     backend, but the object was stored without encryption.
 
-    We do not want to simply return the uncrypted object, because the
+    We do not want to simply return the unencrypted object, because the
     caller may rely on the objects integrity being cryptographically
     verified.
     '''
