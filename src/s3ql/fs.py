@@ -898,9 +898,13 @@ class Operations(pyfuse3.Operations):
             inode.gid = attr.st_gid
 
         if fields.update_atime:
+            if attr.st_atime_ns.bit_length() > 63:
+                raise FUSEError(errno.EINVAL)
             inode.atime_ns = attr.st_atime_ns
 
         if fields.update_mtime:
+            if attr.st_mtime_ns.bit_length() > 63:
+                raise FUSEError(errno.EINVAL)
             inode.mtime_ns = attr.st_mtime_ns
 
         inode.ctime_ns = now_ns
