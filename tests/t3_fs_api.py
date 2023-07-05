@@ -624,6 +624,25 @@ async def test_setattr_two(ctx):
     await fsck(ctx)
 
 
+async def test_setattr_large(ctx):
+    (fi, inode_old) = await ctx.server.create(
+        ROOT_INODE, newname(ctx), file_mode(), os.O_RDWR, some_ctx
+    )
+    fh = fi.fh
+
+    attr = await ctx.server.getattr(inode_old.st_ino, some_ctx)
+    attr.st_mtime_ns = int(2**63 + 1)
+    sf = SetattrFields(update_mtime=True)
+
+    with pytest.raises(FUSEError) as exc:
+        await ctx.server.setattr(inode_old.st_ino, attr, sf, None, some_ctx)
+    assert exc.value.errno == errno.EINVAL
+
+    await ctx.server.release(fh)
+    await ctx.server.forget([(inode_old.st_ino, 1)])
+    await fsck(ctx)
+
+
 async def test_truncate(ctx):
     len_ = int(2.7 * ctx.max_obj_size)
     data = random_data(len_)
