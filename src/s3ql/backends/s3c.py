@@ -66,7 +66,8 @@ class Backend(AbstractBackend):
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'dumb-copy', 'disable-expect100', 'disable-etag-check'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
+                     'dumb-copy', 'disable-expect100', 'disable-etag-check'}
 
     def __init__(self, options):
         '''Initialize backend object
