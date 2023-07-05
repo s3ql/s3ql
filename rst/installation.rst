@@ -70,9 +70,15 @@ Installing S3QL
 To build and install S3QL itself, proceed as follows:
 
 1. Download S3QL from https://github.com/s3ql/s3ql/releases
-2. Unpack it into a folder of your choice
-3. Run `python3 setup.py build_ext --inplace` to build S3QL.
-4. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
+2. Validate the release: `signify -V -z -m s3ql-XX.tar.gz -p s3ql-XX.pub` (the
+   `s3ql-XX.pub` file contains the signing key and needs to be obtained from a trustworthy
+   source. Each S3QL release contains the signing key for the release after it in the
+   `signify` directory, so you only need to manually acquire this file once when you
+   install S3QL for the first time).
+3. Unpack it (`tar xzf s3ql-XX.tar.gz`) and change into the newly created `s3ql-XX`
+   directory.
+4. Run `python3 setup.py build_ext --inplace` to build S3QL.
+5. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
    for help on the `mailing list
    <http://groups.google.com/group/s3ql>`_ or report a bug in the
    `issue tracker <https://github.com/s3ql/s3ql/issues>`_.
