@@ -10,6 +10,8 @@ include README.rst
 include LICENSE
 exclude WARNING
 exclude MANIFEST.in
+exclude signify/*.sec
+include signify/*.pub
 prune tests/.cache
 prune tests/.pytest_cache
 prune doc/doctrees

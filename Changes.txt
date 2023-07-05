@@ -21,6 +21,16 @@ UNRELEASED CHANGES
     validation of the bucket.
 
 
+2023-07-05, S3QL 4.0.1
+
+Future S3QL releases will be signed with `signify`_ rather than PGP (rationale_). This
+release is the last to be signed with PGP and contains the signify public key for current
+(4.0.0) and upcoming  (5.0.X) minor release cycle.
+
+.. _signify:  https://www.openbsd.org/papers/bsdcan-signify.html
+.. _rationale: https://latacora.micro.blog/2019/07/16/the-pgp-problem.html
+
+
 2022-06-10, S3QL 4.0.0
 
   * The internal file system revision has changed. File systems created with this version
