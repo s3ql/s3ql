@@ -25,15 +25,29 @@ from shutil import copyfileobj
 from urllib.parse import quote, unquote, urlsplit
 
 from defusedxml import ElementTree
-from dugong import (BodyFollowing, CaseInsensitiveDict, ConnectionClosed,
-                    HTTPConnection, UnsupportedResponse, is_temp_network_error)
+from dugong import (
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+    HTTPConnection,
+    UnsupportedResponse,
+    is_temp_network_error,
+)
 
 from .. import BUFSIZE
 from ..logging import QuietError
-from .common import (AbstractBackend, AuthenticationError, AuthorizationError,
-                     CorruptedObjectError, DanglingStorageURLError,
-                     NoSuchObject, checksum_basic_mapping, get_proxy,
-                     get_ssl_context, retry)
+from .common import (
+    AbstractBackend,
+    AuthenticationError,
+    AuthorizationError,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    checksum_basic_mapping,
+    get_proxy,
+    get_ssl_context,
+    retry,
+)
 
 C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 C_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -52,8 +66,14 @@ class Backend(AbstractBackend):
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'dumb-copy', 'disable-expect100', 'disable-etag-check'}
+    known_options = {
+        'no-ssl',
+        'ssl-ca-path',
+        'tcp-timeout',
+        'dumb-copy',
+        'disable-expect100',
+        'disable-etag-check',
+    }
 
     def __init__(self, options):
         '''Initialize backend object
