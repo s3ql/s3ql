@@ -66,7 +66,7 @@ class Backend(AbstractBackend):
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'dumb-copy', 'disable-expect100'}
+    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'dumb-copy', 'disable-expect100', 'disable-etag-check'}
 
     def __init__(self, options):
         '''Initialize backend object
@@ -772,6 +772,7 @@ class ObjectR:
         self.md5_checked = False
         self.backend = backend
         self.metadata = metadata
+        self.disable_etag_check = backend.options.get('disable-etag-check', False)
 
         # False positive, hashlib *does* have md5 member
         # pylint: disable=E1101
@@ -800,7 +801,7 @@ class ObjectR:
         if (not buf or size is None) and not self.md5_checked:
             etag = self.resp.headers['ETag'].strip('"')
             self.md5_checked = True
-            if etag != self.md5.hexdigest():
+            if not self.disable_etag_check and etag != self.md5.hexdigest():
                 log.warning('MD5 mismatch for %s: %s vs %s', self.key, etag, self.md5.hexdigest())
                 raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
         return buf

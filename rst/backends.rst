@@ -405,6 +405,18 @@ The S3 compatible backend accepts the following backend options:
 .. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
 
+.. option:: disable-etag-check
+
+   If this option is specified, the check that the ETag matches the md5
+   checksum on read data is disabled. The ETag may not actually be a
+   md5sum at all, depending on how the S3 implementation copies data
+   behind the scenes.
+   If the file system is encrypted then the ETag check is not required,
+   since the decryption will detect corruption. If encryption is not being
+   used then disabling this check could lead to undetected corruption.
+
+.. __: https://docs.aws.amazon.com/AmazonS3/latest/API/API_Object.html
+
 
 Backblaze B2
 ============
