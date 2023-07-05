@@ -93,7 +93,7 @@ Development Version
 ===================
 
 If you have checked out the unstable development version from the
-Mercurial repository, a bit more effort is required. You'll also need:
+Git repository, a bit more effort is required. You'll also need:
 
 * Version 0.28.1 or newer of the Cython_ compiler.
 
@@ -106,14 +106,12 @@ tested with ::
   python3 setup.py build_ext --inplace
   python3 -m pytest tests
 
-Note that when building from the Mercurial or Git repository, building
-and testing is done with several additional checks. This may cause
-compilation and/or tests to fail even though there are no problems
-with functionality. For example, any use of functions that are
-scheduled for deprecation in future Python version will cause tests to
-fail. If you would rather just check for functionality, you can delete
-the :file:`MANIFEST.in` file. In that case, the build system will
-behave as it does for a regular release.
+Note that when building from the Git repository, building and testing is done with several
+additional checks. This may cause compilation and/or tests to fail even though there are
+no problems with functionality. For example, any use of functions that are scheduled for
+deprecation in future Python version will cause tests to fail. If you would rather just
+check for functionality, you can delete the :file:`MANIFEST.in` file. In that case, the
+build system will behave as it does for a regular release.
 
 The HTML and PDF documentation can be generated with ::
 
