@@ -20,6 +20,7 @@ python3 setup.py build_cython build_ext --inplace
 python3 ./setup.py sdist
 
 signify-openbsd -S -z -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
+mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
 echo "Contributors from ${PREV_TAG} to ${TAG}:"
 git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | \
