@@ -21,7 +21,6 @@ from base64 import b64decode, b64encode
 from email.utils import mktime_tz, parsedate_tz
 from io import BytesIO
 from itertools import count
-from shutil import copyfileobj
 from urllib.parse import quote, unquote, urlsplit
 
 from defusedxml import ElementTree
@@ -34,7 +33,8 @@ from dugong import (
     is_temp_network_error,
 )
 
-from .. import BUFSIZE
+from s3ql.common import copyfh
+
 from ..logging import QuietError
 from .common import (
     AbstractBackend,
@@ -672,7 +672,7 @@ class Backend(AbstractBackend):
                     return resp
 
             try:
-                copyfileobj(body, self.conn, BUFSIZE)
+                copyfh(body, self.conn)
             except ConnectionClosed:
                 # Server closed connection while we were writing body data -
                 # but we may still be able to read an error response

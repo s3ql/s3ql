@@ -22,6 +22,7 @@ import traceback
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from getpass import getpass
+from typing import BinaryIO, Optional
 
 import pyfuse3
 from dugong import HostnameNotResolvable
@@ -539,3 +540,16 @@ def freeze_basic_mapping(d):
 
 def time_ns():
     return int(time.time() * 1e9)
+
+
+def copyfh(ifh: BinaryIO, ofh: BinaryIO, len_: Optional[int] = None):
+    '''Copy up to *len* bytes from ifh to ofh.'''
+
+    while len_ is None or len_ > 0:
+        bufsize = BUFSIZE if len_ is None else min(BUFSIZE, len_)
+        buf = ifh.read(bufsize)
+        if not buf:
+            return
+        ofh.write(buf)
+        if len_:
+            len_ -= len(buf)
