@@ -16,7 +16,6 @@ import ssl
 import urllib
 from ast import literal_eval
 from itertools import count
-from shutil import copyfileobj
 from urllib.parse import urlparse
 
 from dugong import (
@@ -28,7 +27,8 @@ from dugong import (
     is_temp_network_error,
 )
 
-from ... import BUFSIZE
+from s3ql.common import copyfh
+
 from ...logging import QuietError
 from ..common import (
     AbstractBackend,
@@ -254,7 +254,7 @@ class B2Backend(AbstractBackend):
             body_length = os.fstat(body.fileno()).st_size
             connection.send_request(method, path, headers=headers, body=BodyFollowing(body_length))
 
-            copyfileobj(body, connection, BUFSIZE)
+            copyfh(body, connection)
 
         response = connection.read_response()
 

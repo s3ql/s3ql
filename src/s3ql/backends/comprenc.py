@@ -12,7 +12,6 @@ import hmac
 import io
 import logging
 import lzma
-import shutil
 import struct
 import time
 import zlib
@@ -22,7 +21,7 @@ import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 
 from .. import BUFSIZE
-from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
+from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
 
 log = logging.getLogger(__name__)
@@ -195,7 +194,7 @@ class ComprencBackend(AbstractBackend):
         if encr_alg == 'AES_v2':
             decrypt_fh(buf1, buf2, data_key)
         elif encr_alg == 'None':
-            shutil.copyfileobj(buf1, buf2, BUFSIZE)
+            copyfh(buf1, buf2)
         else:
             raise RuntimeError('Unsupported encryption: %s' % encr_alg)
 

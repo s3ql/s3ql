@@ -10,7 +10,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import ssl
 import urllib.parse
 from urllib.parse import urlsplit
@@ -24,7 +23,8 @@ from dugong import (
 )
 from packaging.version import Version
 
-from .. import BUFSIZE
+from s3ql.common import copyfh
+
 from ..logging import LOG_ONCE, QuietError
 from . import s3c
 from .common import (
@@ -306,7 +306,7 @@ class Backend(AbstractBackend):
 
         log.debug('writing body data')
         try:
-            shutil.copyfileobj(body, self.conn, BUFSIZE)
+            copyfh(body, self.conn)
         except ConnectionClosed:
             log.debug('interrupted write, server closed connection')
             # Server closed connection while we were writing body data -
