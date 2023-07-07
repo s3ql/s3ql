@@ -141,10 +141,6 @@ def pytest_generate_tests(metafunc, _info_cache=[]):
         # Filter
         if with_backend_mark.kwargs.get('require_mock_server', False):
             test_bi = [x for x in test_bi if 'request_handler' in x]
-        if with_backend_mark.kwargs.get('require_immediate_consistency', False):
-            test_bi = [
-                x for x in test_bi if 'request_handler' in x or x.classname in ('local', 'gs')
-            ]
 
         for comprenc_kind in comprenc_kinds:
             for bi in test_bi:
@@ -190,7 +186,6 @@ def yield_local_backend(bi):
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     backend = LocalBackend(Namespace(storage_url='local://' + backend_dir))
     backend.unittest_info = Namespace()
-    backend.unittest_info.retry_time = 0
     try:
         yield backend
     finally:
@@ -225,7 +220,6 @@ def yield_mock_backend(bi):
         backend.access_token[backend.password] = 'foobar'
 
     backend.unittest_info = Namespace()
-    backend.unittest_info.retry_time = 0
 
     # Mock server should not have temporary failures by default
     is_temp_failure = backend.is_temp_failure
@@ -265,7 +259,6 @@ def yield_remote_backend(bi, _ctr=[0]):
     )
 
     backend.unittest_info = Namespace()
-    backend.unittest_info.retry_time = 600
     try:
         yield backend
     finally:
@@ -284,97 +277,20 @@ def newvalue():
     return newname().encode()
 
 
-def fetch_object(backend, key, sleep_time=1):
-    '''Read data and metadata for *key* from *backend*
+def assert_in_index(backend, keys):
+    '''Assert that *keys* are in backend list output'''
 
-    If `NoSuchObject` exception is encountered, retry for
-    up to *retry_time* seconds.
-    '''
-    waited = 0
-    retry_time = backend.unittest_info.retry_time
-    while True:
-        try:
-            return backend.fetch(key)
-        except NoSuchObject:
-            if waited >= retry_time:
-                raise
-        time.sleep(sleep_time)
-        waited += sleep_time
+    keys = set(keys)
+    index = set(backend.list())
+    assert keys - index == empty_set
 
 
-def lookup_object(backend, key, sleep_time=1):
-    '''Read metadata for *key* from *backend*
+def assert_not_in_index(backend, keys):
+    '''Assert that *keys* are not in backend list output'''
 
-    If `NoSuchObject` exception is encountered, retry for
-    up to *retry_time* seconds.
-    '''
-    retry_time = backend.unittest_info.retry_time
-    waited = 0
-    while True:
-        try:
-            return backend.lookup(key)
-        except NoSuchObject:
-            if waited >= retry_time:
-                raise
-        time.sleep(sleep_time)
-        waited += sleep_time
-
-
-def assert_in_index(backend, keys, sleep_time=1):
-    '''Assert that *keys* will appear in index
-
-    Raises assertion error if *keys* do not show up within
-    *retry_time* seconds.
-    '''
-    waited = 0
-    retry_time = backend.unittest_info.retry_time
-    keys = set(keys)  # copy
-    while True:
-        index = set(backend.list())
-        if not keys - index:
-            return
-        elif waited >= retry_time:
-            assert keys - index == empty_set
-        time.sleep(sleep_time)
-        waited += sleep_time
-
-
-def assert_not_in_index(backend, keys, sleep_time=1):
-    '''Assert that *keys* will disappear from index
-
-    Raises assertion error if *keys* do not disappear within
-    *retry_time* seconds.
-    '''
-    retry_time = backend.unittest_info.retry_time
-    waited = 0
-    keys = set(keys)  # copy
-    while True:
-        index = set(backend.list())
-        if keys - index == keys:
-            return
-        elif waited >= retry_time:
-            assert keys - index == keys
-        time.sleep(sleep_time)
-        waited += sleep_time
-
-
-def assert_not_readable(backend, key, sleep_time=1):
-    '''Assert that *key* does not exist in *backend*
-
-    Asserts that a `NoSuchObject` exception will be raised when trying to read
-    the object after at most *retry_time* seconds.
-    '''
-    waited = 0
-    retry_time = backend.unittest_info.retry_time
-    while True:
-        try:
-            backend.fetch(key)
-        except NoSuchObject:
-            return
-        if waited >= retry_time:
-            pytest.fail('object %s still present in backend' % key)
-        time.sleep(sleep_time)
-        waited += sleep_time
+    keys = set(keys)
+    index = set(backend.list())
+    assert keys - index == keys
 
 
 @pytest.mark.with_backend('*/raw', 'local/*')
@@ -441,11 +357,11 @@ def test_complex_meta(backend):
 
     assert key not in backend
     backend.store(key, value, metadata)
-    (value2, metadata2) = fetch_object(backend, key)
+    (value2, metadata2) = backend.fetch(key)
 
     assert value == value2
     assert metadata == metadata2
-    assert lookup_object(backend, key) == metadata
+    assert backend.lookup(key) == metadata
 
 
 # No need to run with different encryption/compression settings,
@@ -476,14 +392,15 @@ def test_delete(backend):
 
     # Wait for object to become visible
     assert_in_index(backend, [key])
-    fetch_object(backend, key)
+    backend.fetch(key)
 
     # Delete it
     del backend[key]
 
     # Make sure that it's truly gone
     assert_not_in_index(backend, [key])
-    assert_not_readable(backend, key)
+    with pytest.raises(NoSuchObject):
+        backend.fetch(key)
 
 
 @pytest.mark.with_backend('b2/aes')
@@ -497,13 +414,14 @@ def test_delete_b2_versions(backend):
 
     # Wait for it
     assert_in_index(backend, [key])
-    fetch_object(backend, key)
+    backend.fetch(key)
 
     # Delete it, should delete all versions
     del backend[key]
 
     assert_not_in_index(backend, [key])
-    assert_not_readable(backend, key)
+    with pytest.raises(NoSuchObject):
+        backend.fetch(key)
 
 
 # No need to run with different encryption/compression settings,
@@ -523,7 +441,7 @@ def test_delete_multi(backend):
     # Wait for them
     assert_in_index(backend, keys)
     for key in keys:
-        fetch_object(backend, key)
+        backend.fetch(key)
 
     # Delete half of them
     # We don't use force=True but catch the exception to increase the
@@ -536,12 +454,10 @@ def test_delete_multi(backend):
     except NoSuchObject:
         pass
 
-    # Without full consistency, deleting an non-existing object
-    # may not give an error
     # Swift backend does not return a list of actually deleted objects
     # so to_delete will always be empty for Swift and this assertion fails
     if not isinstance(backend.backend, SwiftBackend):
-        assert backend.unittest_info.retry_time or len(to_delete) > 0
+        assert len(to_delete) > 0
 
     deleted = set(keys[::2]) - set(to_delete)
     assert len(deleted) > 0
@@ -549,11 +465,12 @@ def test_delete_multi(backend):
 
     assert_not_in_index(backend, deleted)
     for key in deleted:
-        assert_not_readable(backend, key)
+        with pytest.raises(NoSuchObject):
+            backend.fetch(key)
 
     assert_in_index(backend, remaining)
     for key in remaining:
-        fetch_object(backend, key)
+        backend.fetch(key)
 
 
 @pytest.mark.with_backend('local/{aes,aes+zlib,zlib,bzip2,lzma}')
@@ -566,16 +483,15 @@ def test_corruption(backend):
     backend[key] = value
 
     # Retrieve compressed data
-    (compr_value, meta) = fetch_object(plain_backend, key)
+    (compr_value, meta) = plain_backend.fetch(key)
     compr_value = bytearray(compr_value)
 
     # Overwrite with corrupted data
-    # (this needs immediate consistency)
     compr_value[-3:] = b'000'
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(CorruptedObjectError) as exc:
-        fetch_object(backend, key)
+        backend.fetch(key)
 
     if backend.passphrase is None:  # compression only
         assert exc.value.str == 'Invalid compressed stream'
@@ -593,16 +509,15 @@ def test_extra_data(backend):
     backend[key] = value
 
     # Retrieve compressed data
-    (compr_value, meta) = fetch_object(plain_backend, key)
+    (compr_value, meta) = plain_backend.fetch(key)
     compr_value = bytearray(compr_value)
 
     # Overwrite with extended data
-    # (this needs immediate consistency)
     compr_value += b'000'
     plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(CorruptedObjectError) as exc:
-        fetch_object(backend, key)
+        backend.fetch(key)
 
     if backend.passphrase is None:  # compression only
         assert exc.value.str == 'Data after end of compressed stream'
@@ -644,13 +559,14 @@ def test_replay(backend):
     backend[key1] = value
 
     # Retrieve compressed data
-    (compr_value, meta) = fetch_object(plain_backend, key1)
+    (compr_value, meta) = plain_backend.fetch(key1)
     compr_value = bytearray(compr_value)
 
     # Copy into new object
     plain_backend.store(key2, compr_value, meta)
 
-    assert_raises(CorruptedObjectError, fetch_object, backend, key2)
+    with pytest.raises(CorruptedObjectError):
+        backend.fetch(key2)
 
 
 @pytest.mark.with_backend('s3c/raw', require_mock_server=True)
@@ -661,7 +577,7 @@ def test_list_bug(backend, monkeypatch):
     assert set(backend.list()) == empty_set
     for i in range(12):
         backend[keys[i]] = values[i]
-    assert_in_index(backend, keys, 0)
+    assert_in_index(backend, keys)
 
     # Force reconnect during list
     handler_class = mock_server.S3CRequestHandler

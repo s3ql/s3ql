@@ -45,11 +45,7 @@ TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
 
 class Backend(AbstractBackend):
-    """A backend to store data in OpenStack Swift
-
-    The backend guarantees get after create consistency, i.e. a newly created
-    object will be immediately retrievable.
-    """
+    """A backend to store data in OpenStack Swift"""
 
     hdr_prefix = 'X-Object-'
     known_options = {
