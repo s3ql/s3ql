@@ -7,12 +7,13 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import _thread
-import io
 import logging
 import os
 import struct
+from contextlib import ExitStack
+from typing import Any, BinaryIO, Dict, Optional
 
-from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
+from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
 
 log = logging.getLogger(__name__)
@@ -59,25 +60,45 @@ class Backend(AbstractBackend):
     def get_size(self, key):
         return os.path.getsize(self._key_to_path(key))
 
-    def open_read(self, key):
+    def readinto_fh(self, key: str, ofh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset.
+        '''
+
         path = self._key_to_path(key)
-        try:
-            fh = ObjectR(path)
-        except FileNotFoundError:
-            raise NoSuchObject(key)
+        with ExitStack() as es:
+            try:
+                ifh = es.enter_context(open(path, 'rb', buffering=0))
+            except FileNotFoundError:
+                raise NoSuchObject(key)
 
-        try:
-            fh.metadata = _read_meta(fh)
-        except ThawError:
-            fh.close()
-            raise CorruptedObjectError('Invalid metadata')
-        return fh
+            try:
+                metadata = _read_meta(ifh)
+            except ThawError:
+                raise CorruptedObjectError('Invalid metadata')
 
-    def open_write(self, key, metadata=None, is_compressed=False):
+            copyfh(ifh, ofh)
+        return metadata
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried.  Returns the size of the resulting storage object .
+        '''
+
         if metadata is None:
             metadata = dict()
-        elif not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         path = self._key_to_path(key)
         buf = freeze_basic_mapping(metadata)
@@ -88,14 +109,25 @@ class Backend(AbstractBackend):
         # conflicts between parallel reads, the last one wins
         tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
 
-        dest = ObjectW(tmpname)
+        with ExitStack() as es:
+            try:
+                dest = es.enter_context(open(tmpname, 'wb', buffering=0))
+            except FileNotFoundError:
+                try:
+                    os.makedirs(os.path.dirname(path))
+                except FileExistsError:
+                    # Another thread may have created the directory already
+                    pass
+                dest = es.enter_context(open(tmpname, 'wb', buffering=0))
+
+            dest.write(b's3ql_1\n')
+            dest.write(struct.pack('<H', len(buf)))
+            dest.write(buf)
+            copyfh(fh, dest, len_)
+            size = dest.tell()
         os.rename(tmpname, path)
 
-        dest.write(b's3ql_1\n')
-        dest.write(struct.pack('<H', len(buf)))
-        dest.write(buf)
-
-        return dest
+        return size
 
     def contains(self, key):
         path = self._key_to_path(key)
@@ -206,73 +238,3 @@ def unescape(s):
     s = s.replace('=3D', '=')
 
     return s
-
-
-# Inherit from io.FileIO rather than io.BufferedReader to disable buffering. Default buffer size is
-# ~8 kB (http://docs.python.org/3/library/functions.html#open), but backends are almost always only
-# accessed by block_cache and stream_read_bz2/stream_write_bz2, which all use the much larger
-# s3ql.common.BUFSIZE
-class ObjectR(io.FileIO):
-    '''A local storage object opened for reading'''
-
-    def __init__(self, name, metadata=None):
-        super().__init__(name)
-        self.metadata = metadata
-
-    def close(self, checksum_warning=True):
-        '''Close object
-
-        The *checksum_warning* parameter is ignored.
-        '''
-        super().close()
-
-
-class ObjectW:
-    '''A local storage object opened for writing'''
-
-    def __init__(self, name):
-        super().__init__()
-
-        # Default buffer size is ~8 kB
-        # (http://docs.python.org/3/library/functions.html#open), but backends
-        # are almost always only accessed by block_cache and
-        # stream_read_bz2/stream_write_bz2, which all use the much larger
-        # s3ql.common.BUFSIZE - so we may just as well disable buffering.
-
-        # Create parent directories as needed
-        try:
-            self.fh = open(name, 'wb', buffering=0)
-        except FileNotFoundError:
-            try:
-                os.makedirs(os.path.dirname(name))
-            except FileExistsError:
-                # Another thread may have created the directory already
-                pass
-            self.fh = open(name, 'wb', buffering=0)
-
-        self.obj_size = 0
-        self.closed = False
-
-    def write(self, buf):
-        '''Write object data'''
-
-        self.fh.write(buf)
-        self.obj_size += len(buf)
-
-    def close(self):
-        '''Close object and upload data'''
-
-        self.fh.close()
-        self.closed = True
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size

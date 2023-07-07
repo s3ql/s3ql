@@ -32,6 +32,7 @@ from pytest_checklogs import assert_logs
 
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.common import time_ns
@@ -80,7 +81,11 @@ async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     ctx.backend_pool = BackendPool(
-        lambda: local.Backend(Namespace(storage_url='local://' + ctx.backend_dir))
+        lambda: ComprencBackend(
+            b'foobar',
+            ('zlib', 6),
+            local.Backend(Namespace(storage_url='local://' + ctx.backend_dir)),
+        )
     )
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
@@ -566,9 +571,9 @@ class MockBackendPool(AbstractBackend):
 
     def verify(self):
         if self.no_read != 0:
-            raise RuntimeError('Got too few open_read calls')
+            raise RuntimeError('Got too few readinto_fh calls')
         if self.no_write != 0:
-            raise RuntimeError('Got too few open_write calls')
+            raise RuntimeError('Got too few write_fh calls')
         if self.no_del != 0:
             raise RuntimeError('Got too few delete calls')
 
@@ -582,13 +587,27 @@ class MockBackendPool(AbstractBackend):
     def lookup(self, key):
         return self.backend.lookup(key)
 
+    def readinto_fh(self, key, fh):
+        self.no_read -= 1
+        if self.no_read < 0:
+            raise RuntimeError('Got too many readinto_fh calls')
+        return self.backend.readinto_fh(key, fh)
+
+    # Legacy, remove once transition from open_read() to readinto_fh() is complete
     def open_read(self, key):
         self.no_read -= 1
         if self.no_read < 0:
             raise RuntimeError('Got too many open_read calls')
-
         return self.backend.open_read(key)
 
+    def write_fh(self, key, fh, metadata=None, dont_compress=False, len_=None):
+        self.no_write -= 1
+        if self.no_write < 0:
+            raise RuntimeError('Got too many write_fh calls')
+
+        return self.backend.write_fh(key, fh, metadata, dont_compress=dont_compress, len_=len_)
+
+    # Legacy, remove once transition from open_write() to write_fh() is complete
     def open_write(self, key, metadata=None, is_compressed=False):
         self.no_write -= 1
         if self.no_write < 0:
