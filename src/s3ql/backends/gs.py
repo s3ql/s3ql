@@ -12,13 +12,12 @@ import logging
 import os
 import re
 import ssl
-import tempfile
 import threading
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from itertools import count
-from typing import Any, Dict, Optional
+from typing import Any, BinaryIO, Dict, Optional
 
 import dugong
 from dugong import (
@@ -29,8 +28,7 @@ from dugong import (
     is_temp_network_error,
 )
 
-from .. import BUFSIZE
-from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, copyfh
 from ..logging import QuietError
 from .common import (
     AbstractBackend,
@@ -51,9 +49,6 @@ except ModuleNotFoundError:
 
 
 log = logging.getLogger(__name__)
-
-# Used only by adm.py
-UPGRADE_MODE = False
 
 
 class ServerResponseError(Exception):
@@ -331,53 +326,65 @@ class Backend(AbstractBackend):
         json_resp = self._get_gs_meta(key)
         return json_resp['size']
 
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
+
+        return self._readinto_fh(key, fh, fh.tell())
+
     @retry
-    def open_read(self, key):
+    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
+
         gs_meta = self._get_gs_meta(key)
+        metadata = _unwrap_user_meta(gs_meta)
 
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
             urllib.parse.quote(self.prefix + key, safe=''),
         )
         try:
-            resp = self._do_request('GET', path, query_string={'alt': 'media'})
+            self._do_request('GET', path, query_string={'alt': 'media'})
         except RequestError as exc:
             exc = _map_request_error(exc, key)
             if exc:
                 raise exc
             raise
 
-        return ObjectR(key, resp, self, gs_meta)
+        copyfh(self.conn, fh)
 
-    def open_write(self, key, metadata=None, is_compressed=False):
-        """
-        The returned object will buffer all data and only start the upload
-        when its `close` method is called.
-        """
+        return metadata
 
-        return ObjectW(key, self, metadata)
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried. Returns the size of the resulting storage object.
+        '''
+
+        off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            len_ = fh.tell()
+        return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(
-        self,
-        fh,
-        key: str,
-        md5: bytes,
-        metadata: Optional[Dict[str, Any]] = None,
-        size: Optional[int] = None,
-    ):
-        '''Write data from byte stream *fh* into *key*.
-
-        *fh* must be seekable. If *size* is None, *fh* must also implement
-        `fh.fileno()` so that the size can be determined through `os.fstat`.
-
-        *md5* must be the (binary) md5 checksum of the data.
-        '''
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
 
         metadata = json.dumps(
             {
-                'metadata': _wrap_user_meta(metadata if metadata else {}),
-                'md5Hash': b64encode(md5).decode(),
+                'metadata': _wrap_user_meta(metadata),
                 'name': self.prefix + key,
             }
         )
@@ -402,11 +409,7 @@ class Backend(AbstractBackend):
         ).encode()
         body_suffix = ('\n--%s--\n' % boundary).encode()
 
-        body_size = len(body_prefix) + len(body_suffix)
-        if size is not None:
-            body_size += size
-        else:
-            body_size += os.fstat(fh.fileno()).st_size
+        body_size = len(body_prefix) + len(body_suffix) + len_
 
         path = '/upload/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
         query_string = {'uploadType': 'multipart'}
@@ -425,17 +428,11 @@ class Backend(AbstractBackend):
             raise
 
         assert resp.status == 100
-        fh.seek(0)
+        fh.seek(off)
 
-        md5_run = hashlib.md5()
         try:
             self.conn.write(body_prefix)
-            while True:
-                buf = fh.read(BUFSIZE)
-                if not buf:
-                    break
-                self.conn.write(buf)
-                md5_run.update(buf)
+            copyfh(fh, self.conn, len_)
             self.conn.write(body_suffix)
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
@@ -453,9 +450,6 @@ class Backend(AbstractBackend):
             # Re-raise first ConnectionClosed exception
             raise
 
-        if md5_run.digest() != md5:
-            raise ValueError('md5 passed to write_fd does not match fd data')
-
         resp = self.conn.read_response()
         # If we're really unlucky, then the token has expired while we were uploading data.
         if resp.status == 401:
@@ -465,6 +459,8 @@ class Backend(AbstractBackend):
             exc = self._parse_error_response(resp)
             raise _map_request_error(exc, key) or exc
         self._parse_json_response(resp)
+
+        return body_size
 
     def close(self):
         self.conn.disconnect()
@@ -720,135 +716,6 @@ def _unwrap_user_meta(json_resp):
             meta[k] = v2
 
     return meta
-
-
-class ObjectR:
-    '''A GS object open for reading'''
-
-    def __init__(self, key, resp, backend, gs_meta):
-        self.key = key
-        self.closed = False
-        self.md5_checked = False
-        self.backend = backend
-        self.resp = resp
-        self.metadata = _unwrap_user_meta(gs_meta)
-        self.md5_want = b64decode(gs_meta['md5Hash'])
-        self.md5 = hashlib.md5()
-
-    def read(self, size=None):
-        '''Read up to *size* bytes of object data
-
-        For integrity checking to work, this method has to be called until
-        it returns an empty string, indicating that all data has been read
-        (and verified).
-        '''
-
-        if size == 0:
-            return b''
-
-        # This may raise an exception, in which case we probably can't re-use
-        # the connection. However, we rely on the caller to still close the
-        # file-like object, so that we can do cleanup in close().
-        buf = self.backend.conn.read(size)
-        self.md5.update(buf)
-
-        # Check MD5 on EOF (size == None implies EOF)
-        if (not buf or size is None) and not self.md5_checked:
-            self.md5_checked = True
-            if self.md5_want != self.md5.digest():
-                log.warning(
-                    'MD5 mismatch for %s: %s vs %s',
-                    self.key,
-                    b64encode(self.md5_want),
-                    b64encode(self.md5.digest()),
-                )
-                raise ServerResponseError(
-                    error='md5Hash mismatch', body=b'<binary blob>', resp=self.resp
-                )
-
-        return buf
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, *_):
-        # If we're handling an exception, then it's likely that the caller won't
-        # expect that the file has been read completely.
-        self.close(checksum_warning=exc_type is None)
-        return False
-
-    def close(self, checksum_warning=True):
-        '''Close object
-
-        If *checksum_warning* is true, this will generate a warning message if
-        the object has not been fully read (because in that case the MD5
-        checksum cannot be checked).
-        '''
-
-        if self.closed:
-            return
-        self.closed = True
-
-        # If we have not read all the data, close the entire
-        # connection (otherwise we loose synchronization)
-        if not self.md5_checked:
-            if checksum_warning:
-                log.warning(
-                    "Object closed prematurely, can't check MD5, and have to reset connection"
-                )
-            self.backend.conn.disconnect()
-
-
-class ObjectW:
-    '''An GS object open for writing
-
-    All data is first cached in memory, upload only starts when
-    the close() method is called.
-    '''
-
-    def __init__(self, key, backend, metadata):
-        self.key = key
-        self.backend = backend
-        self.metadata = metadata
-        self.closed = False
-        self.obj_size = 0
-        self.md5 = hashlib.md5()
-
-        # According to http://docs.python.org/3/library/functions.html#open
-        # the buffer size is typically ~8 kB. We process data in much
-        # larger chunks, so buffering would only hurt performance.
-        self.fh = tempfile.TemporaryFile(buffering=0)
-
-    def write(self, buf):
-        '''Write object data'''
-
-        self.fh.write(buf)
-        self.md5.update(buf)
-        self.obj_size += len(buf)
-
-    def close(self):
-        '''Close object and upload data'''
-
-        if self.closed:
-            return
-
-        self.backend._write_fh(
-            self.fh, self.key, self.md5.digest(), self.metadata, size=self.obj_size
-        )
-        self.closed = True
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
 
 
 def md5sum_b64(buf):
