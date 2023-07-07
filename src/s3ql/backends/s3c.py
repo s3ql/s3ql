@@ -59,10 +59,7 @@ log = logging.getLogger(__name__)
 
 
 class Backend(AbstractBackend):
-    """A backend to stored data in some S3 compatible storage service.
-
-    The backend guarantees only immediate get after create consistency.
-    """
+    """A backend to stored data in some S3 compatible storage service."""
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
