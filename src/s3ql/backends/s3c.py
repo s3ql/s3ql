@@ -235,18 +235,13 @@ class Backend(AbstractBackend):
         raise RuntimeError('Unexpected server response')
 
     @retry
-    def delete(self, key, force=False, is_retry=False):
+    def delete(self, key):
         log.debug('started with %s', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
         except NoSuchKeyError:
-            # Server may have deleted the object even though we did not
-            # receive the response.
-            if force or is_retry:
-                pass
-            else:
-                raise NoSuchObject(key)
+            pass
 
     def list(self, prefix=''):
         prefix = self.prefix + prefix

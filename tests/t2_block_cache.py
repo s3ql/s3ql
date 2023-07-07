@@ -621,12 +621,12 @@ class MockBackendPool(AbstractBackend):
     def contains(self, key):
         return self.backend.contains(key)
 
-    def delete(self, key, force=False):
+    def delete(self, key):
         self.no_del -= 1
         if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
 
-        return self.backend.delete(key, force)
+        return self.backend.delete(key)
 
     def list(self, prefix=''):
         '''List keys in backend

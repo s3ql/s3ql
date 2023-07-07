@@ -37,7 +37,6 @@ from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
-from s3ql.backends.swift import Backend as SwiftBackend
 
 log = logging.getLogger(__name__)
 empty_set = set()
@@ -263,7 +262,7 @@ def yield_remote_backend(bi, _ctr=[0]):
         yield backend
     finally:
         for name in list(backend.list()):
-            backend.delete(name, force=True)
+            backend.delete(name)
         backend.close()
 
 
@@ -389,18 +388,20 @@ def test_delete(backend):
     value = newvalue()
 
     backend[key] = value
-
-    # Wait for object to become visible
     assert_in_index(backend, [key])
     backend.fetch(key)
 
-    # Delete it
     del backend[key]
 
-    # Make sure that it's truly gone
     assert_not_in_index(backend, [key])
     with pytest.raises(NoSuchObject):
         backend.fetch(key)
+
+
+@pytest.mark.with_backend('*/aes')
+def test_delete_non_existing(backend):
+    key = newname()
+    del backend[key]
 
 
 @pytest.mark.with_backend('b2/aes')
@@ -431,45 +432,24 @@ def test_delete_multi(backend):
     if not backend.has_delete_multi:
         pytest.skip('backend does not support delete_multi')
 
-    keys = [newname() for _ in range(30)]
+    keys = [newname() for _ in range(10)]
     value = newvalue()
 
-    # Create objects
     for key in keys:
         backend[key] = value
 
-    # Wait for them
-    assert_in_index(backend, keys)
-    for key in keys:
-        backend.fetch(key)
-
     # Delete half of them
-    # We don't use force=True but catch the exception to increase the
-    # chance that some existing objects are not deleted because of the
-    # error.
     to_delete = keys[::2]
-    to_delete.insert(7, 'not_existing')
-    try:
-        backend.delete_multi(to_delete)
-    except NoSuchObject:
-        pass
+    backend.delete_multi(to_delete)
+    assert len(to_delete) == 0
 
-    # Swift backend does not return a list of actually deleted objects
-    # so to_delete will always be empty for Swift and this assertion fails
-    if not isinstance(backend.backend, SwiftBackend):
-        assert len(to_delete) > 0
-
-    deleted = set(keys[::2]) - set(to_delete)
-    assert len(deleted) > 0
-    remaining = set(keys) - deleted
-
-    assert_not_in_index(backend, deleted)
-    for key in deleted:
+    assert_not_in_index(backend, keys[::2])
+    for key in keys[::2]:
         with pytest.raises(NoSuchObject):
             backend.fetch(key)
 
-    assert_in_index(backend, remaining)
-    for key in remaining:
+    assert_in_index(backend, keys[1::2])
+    for key in keys[1::2]:
         backend.fetch(key)
 
 

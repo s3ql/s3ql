@@ -250,7 +250,7 @@ class Backend(AbstractBackend):
         raise ServerResponseError(resp, error='expected empty response', body=body)
 
     @retry
-    def delete(self, key, force=False, is_retry=False):
+    def delete(self, key):
         log.debug('started with %s', key)
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
@@ -261,7 +261,7 @@ class Backend(AbstractBackend):
             self._assert_empty_response(resp)
         except RequestError as exc:
             exc = _map_request_error(exc, key)
-            if isinstance(exc, NoSuchObject) and (force or is_retry):
+            if isinstance(exc, NoSuchObject):
                 pass
             elif exc:
                 raise exc

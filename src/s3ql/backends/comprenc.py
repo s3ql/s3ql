@@ -280,11 +280,11 @@ class ComprencBackend(AbstractBackend):
     def contains(self, key):
         return self.backend.contains(key)
 
-    def delete(self, key, force=False):
-        return self.backend.delete(key, force)
+    def delete(self, key):
+        return self.backend.delete(key)
 
-    def delete_multi(self, keys, force=False):
-        return self.backend.delete_multi(keys, force=force)
+    def delete_multi(self, keys):
+        return self.backend.delete_multi(keys)
 
     def list(self, prefix=''):
         return self.backend.list(prefix)
