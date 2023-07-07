@@ -57,9 +57,10 @@ class ObjectR:
     def __enter__(self):
         return self
 
-    def __exit__(self, *a):
-        self.close()
-        return False
+    def __exit__(self, exc_type, *_):
+        # If we're handling an exception, then it's likely that the caller won't
+        # expect that the file has been read completely.
+        self.close(checksum_warning=exc_type is None)
 
     def close(self, checksum_warning=True):
         '''Close object

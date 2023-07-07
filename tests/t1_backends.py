@@ -1155,10 +1155,7 @@ def test_conn_abort(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'send_data', send_data)
 
     with pytest.raises(ConnectionClosed):
-        with assert_logs(
-            "^Object closed prematurely, can't check MD5", count=1, level=logging.WARNING
-        ):
-            backend.fetch(key)
+        backend.fetch(key)
 
     enable_temp_fail(backend)
     assert backend[key] == data
