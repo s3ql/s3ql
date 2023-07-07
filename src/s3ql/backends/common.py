@@ -256,52 +256,8 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         pass
 
-    @retry
-    def perform_read(self, fn, key):
-        '''Read object data using *fn*, retry on temporary failure
-
-        Open object for reading, call `fn(fh)` and close object. If a temporary
-        error (as defined by `is_temp_failure`) occurs during opening, closing
-        or execution of *fn*, the operation is retried.
-        '''
-
-        fh = self.open_read(key)
-        try:
-            res = fn(fh)
-        except Exception as exc:
-            # If this is a temporary failure, we now that the call will be
-            # retried, so we don't need to warn that the object was not read
-            # completely.
-            fh.close(checksum_warning=not self.is_temp_failure(exc))
-            raise
-        else:
-            fh.close()
-            return res
-
-    @retry
-    def perform_write(self, fn, key, metadata=None, is_compressed=False):
-        '''Read object data using *fn*, retry on temporary failure
-
-        Open object for writing, call `fn(fh)` and close object. If a temporary
-        error (as defined by `is_temp_failure`) occurs during opening, closing
-        or execution of *fn*, the operation is retried.
-        '''
-
-        with self.open_write(key, metadata, is_compressed) as fh:
-            return fn(fh)
-
-    def fetch(self, key):
-        """Return data stored under `key`.
-
-        Returns a tuple with the data and metadata. If only the data itself is
-        required, ``backend[key]`` is a more concise notation for
-        ``backend.fetch(key)[0]``.
-        """
-
-        fh = BytesIO()
-        metadata = self.readinto_fh(key, fh)
-        return (fh.getvalue(), metadata)
-
+    # Dummy implementation for backends that still implement the deprecated open_read()
+    # API rather than readinto_fh.
     def readinto_fh(self, key: str, fh: BinaryIO):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
@@ -311,17 +267,21 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         off = fh.tell()
 
-        def do_read(ifh: BinaryIO):
-            fh.seek(off)
-            while True:
-                buf = ifh.read(BUFSIZE)
-                if not buf:
-                    break
-                fh.write(buf)
-            return ifh.metadata
+        @retry
+        def _inner(self):
+            with self.open_read(key) as ifh:
+                fh.seek(off)
+                while True:
+                    buf = ifh.read(BUFSIZE)
+                    if not buf:
+                        break
+                    fh.write(buf)
+                return ifh.metadata
 
-        return self.perform_read(do_read, key)
+        return _inner(self)
 
+    # Dummy implementation for backends that still implement the deprecated open_write()
+    # API rather than write_fh.
     def write_fh(
         self,
         key: str,
@@ -340,26 +300,39 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         off = fh.tell()
 
-        def do_write(ofh: BinaryIO):
-            fh.seek(off)
-            if len_:
-                to_read = len_
-                while to_read > 0:
-                    buf = fh.read(min(BUFSIZE, to_read))
-                    if not buf:
-                        break
-                    ofh.write(buf)
-                    to_read -= len(buf)
-            else:
-                while True:
-                    buf = fh.read(BUFSIZE)
-                    if not buf:
-                        break
-                    ofh.write(buf)
-            return ofh
+        @retry
+        def _inner(self):
+            with self.open_write(key, metadata) as ofh:
+                fh.seek(off)
+                if len_:
+                    to_read = len_
+                    while to_read > 0:
+                        buf = fh.read(min(BUFSIZE, to_read))
+                        if not buf:
+                            break
+                        ofh.write(buf)
+                        to_read -= len(buf)
+                else:
+                    while True:
+                        buf = fh.read(BUFSIZE)
+                        if not buf:
+                            break
+                        ofh.write(buf)
+            return ofh.get_obj_size()
 
-        fh = self.perform_write(do_write, key, metadata)
-        return fh.get_obj_size()
+        return _inner(self)
+
+    def fetch(self, key):
+        """Return data stored under `key`.
+
+        Returns a tuple with the data and metadata. If only the data itself is
+        required, ``backend[key]`` is a more concise notation for
+        ``backend.fetch(key)[0]``.
+        """
+
+        fh = BytesIO()
+        metadata = self.readinto_fh(key, fh)
+        return (fh.getvalue(), metadata)
 
     def store(self, key, val, metadata=None):
         """Store data under `key`.
