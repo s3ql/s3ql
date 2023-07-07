@@ -405,7 +405,7 @@ class Backend(AbstractBackend):
         return ObjectW(key, self, headers)
 
     @retry
-    def delete(self, key, force=False, is_retry=False):
+    def delete(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
@@ -413,15 +413,13 @@ class Backend(AbstractBackend):
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
         except HTTPError as exc:
-            # Server may have deleted the object even though we did not
-            # receive the response.
-            if exc.status == 404 and not (force or is_retry):
-                raise NoSuchObject(key)
-            elif exc.status != 404:
+            if exc.status == 404:
+                pass
+            else:
                 raise
 
     @retry
-    def _delete_multi(self, keys, force=False):
+    def _delete_multi(self, keys):
         """Doing bulk delete of multiple objects at a time.
 
         This is a feature of the configurable middleware "Bulk" so it can only
@@ -579,18 +577,18 @@ class Backend(AbstractBackend):
     def has_delete_multi(self):
         return self.features.has_bulk_delete
 
-    def delete_multi(self, keys, force=False):
+    def delete_multi(self, keys):
         log.debug('started with %s', keys)
 
         if self.features.has_bulk_delete:
             while len(keys) > 0:
                 tmp = keys[: self.features.max_deletes]
                 try:
-                    self._delete_multi(tmp, force=force)
+                    self._delete_multi(tmp)
                 finally:
                     keys[: self.features.max_deletes] = tmp
         else:
-            super().delete_multi(keys, force=force)
+            super().delete_multi(keys)
 
     def list(self, prefix=''):
         prefix = self.prefix + prefix

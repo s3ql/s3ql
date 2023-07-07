@@ -137,25 +137,22 @@ class Backend(AbstractBackend):
             return False
         return True
 
-    def delete_multi(self, keys, force=False):
+    def delete_multi(self, keys):
         for (i, key) in enumerate(keys):
             try:
-                self.delete(key, force=force)
+                self.delete(key)
             except:
                 del keys[:i]
                 raise
 
         del keys[:]
 
-    def delete(self, key, force=False):
+    def delete(self, key):
         path = self._key_to_path(key)
         try:
             os.unlink(path)
         except FileNotFoundError:
-            if force:
-                pass
-            else:
-                raise NoSuchObject(key)
+            pass
 
     def list(self, prefix=''):
 

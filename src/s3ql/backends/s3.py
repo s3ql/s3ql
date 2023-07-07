@@ -16,7 +16,7 @@ from xml.sax.saxutils import escape as xml_escape
 
 from ..logging import QuietError
 from . import s3c
-from .common import NoSuchObject, retry
+from .common import retry
 from .s3c import get_S3Error
 
 log = logging.getLogger(__name__)
@@ -72,13 +72,13 @@ class Backend(s3c.Backend):
     def has_delete_multi(self):
         return True
 
-    def delete_multi(self, keys, force=False):
+    def delete_multi(self, keys):
         log.debug('started with %s', keys)
 
         while len(keys) > 0:
             tmp = keys[:MAX_KEYS]
             try:
-                self._delete_multi(tmp, force=force)
+                self._delete_multi(tmp)
             finally:
                 keys[:MAX_KEYS] = tmp
 
@@ -106,7 +106,7 @@ class Backend(s3c.Backend):
         )
 
     @retry
-    def _delete_multi(self, keys, force=False):
+    def _delete_multi(self, keys):
 
         body = ['<Delete>']
         esc_prefix = xml_escape(self.prefix)
@@ -148,8 +148,7 @@ class Backend(s3c.Backend):
             errkey = error_tags[0].findtext(ns_p + 'Key')[offset:]
 
             if errcode == 'NoSuchKeyError':
-                if not force:
-                    raise NoSuchObject(errkey)
+                pass
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 

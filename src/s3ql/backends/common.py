@@ -389,31 +389,25 @@ class AbstractBackend(object, metaclass=ABCMeta):
             return True
 
     @abstractmethod
-    def delete(self, key, force=False):
+    def delete(self, key):
         """Delete object stored under `key`
 
-        ``backend.delete(key)`` can also be written as ``del backend[key]``.  If
-        `force` is true, do not return an error if the key does not exist. Note,
-        however, that even if *force* is False, it is not guaranteed that an
-        attempt to delete a non-existing object will raise an error.
+        Attempts to delete non-existing objects will silently succeed.
         """
         pass
 
-    def delete_multi(self, keys, force=False):
+    def delete_multi(self, keys):
         """Delete objects stored under `keys`
 
         Deleted objects are removed from the *keys* list, so that the caller can
         determine which objects have not yet been processed if an exception is
         occurs.
 
-        If *force* is True, attempts to delete non-existing objects will
-        succeed. Note, however, that even if *force* is False, it is not
-        guaranteed that an attempt to delete a non-existing object will raise an
-        error.
+        Attempts to delete non-existing objects will silently succeed.
         """
 
         while keys:
-            self.delete(keys[-1], force=force)
+            self.delete(keys[-1])
             keys.pop()
 
     @abstractmethod
