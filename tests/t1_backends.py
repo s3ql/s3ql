@@ -425,7 +425,7 @@ def test_issue114(backend, monkeypatch):
     assert_in_index(backend, [key])
 
 
-@pytest.mark.with_backend('*/raw', 'local/{plain,aes,zlib}')
+@pytest.mark.with_backend('*/raw', 'local/aes+zlib')
 def test_complex_meta(backend):
     key = newname()
     value = newvalue()
@@ -887,7 +887,7 @@ def test_backoff(backend, monkeypatch):
     assert timestamps[2] - timestamps[0] < 10
 
 
-@pytest.mark.with_backend('s3c/raw', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_httperror(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
@@ -915,7 +915,7 @@ def test_httperror(backend, monkeypatch):
     backend.delete(key)
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_put_s3error_early(backend, monkeypatch):
     '''Fail after expect-100'''
 
@@ -941,7 +941,7 @@ def test_put_s3error_early(backend, monkeypatch):
     backend.store(key, data)
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_put_s3error_med(backend, monkeypatch):
     '''Fail as soon as data is received'''
     data = b'hello there, let us see whats going on'
@@ -972,7 +972,7 @@ def test_put_s3error_med(backend, monkeypatch):
     backend.store(key, data)
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_put_s3error_late(backend, monkeypatch):
     '''Fail after reading all data'''
     data = b'hello there, let us see whats going on'
@@ -997,7 +997,7 @@ def test_put_s3error_late(backend, monkeypatch):
     backend.store(key, data)
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_issue58(backend, monkeypatch):
     '''Send error while client is sending data'''
 
@@ -1030,7 +1030,7 @@ def test_issue58(backend, monkeypatch):
     backend.store('borg', buf)
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_issue58_b(backend, monkeypatch):
     '''Close connection while client is sending data'''
 
@@ -1061,7 +1061,7 @@ def test_issue58_b(backend, monkeypatch):
     backend.store('borg', buf)
 
 
-@pytest.mark.with_backend('gs/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('gs/aes+zlib', require_mock_server=True)
 def test_expired_token_get(backend, monkeypatch):
     '''Test handling of expired OAuth token'''
 
@@ -1098,7 +1098,7 @@ def test_expired_token_get(backend, monkeypatch):
     assert token_refreshed
 
 
-@pytest.mark.with_backend('gs/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('gs/aes+zlib', require_mock_server=True)
 def test_expired_token_put(backend, monkeypatch):
     '''Test handling of expired OAuth token'''
 
@@ -1133,7 +1133,7 @@ def test_expired_token_put(backend, monkeypatch):
     assert token_refreshed
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
 def test_conn_abort(backend, monkeypatch):
     '''Close connection while sending data'''
 
