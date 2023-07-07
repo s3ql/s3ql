@@ -378,29 +378,6 @@ def assert_not_readable(backend, key, sleep_time=1):
         waited += sleep_time
 
 
-@pytest.mark.with_backend('*/*')
-def test_read_write(backend):
-    key = newname()
-    value = newvalue()
-    metadata = {'jimmy': 'jups@42'}
-
-    assert key not in backend
-    assert_raises(NoSuchObject, backend.lookup, key)
-    assert_raises(NoSuchObject, backend.fetch, key)
-
-    def do_write(fh):
-        fh.write(value)
-
-    backend.perform_write(do_write, key, metadata)
-
-    assert_in_index(backend, [key])
-    (value2, metadata2) = fetch_object(backend, key)
-
-    assert value == value2
-    assert metadata == metadata2
-    assert lookup_object(backend, key) == metadata
-
-
 @pytest.mark.with_backend('*/raw', 'local/*')
 def test_readinto_write_fh(backend: AbstractBackend):
     key = newname()
@@ -421,6 +398,22 @@ def test_readinto_write_fh(backend: AbstractBackend):
     assert value == buf.getvalue()
     assert metadata == metadata2
     assert backend.lookup(key) == metadata
+
+
+@pytest.mark.with_backend('*/{raw,aes+zlib}')
+def test_write_fh_partial(backend: AbstractBackend):
+    key = newname()
+    metadata = {'jimmy': 'jups@42'}
+    data = (''.join(str(x) for x in range(100))).encode()
+    buf = BytesIO(data)
+
+    buf.seek(10)
+    assert backend.write_fh(key, buf, metadata, len_=20) > 0
+
+    buf2 = BytesIO()
+    backend.readinto_fh(key, buf2)
+
+    assert buf2.getvalue() == data[10 : 10 + 20]
 
 
 @pytest.mark.with_backend('swift/raw')
