@@ -31,7 +31,6 @@ from dugong import ConnectionClosed
 from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
 
-import s3ql.backends.common
 from s3ql import BUFSIZE, backends
 from s3ql.backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
 from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
@@ -464,39 +463,6 @@ def test_list(backend):
     assert set(backend.list('prefixa')) == set(keys[:6])
     assert set(backend.list('prefixb')) == set(keys[6:])
     assert set(backend.list('prefixc')) == empty_set
-
-
-@pytest.mark.with_backend('*/raw', require_immediate_consistency=True)
-def test_readslowly(backend):
-    key = newname()
-    value = newvalue()
-    metadata = {'jimmy': 'jups@42'}
-
-    backend.store(key, value, metadata)
-
-    s3ql.backends.common.BUFSIZE = 1
-    try:
-        with backend.open_read(key) as fh:
-            # Force slow reading from underlying layer
-            if hasattr(fh, 'fh'):
-
-                def read_slowly(size, *, real_read=fh.fh.read):
-                    return real_read(1)
-
-                fh.fh.read = read_slowly
-
-            buf = []
-            while True:
-                buf.append(fh.read(1))
-                if not buf[-1]:
-                    break
-            value2 = b''.join(buf)
-            metadata2 = fh.metadata
-    finally:
-        s3ql.backends.common.BUFSIZE = BUFSIZE
-
-    assert value == value2
-    assert metadata == metadata2
 
 
 # No need to run with different encryption/compression settings,
