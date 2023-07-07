@@ -222,14 +222,17 @@ class ComprencBackend(AbstractBackend):
         key: str,
         fh: BinaryIO,
         metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
         dont_compress: bool = False,
     ):
-        '''Upload data from *fh* under *key*.
+        '''Upload *len_* bytes from *fh* under *key*.
 
-        The data will be read at the current offset. If a temporary error (as defined by
-        `is_temp_failure`) occurs, the operation is retried. Returns the size of the resulting
-        storage object (which may be less due to compression)
-        '''
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried.  Returns the size of the resulting storage object (which may be less due
+        to compression)'''
 
         if metadata is None:
             metadata = dict()
@@ -250,9 +253,10 @@ class ComprencBackend(AbstractBackend):
                 compr = lzma.LZMACompressor(preset=self.compression[1])
                 meta_raw['compression'] = 'LZMA'
             buf = io.BytesIO()
-            compress_fh(fh, buf, compr)
+            compress_fh(fh, buf, compr, len_=len_)
             buf.seek(0)
             fh = buf
+            len_ = None
 
         if self.passphrase is None:
             meta_raw['encryption'] = 'None'
@@ -268,7 +272,7 @@ class ComprencBackend(AbstractBackend):
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
             data_key = sha256(self.passphrase + nonce)
             buf = io.BytesIO()
-            encrypt_fh(fh, buf, data_key)
+            encrypt_fh(fh, buf, data_key, len_=len_)
             buf.seek(0)
             fh = buf
 
@@ -290,13 +294,16 @@ class ComprencBackend(AbstractBackend):
         self.backend.close()
 
 
-def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr):
-    '''Compress *ifh* into *ofh* using compr'''
+def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr, len_: Optional[int] = None):
+    '''Compress *len_* bytes from *ifh* into *ofh* using *compr*'''
 
-    while True:
-        buf = ifh.read(BUFSIZE)
+    while len_ is None or len_ > 0:
+        max_ = BUFSIZE if len_ is None else min(BUFSIZE, len_)
+        buf = ifh.read(max_)
         if not buf:
             break
+        if len_:
+            len_ -= len(buf)
         buf = compr.compress(buf)
         if buf:
             ofh.write(buf)
@@ -306,16 +313,19 @@ def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr):
         ofh.write(buf)
 
 
-def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes):
+def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes, len_: Optional[int] = None):
     '''Encrypt contents of *ifh* into *ofh*'''
 
     encryptor = aes_encryptor(key)
     hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
-    while True:
-        buf = ifh.read(BUFSIZE)
+    while len_ is None or len_ > 0:
+        max_ = BUFSIZE if len_ is None else min(BUFSIZE, len_)
+        buf = ifh.read(max_)
         if not buf:
             break
+        if len_:
+            len_ -= len(buf)
 
         header = struct.pack(b'<I', len(buf))
         hmac_.update(header)

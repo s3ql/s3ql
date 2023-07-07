@@ -21,7 +21,7 @@ import time
 from abc import ABCMeta, abstractmethod
 from functools import wraps
 from io import BytesIO
-from typing import BinaryIO
+from typing import Any, BinaryIO, Dict, Optional
 
 from .. import BUFSIZE
 from ..logging import LOG_ONCE, QuietError
@@ -322,23 +322,40 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         return self.perform_read(do_read, key)
 
-    def write_fh(self, key: str, fh: BinaryIO, metadata=None):
-        '''Upload data from *fh* under *key*.
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
 
-        The data will be read at the current offset. If a temporary error (as defined by
-        `is_temp_failure`) occurs, the operation is retried. Returns the size of the resulting
-        storage object (which may be less due to compression)
-        '''
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried.  Returns the size of the resulting storage object (which may be less due
+        to compression)'''
 
         off = fh.tell()
 
         def do_write(ofh: BinaryIO):
             fh.seek(off)
-            while True:
-                buf = fh.read(BUFSIZE)
-                if not buf:
-                    break
-                ofh.write(buf)
+            if len_:
+                to_read = len_
+                while to_read > 0:
+                    buf = fh.read(min(BUFSIZE, to_read))
+                    if not buf:
+                        break
+                    ofh.write(buf)
+                    to_read -= len(buf)
+            else:
+                while True:
+                    buf = fh.read(BUFSIZE)
+                    if not buf:
+                        break
+                    ofh.write(buf)
             return ofh
 
         fh = self.perform_write(do_write, key, metadata)

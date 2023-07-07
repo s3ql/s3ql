@@ -613,7 +613,7 @@ def upload_metadata(
             )
             obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
             fh.seek(blockno * blocksize)
-            backend.store(obj, fh.read(blocksize))
+            backend.write_fh(obj, fh, len_=blocksize)
 
         if not update_params:
             return
