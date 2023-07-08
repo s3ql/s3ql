@@ -429,7 +429,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
         error.
         """
 
-        raise NotImplemented()
+        while keys:
+            self.delete(keys[-1], force=force)
+            keys.pop()
 
     @abstractmethod
     def list(self, prefix=''):
