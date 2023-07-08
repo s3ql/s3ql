@@ -905,7 +905,10 @@ class ObjectW:
         return self
 
     def __exit__(self, *a):
-        self.close()
+        try:
+            self.close()
+        finally:
+            self.fh.close()
         return False
 
     def get_obj_size(self):
