@@ -1,8 +1,8 @@
-UNRELEASED CHANGES
-==================
+S3QL 5.0.0 (2023-07-08)
+=======================
 
 * The internal file system revision has changed. File systems created with this version of
-   S3QL are NOT COMPATIBLE with prior S3QL versions.
+  S3QL are NOT COMPATIBLE with prior S3QL versions.
 
   Existing file systems must be upgraded before they can be used with current
   S3QL versions. This procedure is NOT REVERSIBLE.
