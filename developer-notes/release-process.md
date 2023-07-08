@@ -2,7 +2,7 @@
 
 * `set TAG s3ql-A.B.C`
 * Bump version in `src/s3ql/__init__.py`
-* Add release date to `Changes.txt`
+* Add release date to `ChangeLog.rst`
 * When creating non-bugfix release:
   * Create signing key for the next release: `P=s3ql-<A.B+1> signify-openbsd -G -n -p signify/$P.pub -s
   signify/$P.sec`
