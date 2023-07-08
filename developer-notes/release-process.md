@@ -7,7 +7,7 @@
   * Create signing key for the next release: `P=s3ql-<A.B+1> signify-openbsd -G -n -p signify/$P.pub -s
   signify/$P.sec`
   * Expire old release signing keys (keep one around just in case)
-* Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHORS`
+* Update authors: `git log --all --pretty="format:%an <%aE>" | grep -v '<none@none>$' | sort -u >> AUTHORS`
 * `git commit --all -m "Released $TAG"`
 * `git tag $TAG`
 * `./make_release.sh`
