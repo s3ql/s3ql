@@ -43,6 +43,7 @@ class Backend(s3c.Backend):
         self.region = None
         self.signing_key = None
         super().__init__(options)
+        self._set_storage_options(self._extra_put_headers)
 
     def _parse_storage_url(self, storage_url, ssl_context):
         hit = re.match(r'^s3s?://([^/]+)/([^/]+)(?:/(.*))?$', storage_url)
@@ -97,13 +98,6 @@ class Backend(s3c.Backend):
         else:
             sc = 'STANDARD'
         headers['x-amz-storage-class'] = sc
-
-    def open_write(self, key, metadata=None, is_compressed=False):
-        extra_headers = {}
-        self._set_storage_options(extra_headers)
-        return super().open_write(
-            key, metadata=metadata, is_compressed=is_compressed, extra_headers=extra_headers
-        )
 
     @retry
     def _delete_multi(self, keys):
