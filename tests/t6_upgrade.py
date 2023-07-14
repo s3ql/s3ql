@@ -28,6 +28,17 @@ from t1_backends import NoTestSection, get_remote_test_info
 from s3ql import backends
 
 
+def Popen_old(*a, **kw):
+    '''Run subprocess.Popen after unsetting PYTHONWARNINGS'''
+
+    # We do not want to see warnings from the old S3QL version when testing
+    # the new one.
+    env = os.environ.copy()
+    env.pop('PYTHONWARNINGS', None)
+
+    return subprocess.Popen(*a, **kw, env=env)
+
+
 @pytest.mark.usefixtures('pass_reg_output')
 class TestUpgrade(t4_fuse.TestFuse):
     def setup_method(self, method):
@@ -65,7 +76,7 @@ class TestUpgrade(t4_fuse.TestFuse):
             argv.append('--force')
         if self.passphrase is None:
             argv.append('--plain')
-        proc = subprocess.Popen(argv, stdin=subprocess.PIPE, universal_newlines=True)
+        proc = Popen_old(argv, stdin=subprocess.PIPE, universal_newlines=True)
 
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
@@ -81,7 +92,7 @@ class TestUpgrade(t4_fuse.TestFuse):
         )
 
     def mount_old(self):
-        self.mount_process = subprocess.Popen(
+        self.mount_process = Popen_old(
             [
                 os.path.join(self.basedir_old, 'bin', 'mount.s3ql'),
                 "--fg",
@@ -124,7 +135,7 @@ class TestUpgrade(t4_fuse.TestFuse):
                 == 1,
             )
 
-        proc = subprocess.Popen(
+        proc = Popen_old(
             [os.path.join(self.basedir_old, 'bin', 'umount.s3ql'), '--quiet', self.mnt_dir]
         )
         retry(90, lambda: proc.poll() is not None)
