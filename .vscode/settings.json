@@ -37,10 +37,13 @@
     "[python]": {
         "editor.codeActionsOnSave": {
             "source.organizeImports": true
-        }
+        },
+        "editor.defaultFormatter": "ms-python.black-formatter"
     },
     "isort.check": true,
     "python.analysis.exclude": [
         "s3ql.old/"
-    ]
+    ],
+    "python.linting.mypyEnabled": false,
+    "black-formatter.importStrategy": "fromEnvironment"
 }
