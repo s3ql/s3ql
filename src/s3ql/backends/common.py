@@ -244,14 +244,10 @@ class AbstractBackend(object, metaclass=ABCMeta):
     def reset(self):
         '''Reset backend
 
-        This resets the backend and ensures that it is ready to process
-        requests. In most cases, this method does nothing. However, if e.g. a
-        file handle returned by a previous call to `open_read` was not properly
-        closed (e.g. because an exception happened during reading), the `reset`
-        method will make sure that any underlying connection is properly closed.
-
-        Obviously, this method must not be called while any file handles
-        returned by the backend are still in use.
+        This resets the backend and ensures that it is ready to process requests. In most cases,
+        this method does nothing. However, if e.g. a previous request was not send completely or
+        response not read completely because of an exception, the `reset` method will make sure that
+        any underlying connection is properly closed.
         '''
 
         pass
