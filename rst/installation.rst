@@ -33,7 +33,7 @@ that is not the case.
   * `setuptools <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
   * `cryptography <https://cryptography.io/en/latest/installation/>`_
   * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
-  * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.7.0 or
+  * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.42.0 or
     newer.
   * `trio <https://github.com/python-trio/trio>`_, version 0.15 or newer.
   * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
