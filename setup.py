@@ -68,6 +68,10 @@ def main():
         # accident.
         compile_args.append('-Werror=sign-compare')
 
+        # These warnings have always been harmless, and have always been due to
+        # issues in Cython code rather than S3QL. Cython itself warns if there
+        # are unused variables in .pyx code.
+        compile_args.append('-Wno-unused-parameter')
         compile_args.append('-Wno-unused-function')
 
     required_pkgs = [
