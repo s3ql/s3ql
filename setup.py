@@ -71,7 +71,7 @@ def main():
         compile_args.append('-Wno-unused-function')
 
     required_pkgs = [
-        'apsw >= 3.7.0',
+        'apsw >= 3.42.0',  # https://github.com/rogerbinns/apsw/issues/459
         'cryptography',
         'requests',
         'defusedxml',
