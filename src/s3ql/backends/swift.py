@@ -12,6 +12,7 @@ import logging
 import os
 import re
 import ssl
+import tempfile
 import urllib.parse
 from urllib.parse import urlsplit
 
@@ -37,7 +38,7 @@ from .common import (
     get_ssl_context,
     retry,
 )
-from .s3c import BadDigestError, HTTPError, ObjectW, md5sum_b64
+from .s3c import BadDigestError, HTTPError, md5sum_b64
 
 log = logging.getLogger(__name__)
 
@@ -893,3 +894,92 @@ class ObjectR:
                     "Object closed prematurely, can't check MD5, and have to reset connection"
                 )
             self.backend.conn.disconnect()
+
+
+class ObjectW:
+    '''An S3 object open for writing
+
+    All data is first cached in memory, upload only starts when
+    the close() method is called.
+    '''
+
+    # NOTE: This class is used as a base class for the swift backend,
+    # so changes here should be checked for their effects on other
+    # backends.
+
+    def __init__(self, key, backend, headers):
+        self.key = key
+        self.backend = backend
+        self.headers = headers
+        self.closed = False
+        self.obj_size = 0
+
+        # According to http://docs.python.org/3/library/functions.html#open
+        # the buffer size is typically ~8 kB. We process data in much
+        # larger chunks, so buffering would only hurt performance.
+        self.fh = tempfile.TemporaryFile(buffering=0)
+
+        # False positive, hashlib *does* have md5 member
+        # pylint: disable=E1101
+        self.md5 = hashlib.md5()
+
+    def write(self, buf):
+        '''Write object data'''
+
+        self.fh.write(buf)
+        self.md5.update(buf)
+        self.obj_size += len(buf)
+
+    def is_temp_failure(self, exc):
+        return self.backend.is_temp_failure(exc)
+
+    @retry
+    def close(self):
+        '''Close object and upload data'''
+
+        # Access to protected member ok
+        # pylint: disable=W0212
+
+        log.debug('started with %s', self.key)
+
+        if self.closed:
+            # still call fh.close, may have generated an error before
+            self.fh.close()
+            return
+
+        self.fh.seek(0)
+        self.headers['Content-Type'] = 'application/octet-stream'
+        resp = self.backend._do_request(
+            'PUT', '/%s%s' % (self.backend.prefix, self.key), headers=self.headers, body=self.fh
+        )
+        etag = resp.headers['ETag'].strip('"')
+        self.backend._assert_empty_response(resp)
+
+        if etag != self.md5.hexdigest():
+            # delete may fail, but we don't want to loose the BadDigest exception
+            try:
+                self.backend.delete(self.key)
+            finally:
+                raise BadDigestError(
+                    'BadDigest',
+                    'MD5 mismatch for %s (received: %s, sent: %s)'
+                    % (self.key, etag, self.md5.hexdigest()),
+                )
+
+        self.closed = True
+        self.fh.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        try:
+            self.close()
+        finally:
+            self.fh.close()
+        return False
+
+    def get_obj_size(self):
+        if not self.closed:
+            raise RuntimeError('Object must be closed first.')
+        return self.obj_size
