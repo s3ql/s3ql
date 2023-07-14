@@ -6,7 +6,6 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import hashlib
 import logging
 import os
 import re
@@ -21,7 +20,8 @@ from queue import Queue
 
 import trio
 
-from . import BUFSIZE
+from s3ql.common import sha256_fh
+
 from .backends.common import NoSuchObject
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
@@ -429,19 +429,9 @@ class BlockCache:
             log.debug('uploading %s..', el)
             self.in_transit.add(el)
             added_to_transit = True
-            sha = hashlib.sha256()
             el.seek(0)
-
-            def with_lock_released():
-                while True:
-                    buf = el.read(BUFSIZE)
-                    if not buf:
-                        break
-                    sha.update(buf)
-                return sha.digest()
-
-            hash_ = await trio.to_thread.run_sync(with_lock_released)
-
+            sha = await trio.to_thread.run_sync(sha256_fh, el)
+            hash_ = sha.digest()
         except:
             if added_to_transit:
                 self.in_transit.discard(el)
