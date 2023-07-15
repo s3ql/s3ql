@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 import base64
 import binascii
+import hashlib
 import json
 import logging
 import os
@@ -41,7 +42,6 @@ from ..common import (
 )
 from ..s3c import HTTPError
 from .b2_error import B2Error, BadDigestError
-from .object_r import ObjectR
 from .object_w import ObjectW
 
 log = logging.getLogger(__name__)
@@ -449,8 +449,17 @@ class B2Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
+
+        return self._readinto_fh(key, fh, fh.tell())
+
     @retry
-    def open_read(self, key):
+    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
         response = self._do_download_request('GET', key)
 
         try:
@@ -464,7 +473,18 @@ class B2Backend(AbstractBackend):
                 self._close_connections()
             raise
 
-        return ObjectR(key, response, self, metadata)
+        connection = self._get_download_connection()
+        sha1 = hashlib.sha1()
+
+        copyfh(connection, fh, update=sha1.update)
+
+        remote_sha1 = response.headers['X-Bz-Content-Sha1'].strip('"')
+
+        if remote_sha1 != sha1.hexdigest():
+            log.warning('SHA1 mismatch for %s: %s vs %s', key, remote_sha1, sha1.hexdigest())
+            raise BadDigestError(400, 'SHA1 header does not agree with calculated value')
+
+        return metadata
 
     def open_write(self, key, metadata=None, is_compressed=False):
         '''
