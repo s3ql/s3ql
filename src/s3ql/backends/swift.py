@@ -12,9 +12,8 @@ import logging
 import os
 import re
 import ssl
-import tempfile
-from typing import BinaryIO
 import urllib.parse
+from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import urlsplit
 
 from dugong import (
@@ -223,7 +222,16 @@ class Backend(AbstractBackend):
 
             raise RuntimeError('No valid authentication path found')
 
-    def _do_request(self, method, path, subres=None, query_string=None, headers=None, body=None):
+    def _do_request(
+        self,
+        method,
+        path,
+        subres=None,
+        query_string=None,
+        headers=None,
+        body=None,
+        body_len: Optional[int] = None,
+    ):
         '''Send request, read and return response object
 
         This method modifies the *headers* dictionary.
@@ -256,7 +264,9 @@ class Backend(AbstractBackend):
 
         headers['X-Auth-Token'] = self.auth_token
         try:
-            resp = self._do_request_inner(method, path, body=body, headers=headers)
+            resp = self._do_request_inner(
+                method, path, body=body, headers=headers, body_len=body_len
+            )
         except Exception as exc:
             if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                 # We probably can't use the connection anymore
@@ -282,7 +292,7 @@ class Backend(AbstractBackend):
 
     # Including this code directly in _do_request would be very messy since
     # we can't `return` the response early, thus the separate method
-    def _do_request_inner(self, method, path, body, headers):
+    def _do_request_inner(self, method, path, body, headers, body_len: Optional[int] = None):
         '''The guts of the _do_request method'''
 
         log.debug('started with %s %s', method, path)
@@ -292,7 +302,6 @@ class Backend(AbstractBackend):
             self.conn.send_request(method, path, body=body, headers=headers)
             return self.conn.read_response()
 
-        body_len = os.fstat(body.fileno()).st_size
         self.conn.send_request(
             method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
         )
@@ -304,8 +313,9 @@ class Backend(AbstractBackend):
                 return resp
 
         log.debug('writing body data')
+        md5 = hashlib.md5()
         try:
-            copyfh(body, self.conn)
+            copyfh(body, self.conn, len_=body_len, update=md5.update)
         except ConnectionClosed:
             log.debug('interrupted write, server closed connection')
             # Server closed connection while we were writing body data -
@@ -327,7 +337,21 @@ class Backend(AbstractBackend):
             # Re-raise original error
             raise
 
-        return self.conn.read_response()
+        resp = self.conn.read_response()
+
+        # On success, check MD5. Not sure if this is returned every time we send a request body, but
+        # it seems to work. If not, we have to somehow pass in the information when this is expected
+        # (i.e, when storing an object)
+        if resp.status >= 200 and resp.status <= 299:
+            etag = resp.headers['ETag'].strip('"')
+
+            if etag != md5.hexdigest():
+                raise BadDigestError(
+                    'BadDigest',
+                    f'MD5 mismatch when sending {method} {path} (received: {etag}, sent: {md5.hexdigest()})',
+                )
+
+        return resp
 
     @retry
     def lookup(self, key):
@@ -408,22 +432,54 @@ class Backend(AbstractBackend):
 
         return meta
 
-    def open_write(self, key, metadata=None, is_compressed=False):
-        """
-        The returned object will buffer all data and only start the upload
-        when its `close` method is called.
-        """
-        log.debug('started with %s', key)
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried. Returns the size of the resulting storage object.
+        '''
 
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
+        off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            len_ = fh.tell()
+        return self._write_fh(key, fh, off, len_, metadata or {})
+
+    @retry
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+
         headers = CaseInsensitiveDict()
-        if metadata is None:
-            metadata = dict()
         self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 
-        return ObjectW(key, self, headers)
+        headers['Content-Type'] = 'application/octet-stream'
+        fh.seek(off)
+        try:
+            resp = self._do_request(
+                'PUT',
+                '/%s%s' % (self.prefix, key),
+                headers=headers,
+                body=fh,
+                body_len=len_,
+            )
+        except BadDigestError:
+            # Object was corrupted in transit, make sure to delete it
+            self.delete(key)
+            raise
+
+        self._assert_empty_response(resp)
+        return len_
 
     @retry
     def delete(self, key):
@@ -835,92 +891,3 @@ class Features:
 
     def __ne__(self, other):
         return repr(self) != repr(other)
-
-
-class ObjectW:
-    '''An S3 object open for writing
-
-    All data is first cached in memory, upload only starts when
-    the close() method is called.
-    '''
-
-    # NOTE: This class is used as a base class for the swift backend,
-    # so changes here should be checked for their effects on other
-    # backends.
-
-    def __init__(self, key, backend, headers):
-        self.key = key
-        self.backend = backend
-        self.headers = headers
-        self.closed = False
-        self.obj_size = 0
-
-        # According to http://docs.python.org/3/library/functions.html#open
-        # the buffer size is typically ~8 kB. We process data in much
-        # larger chunks, so buffering would only hurt performance.
-        self.fh = tempfile.TemporaryFile(buffering=0)
-
-        # False positive, hashlib *does* have md5 member
-        # pylint: disable=E1101
-        self.md5 = hashlib.md5()
-
-    def write(self, buf):
-        '''Write object data'''
-
-        self.fh.write(buf)
-        self.md5.update(buf)
-        self.obj_size += len(buf)
-
-    def is_temp_failure(self, exc):
-        return self.backend.is_temp_failure(exc)
-
-    @retry
-    def close(self):
-        '''Close object and upload data'''
-
-        # Access to protected member ok
-        # pylint: disable=W0212
-
-        log.debug('started with %s', self.key)
-
-        if self.closed:
-            # still call fh.close, may have generated an error before
-            self.fh.close()
-            return
-
-        self.fh.seek(0)
-        self.headers['Content-Type'] = 'application/octet-stream'
-        resp = self.backend._do_request(
-            'PUT', '/%s%s' % (self.backend.prefix, self.key), headers=self.headers, body=self.fh
-        )
-        etag = resp.headers['ETag'].strip('"')
-        self.backend._assert_empty_response(resp)
-
-        if etag != self.md5.hexdigest():
-            # delete may fail, but we don't want to loose the BadDigest exception
-            try:
-                self.backend.delete(self.key)
-            finally:
-                raise BadDigestError(
-                    'BadDigest',
-                    'MD5 mismatch for %s (received: %s, sent: %s)'
-                    % (self.key, etag, self.md5.hexdigest()),
-                )
-
-        self.closed = True
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        try:
-            self.close()
-        finally:
-            self.fh.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
