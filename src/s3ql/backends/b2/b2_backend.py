@@ -17,6 +17,7 @@ import ssl
 import urllib
 from ast import literal_eval
 from itertools import count
+from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import urlparse
 
 from dugong import (
@@ -42,7 +43,6 @@ from ..common import (
 )
 from ..s3c import HTTPError
 from .b2_error import B2Error, BadDigestError
-from .object_w import ObjectW
 
 log = logging.getLogger(__name__)
 
@@ -308,45 +308,6 @@ class B2Backend(AbstractBackend):
 
         return response
 
-    def _do_upload_request(self, headers=None, body=None):
-        upload_url_info = self._get_upload_url_info()
-        headers['Authorization'] = upload_url_info['authorizationToken']
-
-        if self.test_mode_fail_some_uploads:
-            headers['X-Bz-Test-Mode'] = 'fail_some_uploads'
-
-        upload_url_info['isUploading'] = True
-
-        try:
-            _, response_body = self._do_request(
-                upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body
-            )
-        except B2Error as exc:
-            if exc.status == 503:
-                # storage url too busy, change it
-                self._invalidate_upload_url(upload_url_info)
-
-            raise
-
-        except (ConnectionClosed, ConnectionTimedOut):
-            # storage url too busy, change it
-            self._invalidate_upload_url(upload_url_info)
-            raise
-
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # we better get a new upload url
-                self._invalidate_upload_url(upload_url_info)
-            else:
-                upload_url_info['connection'].reset()
-                upload_url_info['isUploading'] = False
-            raise
-
-        upload_url_info['isUploading'] = False
-
-        json_response = json.loads(response_body.decode('utf-8'))
-        return json_response
-
     @retry
     def _get_bucket_id(self):
         if not self.bucket_id:
@@ -477,21 +438,95 @@ class B2Backend(AbstractBackend):
 
         return metadata
 
-    def open_write(self, key, metadata=None, is_compressed=False):
-        '''
-        The returned object will buffer all data and only start the uploads
-        when its `close` method is called.
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried. Returns the size of the resulting storage object.
         '''
 
-        log.debug('started with %s', key)
+        off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            len_ = fh.tell()
+        return self._write_fh(key, fh, off, len_, metadata or {})
 
-        headers = CaseInsensitiveDict()
+    @retry
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+
+        headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
 
         self._add_b2_metadata_to_headers(headers, metadata)
 
-        return ObjectW(key, self, headers)
+        key_with_prefix = self.backend._get_key_with_prefix(self.key)
+
+        headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
+        headers['Content-Type'] = 'application/octet-stream'
+        headers['Content-Length'] = len_
+        headers['X-Bz-Content-Sha1'] = 'hex_digits_at_end'
+
+        upload_url_info = self._get_upload_url_info()
+        headers['Authorization'] = upload_url_info['authorizationToken']
+
+        upload_url_info['isUploading'] = True
+        conn = upload_url_info['connection']
+
+        fh.seek(off)
+        sha1 = hashlib.sha1()
+        try:
+            # 40 extra characters for hexdigest
+            conn.send_request(
+                'POST', upload_url_info['path'], headers=headers, body=BodyFollowing(len_ + 40)
+            )
+            copyfh(fh, conn, len_=len_, update=sha1.update)
+            conn.write(sha1.hexdigest())
+
+            response = conn.read_response()
+            response_body = conn.readall()
+
+            if response.status != 200:
+                json_error_response = (
+                    json.loads(response_body.decode('utf-8')) if response_body else None
+                )
+                code = json_error_response['code'] if json_error_response else None
+                message = json_error_response['message'] if json_error_response else response.reason
+                b2_error = B2Error(json_error_response['status'], code, message, response.headers)
+                raise b2_error
+        except B2Error as exc:
+            if exc.status == 503:
+                # storage url too busy, change it
+                self._invalidate_upload_url(upload_url_info)
+            raise
+
+        except (ConnectionClosed, ConnectionTimedOut):
+            # storage url too busy, change it
+            self._invalidate_upload_url(upload_url_info)
+            raise
+
+        except Exception as exc:
+            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
+                # we better get a new upload url
+                self._invalidate_upload_url(upload_url_info)
+            else:
+                upload_url_info['connection'].reset()
+                upload_url_info['isUploading'] = False
+            raise
+
+        upload_url_info['isUploading'] = False
+
+        json_response = json.loads(response_body.decode('utf-8'))
+        return json_response
 
     def delete(self, key, force=False):
         log.debug('started with %s', key)
