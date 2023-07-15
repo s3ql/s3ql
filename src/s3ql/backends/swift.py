@@ -13,6 +13,7 @@ import os
 import re
 import ssl
 import tempfile
+from typing import BinaryIO
 import urllib.parse
 from urllib.parse import urlsplit
 
@@ -365,8 +366,17 @@ class Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
+
+        return self._readinto_fh(key, fh, fh.tell())
+
     @retry
-    def open_read(self, key):
+    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         try:
@@ -375,6 +385,7 @@ class Backend(AbstractBackend):
             if exc.status == 404:
                 raise NoSuchObject(key)
             raise
+        etag = resp.headers['ETag'].strip('"')
 
         try:
             meta = self._extractmeta(resp, key)
@@ -387,7 +398,15 @@ class Backend(AbstractBackend):
                 self.conn.disconnect()
             raise
 
-        return ObjectR(key, resp, self, meta)
+        md5 = hashlib.md5()
+        fh.seek(off)
+        copyfh(self.conn, fh, update=md5.update)
+
+        if etag != md5.hexdigest():
+            log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
+            raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
+
+        return meta
 
     def open_write(self, key, metadata=None, is_compressed=False):
         """
@@ -816,84 +835,6 @@ class Features:
 
     def __ne__(self, other):
         return repr(self) != repr(other)
-
-
-class ObjectR:
-    '''An S3 object open for reading'''
-
-    # NOTE: This class is used as a base class for the swift backend,
-    # so changes here should be checked for their effects on other
-    # backends.
-
-    def __init__(self, key, resp, backend, metadata=None):
-        self.key = key
-        self.resp = resp
-        self.closed = False
-        self.md5_checked = False
-        self.backend = backend
-        self.metadata = metadata
-
-        # False positive, hashlib *does* have md5 member
-        # pylint: disable=E1101
-        self.md5 = hashlib.md5()
-
-    def read(self, size=None):
-        '''Read up to *size* bytes of object data
-
-        For integrity checking to work, this method has to be called until
-        it returns an empty string, indicating that all data has been read
-        (and verified).
-        '''
-
-        if size == 0:
-            return b''
-
-        # This may raise an exception, in which case we probably can't
-        # re-use the connection. However, we rely on the caller
-        # to still close the file-like object, so that we can do
-        # cleanup in close().
-        buf = self.backend.conn.read(size)
-        self.md5.update(buf)
-
-        # Check MD5 on EOF
-        # (size == None implies EOF)
-        if (not buf or size is None) and not self.md5_checked:
-            etag = self.resp.headers['ETag'].strip('"')
-            self.md5_checked = True
-            if etag != self.md5.hexdigest():
-                log.warning('MD5 mismatch for %s: %s vs %s', self.key, etag, self.md5.hexdigest())
-                raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
-        return buf
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, *_):
-        # If we're handling an exception, then it's likely that the caller won't
-        # expect that the file has been read completely.
-        self.close(checksum_warning=exc_type is None)
-        return False
-
-    def close(self, checksum_warning=True):
-        '''Close object
-
-        If *checksum_warning* is true, this will generate a warning message if
-        the object has not been fully read (because in that case the MD5
-        checksum cannot be checked).
-        '''
-
-        if self.closed:
-            return
-        self.closed = True
-
-        # If we have not read all the data, close the entire
-        # connection (otherwise we loose synchronization)
-        if not self.md5_checked:
-            if checksum_warning:
-                log.warning(
-                    "Object closed prematurely, can't check MD5, and have to reset connection"
-                )
-            self.backend.conn.disconnect()
 
 
 class ObjectW:
