@@ -413,6 +413,12 @@ Backblaze B2
 
 Backblaze B2 is a cloud storage with its own API.
 
+.. warning::
+
+   S3QL developers do not have access to a Backblaze instance, so this backend is not
+   being tested before release and may break randomly. This backend depends on Backblaze
+   users to test and maintain it (aka submit pull requests when it doesn't work).
+
 The storage URL for backblaze b2 storage is ::
 
    b2://<bucket-name>[/<prefix>]
