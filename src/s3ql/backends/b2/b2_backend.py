@@ -56,9 +56,7 @@ class B2Backend(AbstractBackend):
     known_options = {
         'disable-versions',
         'retry-on-cap-exceeded',
-        'test-mode-fail-some-uploads',
-        'test-mode-expire-some-tokens',
-        'test-mode-force-cap-exceeded',
+        'test-mode',
         'tcp-timeout',
     }
 
@@ -83,10 +81,9 @@ class B2Backend(AbstractBackend):
         self.disable_versions = 'disable-versions' in self.options
         self.retry_on_cap_exceeded = 'retry-on-cap-exceeded' in self.options
 
-        # Test modes
-        self.test_mode_fail_some_uploads = 'test-mode-fail-some-uploads' in self.options
-        self.test_mode_expire_some_tokens = 'test-mode-expire-some-tokens' in self.options
-        self.test_mode_force_cap_exceeded = 'test-mode-force-cap-exceeded' in self.options
+        self._extra_headers = CaseInsensitiveDict()
+        if 'test-mode' in self.options:
+            self._test_headers['X-Bz-Test-Mode'] = self.options['test-mode']
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -232,19 +229,13 @@ class B2Backend(AbstractBackend):
         log.debug('started with %s %s', method, path)
 
         if headers is None:
-            headers = CaseInsensitiveDict()
+            headers = CaseInsensitiveDict(self._extra_headers)
 
         if self.authorization_token is None:
             self._authorize_account()
 
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
-
-        if self.test_mode_expire_some_tokens:
-            headers['X-Bz-Test-Mode'] = 'expire_some_account_authorization_tokens'
-
-        if self.test_mode_force_cap_exceeded:
-            headers['X-Bz-Test-Mode'] = 'force_cap_exceeded'
 
         log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
