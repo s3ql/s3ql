@@ -19,6 +19,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from typing import Any, BinaryIO, Dict, Optional
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
@@ -135,16 +136,14 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
 
 
 class MockBackend:
-    def open_write(key, metadata=None, is_compressed=False):
-        return MockFH()
-
-
-class MockFH:
-    def write(self, buf):
-        pass
-
-    def close(self):
-        pass
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        return len_
 
 
 def main(args=None):

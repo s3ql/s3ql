@@ -593,27 +593,12 @@ class MockBackendPool(AbstractBackend):
             raise RuntimeError('Got too many readinto_fh calls')
         return self.backend.readinto_fh(key, fh)
 
-    # Legacy, remove once transition from open_read() to readinto_fh() is complete
-    def open_read(self, key):
-        self.no_read -= 1
-        if self.no_read < 0:
-            raise RuntimeError('Got too many open_read calls')
-        return self.backend.open_read(key)
-
     def write_fh(self, key, fh, metadata=None, dont_compress=False, len_=None):
         self.no_write -= 1
         if self.no_write < 0:
             raise RuntimeError('Got too many write_fh calls')
 
         return self.backend.write_fh(key, fh, metadata, dont_compress=dont_compress, len_=len_)
-
-    # Legacy, remove once transition from open_write() to write_fh() is complete
-    def open_write(self, key, metadata=None, is_compressed=False):
-        self.no_write -= 1
-        if self.no_write < 0:
-            raise RuntimeError('Got too many open_write calls')
-
-        return self.backend.open_write(key, metadata, is_compressed)
 
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
