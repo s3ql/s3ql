@@ -451,23 +451,20 @@ are the following:
    controls if operations should be retried as cap counters are reset every day.
    Otherwise the exception would abort the program.
 
-.. option:: test-mode-fail-some-uploads
+.. option:: test_mode=<value>
 
-   This option puts the backblaze B2 server into test mode by adding a special header
-   to the upload requests. The server will then randomly fail some uploads. Use
-   only to test the failure resiliency of the backend implementation as it causes
-   unnecessary traffic, delays and transactions.
+   This option puts the backblaze B2 server into test mode by adding a special header to the
+   requests. Use this option only to test the failure resiliency of the backend implementation as it
+   causes unnecessary traffic, delays and transactions.
 
-.. option:: test-mode-expire-some-tokens
+   Valid values are documented in
+   https://www.backblaze.com/docs/en/cloud-storage-integration-checklist and include:
 
-   Similarly to the option above this lets the server fail some authorization tokens
-   in order to test the reauthorization of the backend implementation.
+   - `fail_some_uploads` to randomly fail some uploads.
+   - `expire_some_account_authorization_tokens` to let the server fail some authorization tokens.
+   - `force_cap_exceeded` to let the server to behave as if the data/transaction
+      caps were exceeded.
 
-.. option:: test-mode-force-cap-exceeded
-
-   Like above this option instructs the server to behave as if the data/transaction
-   caps were exceeded. Use this only to test the backend implementation for correct/desired
-   behavior. Can be useful in conjunction with *retry-on-cap-exceeded* option.
 
 .. option:: tcp-timeout
 
