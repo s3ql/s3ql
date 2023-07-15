@@ -23,7 +23,6 @@ from functools import wraps
 from io import BytesIO
 from typing import Any, BinaryIO, Dict, Optional
 
-from .. import BUFSIZE
 from ..logging import LOG_ONCE, QuietError
 
 log = logging.getLogger(__name__)
@@ -252,32 +251,16 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         pass
 
-    # Dummy implementation for backends that still implement the deprecated open_read()
-    # API rather than readinto_fh.
+    @abstractmethod
     def readinto_fh(self, key: str, fh: BinaryIO):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
         `is_temp_failure`) occurs, the operation is retried.
         '''
+        pass
 
-        off = fh.tell()
-
-        @retry
-        def _inner(self):
-            with self.open_read(key) as ifh:
-                fh.seek(off)
-                while True:
-                    buf = ifh.read(BUFSIZE)
-                    if not buf:
-                        break
-                    fh.write(buf)
-                return ifh.metadata
-
-        return _inner(self)
-
-    # Dummy implementation for backends that still implement the deprecated open_write()
-    # API rather than write_fh.
+    @abstractmethod
     def write_fh(
         self,
         key: str,
@@ -292,31 +275,9 @@ class AbstractBackend(object, metaclass=ABCMeta):
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried.  Returns the size of the resulting storage object (which may be less due
-        to compression)'''
-
-        off = fh.tell()
-
-        @retry
-        def _inner(self):
-            with self.open_write(key, metadata) as ofh:
-                fh.seek(off)
-                if len_:
-                    to_read = len_
-                    while to_read > 0:
-                        buf = fh.read(min(BUFSIZE, to_read))
-                        if not buf:
-                            break
-                        ofh.write(buf)
-                        to_read -= len(buf)
-                else:
-                    while True:
-                        buf = fh.read(BUFSIZE)
-                        if not buf:
-                            break
-                        ofh.write(buf)
-            return ofh.get_obj_size()
-
-        return _inner(self)
+        to compression)
+        '''
+        pass
 
     def fetch(self, key):
         """Return data stored under `key`.
