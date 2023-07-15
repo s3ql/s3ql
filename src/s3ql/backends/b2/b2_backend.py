@@ -60,8 +60,6 @@ class B2Backend(AbstractBackend):
         'tcp-timeout',
     }
 
-    available_upload_url_infos = []
-
     def __init__(self, options):
         '''Initialize backend object'''
 
@@ -83,7 +81,7 @@ class B2Backend(AbstractBackend):
 
         self._extra_headers = CaseInsensitiveDict()
         if 'test-mode' in self.options:
-            self._test_headers['X-Bz-Test-Mode'] = self.options['test-mode']
+            self._extra_headers['X-Bz-Test-Mode'] = self.options['test-mode']
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -93,9 +91,12 @@ class B2Backend(AbstractBackend):
         # are set by _authorize_account
         self.api_url = None
         self.download_url = None
-        self.authorization_token = None
+        self.api_authorization_token = None
         self.api_connection = None
         self.download_connection = None
+        self.upload_connection = None
+        self.upload_token = None
+        self.upload_path = None
 
     def _get_key_with_prefix(self, key):
         return self._b2_escape_backslashes('%s%s' % (self.prefix, key))
@@ -140,12 +141,19 @@ class B2Backend(AbstractBackend):
             self.download_connection.disconnect()
             self.download_connection = None
 
+        if self.upload_connection:
+            self.upload_connection.disconnect()
+            self.upload_connection = None
+
     def _reset_connections(self):
         if self.api_connection:
             self.api_connection.reset()
 
         if self.download_connection:
             self.download_connection.reset()
+
+        if self.upload_connection:
+            self.upload_connection.reset()
 
     def _get_download_connection(self):
         if self.download_url is None:
@@ -470,24 +478,20 @@ class B2Backend(AbstractBackend):
         self._add_b2_metadata_to_headers(headers, metadata)
 
         key_with_prefix = self.backend._get_key_with_prefix(self.key)
+        conn = self._get_upload_conn()
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
         headers['Content-Type'] = 'application/octet-stream'
         headers['Content-Length'] = len_
         headers['X-Bz-Content-Sha1'] = 'hex_digits_at_end'
-
-        upload_url_info = self._get_upload_url_info()
-        headers['Authorization'] = upload_url_info['authorizationToken']
-
-        upload_url_info['isUploading'] = True
-        conn = upload_url_info['connection']
+        headers['Authorization'] = self.upload_token
 
         fh.seek(off)
         sha1 = hashlib.sha1()
         try:
             # 40 extra characters for hexdigest
             conn.send_request(
-                'POST', upload_url_info['path'], headers=headers, body=BodyFollowing(len_ + 40)
+                'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
             )
             copyfh(fh, conn, len_=len_, update=sha1.update)
             conn.write(sha1.hexdigest())
@@ -506,24 +510,13 @@ class B2Backend(AbstractBackend):
         except B2Error as exc:
             if exc.status == 503:
                 # storage url too busy, change it
-                self._invalidate_upload_url(upload_url_info)
+                self.upload_connection = None
             raise
 
         except (ConnectionClosed, ConnectionTimedOut):
             # storage url too busy, change it
-            self._invalidate_upload_url(upload_url_info)
+            self.upload_connection = None
             raise
-
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # we better get a new upload url
-                self._invalidate_upload_url(upload_url_info)
-            else:
-                upload_url_info['connection'].reset()
-                upload_url_info['isUploading'] = False
-            raise
-
-        upload_url_info['isUploading'] = False
 
         json_response = json.loads(response_body.decode('utf-8'))
         return json_response
@@ -651,61 +644,20 @@ class B2Backend(AbstractBackend):
     def close(self):
         self._reset_connections()
 
-    def _get_upload_url_info(self):
-        def find(f, seq):
-            for item in seq:
-                if f(item):
-                    return item
-
-        upload_url_info = find(
-            lambda info: info['isUploading'] == False, self.available_upload_url_infos
-        )
-
-        if upload_url_info is None:
-            upload_url_info = self._request_upload_url_info()
-            self.available_upload_url_infos.append(upload_url_info)
-
-        return upload_url_info
-
     @retry
-    def _request_upload_url_info(self):
-        request_data = {'bucketId': self._get_bucket_id()}
-        response = self._do_api_call('b2_get_upload_url', request_data)
+    def _get_upload_conn(self):
+        if not self.upload_connection:
+            request_data = {'bucketId': self._get_bucket_id()}
+            response = self._do_api_call('b2_get_upload_url', request_data)
+            upload_url = urlparse(response['uploadUrl'])
+            self.upload_token = response['authorizationToken']
+            self.upload_path = upload_url.path
 
-        new_upload_url = urlparse(response['uploadUrl'])
-        new_authorization_token = response['authorizationToken']
-
-        upload_connection = HTTPConnection(
-            new_upload_url.hostname, 443, ssl_context=self.ssl_context
-        )
-        upload_connection.timeout = self.tcp_timeout
-
-        return {
-            'hostname': new_upload_url.hostname,
-            'connection': upload_connection,
-            'path': new_upload_url.path,
-            'authorizationToken': new_authorization_token,
-            'isUploading': False,
-        }
-
-    def _invalidate_upload_url(self, upload_url_info):
-        '''Removes a no longer working upload url from the available
-        upload urls.
-        '''
-
-        log.debug(
-            'invalidating upload url: %s %s', upload_url_info['hostname'], upload_url_info['path']
-        )
-
-        if upload_url_info['connection'] is not None:
-            upload_url_info['connection'].disconnect()
-
-        try:
-            self.available_upload_url_infos.remove(upload_url_info)
-        except ValueError:
-            pass
-
-        log.debug('upload urls left: %d', len(self.available_upload_url_infos))
+            self.upload_connection = HTTPConnection(
+                upload_url.hostname, 443, ssl_context=self.ssl_context
+            )
+            self.upload_connection.timeout = self.tcp_timeout
+        return self.upload_connection
 
     @staticmethod
     def _b2_url_encode(s):
