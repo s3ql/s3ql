@@ -720,9 +720,15 @@ class Backend(AbstractBackend):
             if resp.status != 100:  # Error
                 return resp
 
-        md5 = hashlib.md5()
+        if self.ssl_context:
+            # No need to check MD5 when using SSL
+            md5_update = None
+        else:
+            md5 = hashlib.md5()
+            md5_update = md5.update
+
         try:
-            copyfh(body, self.conn, len_=body_len, update=md5.update)
+            copyfh(body, self.conn, len_=body_len, update=md5_update)
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
@@ -742,7 +748,7 @@ class Backend(AbstractBackend):
         # On success, check MD5. Not sure if this is returned every time we send a request body, but
         # it seems to work. If not, we have to somehow pass in the information when this is expected
         # (i.e, when storing an object)
-        if resp.status >= 200 and resp.status <= 299:
+        if resp.status >= 200 and resp.status <= 299 and md5_update is not None:
             etag = resp.headers['ETag'].strip('"')
 
             if etag != md5.hexdigest():
