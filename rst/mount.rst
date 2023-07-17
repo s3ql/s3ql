@@ -19,19 +19,18 @@ command. It has the following syntax::
 
 This command accepts the following options:
 
-.. pipeinclude:: python ../bin/mount.s3ql --help
+.. pipeinclude:: python3 ../bin/mount.s3ql --help
    :start-after: show this help message and exit
 
 
 Permission Checking
 ===================
 
-If the file system is mounted with neither the :cmdopt:`allow-root`
-nor :cmdopt:`allow-other` option, the mounting user has full
-permissions on the S3QL file system (he is effectively root). If one
-(or both) of the options is used, standard unix permission checks
-apply, i.e. only the real root user has full access and all other
-users (including the mounting user) are subject to permission checks.
+If the file system is mounted with neither the :cmdopt:`allow-root` nor
+:cmdopt:`allow-other` option, the mounting user has full permissions on the S3QL file
+system no matter the owner and mode of individual files. If one (or both) of the options
+is used, standard unix permission checks apply, i.e. only the real root user has full
+access and all other users (including the mounting user) are subject to permission checks.
 
 
 Compression Algorithms
@@ -46,12 +45,12 @@ Roughly speaking, LZMA is slower but achieves better compression
 ratios than Bzip2, while Bzip2 in turn is slower but achieves better
 compression ratios than zlib.
 
-For maximum file system performance, the best algorithm therefore
-depends on your network connection speed: the compression algorithm
-should be fast enough to saturate your network connection.
+For maximum file system performance, the best algorithm therefore depends on your network
+connection speed: the compression should be just fast enough to saturate your network
+connection.
 
-To find the optimal algorithm and number of parallel compression
-threads for your system, S3QL ships with a program called
+To find the optimal algorithm and number of concurrent compression
+operations for your system, S3QL ships with a program called
 `benchmark.py` in the `contrib` directory. You should run this program
 on a file that has a size that is roughly equal to the block size of
 your file system and has similar contents. It will then determine the
@@ -95,14 +94,12 @@ system-wide depends on your distribution.
 Cache Flushing and Expiration
 -----------------------------
 
-S3QL flushes changed blocks in the cache to the backend whenever a block
-has not been accessed for at least 10 seconds by default. This time can
-be influenced using the :cmdopt:`--dirty-block-upload-delay` option. Note
-that when a block is flushed, it still remains in the cache.
+S3QL writes changed blocks to the backend whenever a block in the cache has not been
+modified for some time, or when it runs out of cache space.  The time can set using the
+:cmdopt:`--dirty-block-upload-delay` option.
 
-Cache expiration (i.e., removal of blocks from the cache) is only done
-when the maximum cache size is reached. S3QL always expires the least
-recently used blocks first.
+Cache expiration (i.e., removal of blocks from the cache) is only done when the maximum
+cache size is reached. S3QL always expires the least recently used blocks first.
 
 NFS Support
 ===========
@@ -177,26 +174,22 @@ Automatic Mounting
 
 If you want to mount and umount an S3QL file system automatically at
 system startup and shutdown, you should do so with a dedicated S3QL
-init job (instead of using :file:`/etc/fstab`. When using systemd,
+init job (instead of using :file:`/etc/fstab`). When using systemd,
 :program:`mount.s3ql` can be started with :cmdopt:`--systemd` to run
 as a systemd service of type ``notify``.
 
-.. NOTE::
 
-   In principle, it is also possible to automatically mount an S3QL
-   file system with an appropriate entry in `/etc/fstab`. However,
-   this is not recommended for several reasons:
+In principle, it is also possible to automatically mount an S3QL file system with an
+appropriate entry in `/etc/fstab`. However, this is not recommended for several reasons:
 
-   * file systems mounted in :file:`/etc/fstab` will be unmounted with the
-     :program:`umount` command, so your system will not wait until all data has
-     been uploaded but shutdown (or restart) immediately (this is a
-     FUSE limitation, cf https://github.com/libfuse/libfuse/issues/1).
+* file systems mounted in :file:`/etc/fstab` will be unmounted with the :program:`umount`
+  command, so your system will not wait until all data has been uploaded but shutdown (or
+  restart) immediately (this is a FUSE limitation, cf
+  https://github.com/libfuse/libfuse/issues/1).
 
-   * There is no way to tell the system that mounting S3QL requires a
-     Python interpreter to be available, so it may attempt to run
-     :program:`mount.s3ql` before it has mounted the volume containing
-     the Python interpreter.
+* There is no way to tell the system that mounting S3QL requires a Python interpreter to
+  be available, so it may attempt to run :program:`mount.s3ql` before it has mounted the
+  volume containing the Python interpreter.
 
-   * There is no standard way to tell the system that internet
-     connection has to be up before the S3QL file system can be
-     mounted.
+* There is no standard way to tell the system that internet connection has to be up before
+  the S3QL file system can be mounted.

@@ -3,24 +3,6 @@
 ============================
 
 
-What does "python-apsw must be linked dynamically to sqlite3" mean?
-===================================================================
-
-This error occurs if your python-apsw module is statically linked
-against SQLite. You need to recompile and install the module with the
-proper settings for dynamic linking.
-
-If you are using Ubuntu or Debian, make sure that you are **not**
-using the apsw PPA at
-https://launchpad.net/~ubuntu-rogerbinns/+archive/apsw, since this PPA
-provides statically linked packages. Instead, use the *python-apsw*
-packages shipped with Debian/Ubuntu. You can reinstall the package
-(after removing the apsw PPA from :file:`/etc/apt/sources.list` and
-:file:`/etc/apt/sources.list.d/*` with::
-
-        # dpkg --purge --force-depends python-apsw
-        # apt-get install python-apsw
-
 How can I improve the file system throughput?
 =============================================
 
@@ -51,7 +33,7 @@ Which operating systems are supported?
 
 S3QL is developed on Linux, but should in principle work on all FUSE
 supported operating systems that have the required Python modules. The
-:program:`{umount.s3ql` program does some tricks which may not work on
+:program:`umount.s3ql` program does some tricks which may not work on
 non-Linux systems, but you can always umount with the ``fusermount
 -u`` command provided by FUSE itself (the only difference is that it
 will not block until all data has been uploaded to S3 but return
@@ -80,35 +62,23 @@ The great thing about data de-duplication is that you don't need to know anythin
 What does the "Transport endpoint not connected" error mean?
 ============================================================
 
-It means that the file system has crashed. Please check
-:file:`mount.log` for a more useful error message and report a bug if
-appropriate. If you can't find any errors in :file:`mount.log`, the
-mount process may have "segfaulted". To confirm this, look for a
-corresponding message in the :program:`dmesg` output. If the mount process
-segfaulted, please try to obtain a C backtrace (see [[Providing
-Debugging Info]]) of the crash and file a bug report.
+It means that the file system has crashed. Please check :file:`mount.log` and
+:file:`mount.s3ql_crit.log` for a more useful error message and report a bug if
+appropriate.
 
-To make the mountpoint available again (i.e., unmount the crashed file
-system), use the ``fusermount -u`` command.
+To make the mountpoint available again (i.e., unmount the crashed file system), use the
+``fusermount -u`` command.
 
-Before reporting a bug, please make sure that you're not just using
-the most recent S3QL version, but also the most-recent version of the
-most important dependencies (python-llfuse, python-apsw, python-lzma).
+Before reporting a bug, please make sure that you're using the most recent S3QL version.
 
 What does "Backend reports that fs is still mounted elsewhere, aborting" mean?
 ==============================================================================
 
-It means that either the file systems has not been unmounted cleanly,
-or the data from the most-recent mount is not yet available from the
-backend. In the former case you should try to run fsck on the computer
-where the file system has been mounted most recently. In the later
-case, waiting may fix the problem: many storage providers have a
-so-called "consistency window" for which recently uploaded data may
-not yet be available for download. If you know that your backend is
-fully consistent, or the consistency window has passed, you can also
-run fsck in this situation. S3QL will then assume that whatever data
-is missing at this point is not going to show up again in the
-future. Affected files will be moved to /lost+found.
+It means that either the file systems has not been unmounted cleanly or is still
+mounted. If you are sure that the file system is not mounted anywhere, run
+:command:`fsck.s3ql`, ideally on the computer where the file system has been mounted most
+recently.
+
 
 Can I access an S3QL file system on multiple computers simultaneously?
 ======================================================================
@@ -123,30 +93,22 @@ the cloud servers to synchronize quickly and often enough).
 
 Therefore, the only way to share an S3QL file system among different
 computers is to have one "master" computer that runs *mount.s3ql*,
-and then shares the mountpoint over a network file system like NFS,
-CIFS or sshfs. If the participating computers are connected over an
-insecure network, NFS and CIFS should be combined with VPN software
-like `Tinc <http://www.tinc-vpn.org/>`_ (which is very easy to set up
-for a few computers) or OpenVPN (which is a lot more complicated).
+and then shares the mountpoint over a network file system like NFS or
+CIFS.
 
-In principle, both VPN and NFS/CIFS-alike functionality could be
-integrated into S3QL to allow simultaneous mounting using
-*mount.s3ql* directly. However, consensus among the S3QL developers
-is that this is not worth the increased complexity.
 
 What block size should I use?
 =============================
 
 The :cmdopt:`--data-block-size` option of the :program:`mkfs.s3ql` command determines the maximum
-size of the data chunks that S3QL exchanges with the backend server.
+size of the data blocks that S3QL exchanges with the backend server.
 
-For files smaller than the block size, this option has no
-effect. Files larger than the maximum object size are split into
-multiple chunks. Whenever you upload or download data from the
-backend, this is done in complete chunks. So if you have configured a
-maximum object size of 10 MB, and want to read (or write) 5 bytes in a
-100 MB file, you will still download (or upload) 10 MB of data. If you
-decreased the maximum object size to 5 MB, you'd download/upload 5 MB.
+For files smaller than the block size, this option has no effect. Files larger than the
+maximum object size are split into multiple blocks. Whenever you upload or download data
+from the backend, this is done in complete blocks. So if you have configured a maximum
+object size of 10 MB, and want to read (or write) 5 bytes in a 100 MB file, you will still
+download (or upload) roughly 10 MB of data (compression may reduce this amount). If you
+decreased the maximum object size to 5 MB, you'd download/upload only about 5 MB.
 
 On the other hand, if you want to read the whole 100 MB, and have
 configured a block size of 10 MB, S3QL will have to send 10 separate
@@ -180,7 +142,7 @@ periodically synchronize to an S3QL mountpoint. For example, if you
 would like to have an S3QL mountpoint with persistent cache at
 :file:`/mnt/data`, you get can this as follows:
 
-#. Mount a local block device at :file:`/mnt/data`, e.g. using ext4 or btrfs
+#. Mount a local block device at :file:`/mnt/data`.
 #. Mount an S3QL file system at :file:`/mnt/data_online` using a small
    cache size and number of threads (eg. :cmdopt:`--threads
    2 --max-cache-entries 10`).
@@ -198,11 +160,3 @@ would like to have an S3QL mountpoint with persistent cache at
 
 #. Now use :file:`/mnt/data` in the same way as you would use an S3QL
    file system with a persistent cache.
-
-I would like to use S3QL with Hubic, but...
-===========================================
-
-`HubiC <http://www.hubic.com/>`_ has a terribly designed API,
-effectively no customer service, and the servers are unreliable and
-produce sporadic weird errors. Don't expect any help if you encounter
-problems with S3QL and hubiC.

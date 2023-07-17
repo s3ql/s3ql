@@ -101,25 +101,8 @@ be removed entirely and immediately.
 Runtime Configuration
 =====================
 
-
-The `s3qlctrl` can be used to control a mounted S3QL file system. Its
-syntax is ::
-
  s3qlctrl [options] <action> <mountpoint> ...
 
-`<mountpoint>` must be the location of a mounted S3QL file system.
-For a list of valid options, run `s3qlctrl --help`. `<action>`
-may be either of:
-
-  :flushcache:
-              Flush file system cache. The command blocks until the cache has
-              been flushed.
-  :dropcache:
-              Flush, and then drop file system cache. The command
-              blocks until the cache has been flushed and dropped.
-  :log:
-	      Change log level.
-  :cachesize:
-	      Change file system cache size.
-  :upload-meta:
-	      Trigger a metadata upload.
+.. include:: man/ctrl.rst
+   :start-after: begin_main_content
+   :end-before: end_main_content

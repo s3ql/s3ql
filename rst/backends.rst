@@ -9,7 +9,7 @@
 S3QL supports different *backends* to store data at different service
 providers and using different protocols. A *storage url* specifies a
 backend together with some backend-specific information and uniquely
-identifies an S3QL file system. The form of the storage url depends on
+identifies an S3QL file system. The syntax of the storage url depends on
 the backend and is described for every backend below.
 
 Furthermore, every S3QL commands that accepts a storage url also
@@ -26,9 +26,7 @@ environment variables.
    Storage backends are not necessarily compatible. Don't expect that
    you can e.g. copy the data stored by the local backend into Amazon
    S3 using some non-S3QL tool and then access it with S3QL's S3
-   backend. If you want to copy file systems from one backend to
-   another, you need to use the :file:`clone_fs.py` script (from the
-   :file:`contrib` directory in the S3QL tarball).
+   backend).
 
 
 Google Storage
@@ -94,15 +92,10 @@ Amazon S3
 
 .. program:: s3_backend
 
-`Amazon S3 <http://aws.amazon.com/s3>`_ is the online storage service
-offered by `Amazon Web Services (AWS) <http://aws.amazon.com/>`_. To
-use the S3 backend, you first need to sign up for an AWS account. The
-account is free, you will pay only for the amount of storage and
-traffic that you actually use. After that, you need to create a bucket
-that will hold the S3QL file system, e.g. using the `AWS Management
-Console <https://console.aws.amazon.com/s3/home>`_. For best
-performance, it is recommend to create the bucket in the
-geographically closest storage region.
+`Amazon S3 <http://aws.amazon.com/s3>`_ is the online storage service offered by `Amazon
+Web Services (AWS) <http://aws.amazon.com/>`_.  Buckets need to be created with the `AWS
+Management Console <https://console.aws.amazon.com/s3/home>`_. For best performance, it is
+recommend to create the bucket in the geographically closest storage region.
 
 The storage URL for accessing S3 buckets in S3QL has the form ::
 
@@ -118,10 +111,9 @@ refers to the *foomart.net* bucket in the *ap-south-1* region. All
 storage objects that S3QL stores in this bucket will be prefixed with
 *data/s3ql_backup/*.
 
-Note that the backend login and password for accessing S3 are not the
-user id and password that you use to log into the Amazon Webpage, but
-the *AWS access key id* and *AWS secret access key* shown under `My
-Account/Access Identifiers
+The backend login and password for accessing S3 are not the user id and password that you
+use to log into the Amazon Webpage, but the *AWS access key id* and *AWS secret access
+key* shown under `My Account/Access Identifiers
 <https://aws-portal.amazon.com/gp/aws/developer/account/index.html?ie=UTF8&action=access-key>`_.
 
 The Amazon S3 backend accepts the following backend options:
@@ -198,9 +190,8 @@ for Keystone (v2 and v3) authentication, the storage URL is ::
 
    swiftks://<hostname>[:<port>]/<region>:<container>[/<prefix>]
 
-Note that when using Keystone authentication, you can (and have to)
-specify the storage region of the container as well. Also note that when
-using Keystone v3 authentication, the :var:`domain` option is required.
+When using Keystone v3 authentication, the :var:`domain` backend option (see below) must
+be specified too.
 
 In both cases, *hostname* name should be the name of the
 authentication server.  The storage container must already exist (most
@@ -307,14 +298,6 @@ The OpenStack backend accepts the following backend options:
 .. _OpenStack: http://www.openstack.org/
 .. _Swift: http://openstack.org/projects/storage/
 
-.. NOTE::
-
-   The Swift API unfortunately lacks a number of features that S3QL
-   normally makes use of. S3QL works around these deficiencies as much
-   as possible. However, this means that storing data using the Swift
-   backend generally requires more network round-trips and transfer
-   volume than the other backends. Also, S3QL requires Swift storage
-   servers to provide immediate consistency for newly created objects.
 
 
 Rackspace CloudFiles
@@ -462,8 +445,7 @@ are the following:
 
    - `fail_some_uploads` to randomly fail some uploads.
    - `expire_some_account_authorization_tokens` to let the server fail some authorization tokens.
-   - `force_cap_exceeded` to let the server to behave as if the data/transaction
-      caps were exceeded.
+   - `force_cap_exceeded` to let the server to behave as if the data/transaction caps were exceeded.
 
 
 .. option:: tcp-timeout

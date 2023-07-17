@@ -1,6 +1,8 @@
 Unreleased Changes
 ==================
 
+* The user's guide has been fully reviewed and updated.
+
 * The Backblaze B2 backend may no longer be working correctly. This is because in this
   release cycle nobody was available to test it. If you are using this backend, consider
   making yourself known on the S3QL mailing list or the backend may get removed due to
