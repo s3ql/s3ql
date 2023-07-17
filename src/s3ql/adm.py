@@ -432,6 +432,7 @@ def restore_metadata_cmd(backend, options):
             print('Invalid selection.')
 
     params = read_remote_params(backend, seq_no=seq_no)
+    log.info('Downloading metadata...')
     conn = download_metadata(backend, options.cachepath + ".db", params)
     conn.close()
 

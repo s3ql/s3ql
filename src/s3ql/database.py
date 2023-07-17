@@ -463,7 +463,7 @@ def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
     '''Get list of objects holding versions of each block'''
 
     block_list = collections.defaultdict(list)
-    log.info('Scanning metadata objects...')
+    log.debug('Scanning metadata objects...')
     for obj in backend.list('s3ql_metadata_'):
         hit = METADATA_OBJ_RE.match(obj)
         if not hit:
@@ -481,7 +481,12 @@ def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
     return block_list
 
 
-def download_metadata(backend: AbstractBackend, db_file: str, params: FsAttributes, failsafe=False):
+def download_metadata(
+    backend: AbstractBackend,
+    db_file: str,
+    params: FsAttributes,
+    failsafe=False,
+):
     '''Download metadata from backend into *db_file*
 
     If *failsafe* is True, do not truncate file and do not verify
@@ -496,7 +501,6 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: FsAttribut
     total = len(block_list)
     processed = 0
 
-    log.info('Downloading metadata...')
     with open(db_file, 'w+b', buffering=0) as fh:
         for (blockno, candidates) in block_list.items():
             off = blockno * blocksize
@@ -520,7 +524,7 @@ def download_metadata(backend: AbstractBackend, db_file: str, params: FsAttribut
             log.debug('download_metadata: truncating file to %d bytes', file_size)
             fh.truncate(file_size)
 
-            log.info('Calculating metadata checksum...')
+            log.debug('Calculating metadata checksum...')
             digest = sha256_fh(fh).hexdigest()
             log.debug('download_metadata: digest is %s', digest)
             if params.db_md5 != digest:
