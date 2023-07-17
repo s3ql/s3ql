@@ -424,16 +424,14 @@ def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None
-    local_param = read_cached_params(cachepath)
     param = read_remote_params(backend)
+    local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
-        if local_param.seq_no < param.seq_no:
-            log.info('Ignoring locally cached metadata (outdated).')
-        elif local_param.seq_no > param.seq_no:
+        if local_param.seq_no > param.seq_no:
             raise QuietError("File system not unmounted cleanly, run fsck!", exitcode=30)
-        else:
-            log.info('Using cached metadata.')
-            db = Connection(cachepath + '.db', param.metadata_block_size)
+        log.info('Using cached metadata.')
+        assert local_param == param
+        db = Connection(cachepath + '.db', param.metadata_block_size)
 
     if param.is_mounted:
         raise QuietError(

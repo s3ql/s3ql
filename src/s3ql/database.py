@@ -26,7 +26,7 @@ from typing import Dict, List, Optional
 import apsw
 
 from . import CURRENT_FS_REV, sqlite3ext
-from .backends.common import AbstractBackend
+from .backends.common import AbstractBackend, NoSuchObject
 from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
 from .logging import QuietError
 
@@ -82,16 +82,37 @@ class FsAttributes:
         return copy.copy(self)
 
     @staticmethod
-    def deserialize(buf: bytes):
+    def deserialize(buf: bytes, min_seq: Optional[int] = None):
+        '''De-serialize *buf* into a `FsAttributes` instance.
+
+        If *min_seq* is specified and the buffer has a sequence number lower than
+        that, raise `OutdatedData` exception. When possible, this is raised before doing
+        filesystem revision checks.
+        '''
         d = thaw_basic_mapping(buf)
+
+        # seq_no is present in all fs revisions, so this check is safe.
+        if min_seq is not None and d['seq_no'] < min_seq:
+            raise OutdatedData()
+
         if d['revision'] < CURRENT_FS_REV:
             raise QuietError(
                 'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
+            )
+        elif d['revision'] > CURRENT_FS_REV:
+            raise QuietError(
+                'File system revision too new, please update your S3QL installation.', exitcode=33
             )
         return FsAttributes(**d)
 
     def serialize(self):
         return freeze_basic_mapping(dataclasses.asdict(self))
+
+
+class OutdatedData(RuntimeError):
+    '''Raised by `FsAttributes.deserialize`'''
+
+    pass
 
 
 class Connection:
@@ -545,8 +566,9 @@ def expire_objects(backend, versions_to_keep=32):
     # Determine which objects we still need
     to_keep = collections.defaultdict(set)
     for seq_no in seq_to_keep:
-        params = FsAttributes.deserialize(backend['s3ql_params_%010x' % seq_no])
-        assert params.seq_no == seq_no
+        # We'll have to figure out what we want to do here when one of the objects
+        # has an older filesystem revision...
+        params = read_remote_params(backend, seq_no)
         blocksize = params.metadata_block_size
         max_blockno = (params.db_size + blocksize - 1) // blocksize
 
@@ -654,46 +676,38 @@ def write_params(cachepath: str, params: FsAttributes):
         os.close(dirfd)
 
 
-def read_cached_params(cachepath: str) -> Optional[FsAttributes]:
+def read_cached_params(cachepath: str, min_seq: Optional[int] = None) -> Optional[FsAttributes]:
     filename = cachepath + '.params'
-    if os.path.exists(filename):
-        with open(filename, 'rb') as fh:
-            params = FsAttributes.deserialize(fh.read())
-    else:
+    if not os.path.exists(filename):
         return None
 
-    if params.revision < CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
-        )
-    elif params.revision > CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too new, please update your S3QL installation.', exitcode=33
-        )
+    assert os.path.exists(cachepath + '.db')
+    with open(filename, 'rb') as fh:
+        buf = fh.read()
+
+    try:
+        params = FsAttributes.deserialize(buf, min_seq=min_seq)
+    except OutdatedData:
+        log.info('Ignoring locally cached metadata (outdated).')
+        return None
 
     return params
 
 
 def read_remote_params(backend, seq_no: Optional[int] = None) -> FsAttributes:
-    if not backend.contains('s3ql_params'):
-        raise QuietError(
-            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
-        )
-
     if seq_no is None:
-        buf = backend['s3ql_params']
+        try:
+            buf = backend['s3ql_params']
+        except NoSuchObject:
+            raise QuietError(
+                'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
+            )
     else:
         buf = backend['s3ql_params_%010x' % seq_no]
     params = FsAttributes.deserialize(buf)
 
-    if params.revision < CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
-        )
-    elif params.revision > CURRENT_FS_REV:
-        raise QuietError(
-            'File system revision too new, please update your S3QL installation.', exitcode=33
-        )
+    if seq_no:
+        assert params.seq_no == seq_no
 
     return params
 

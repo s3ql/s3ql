@@ -1217,22 +1217,18 @@ def main(args=None):
     cachepath = options.cachepath
     db = None
 
-    local_param = read_cached_params(cachepath)
     param = read_remote_params(backend)
+    local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
-        assert os.path.exists(cachepath + '.db')
-        if local_param.seq_no >= param.seq_no:
-            log.info('Using cached metadata.')
-            param = local_param
-            db = Connection(cachepath + '.db', param.metadata_block_size)
-            if param.is_mounted:
-                log.info('File system was not unmounted cleanly')
-                param.needs_fsck = True
-            if local_param.seq_no > param.seq_no:
-                log.info('Remote metadata is outdated.')
-                param.needs_fsck = True
-        else:
-            log.info('Ignoring locally cached metadata (outdated).')
+        log.info('Using cached metadata.')
+        param = local_param
+        db = Connection(cachepath + '.db', param.metadata_block_size)
+        if param.is_mounted:
+            log.info('File system was not unmounted cleanly')
+            param.needs_fsck = True
+        if local_param.seq_no > param.seq_no:
+            log.info('Remote metadata is outdated.')
+            param.needs_fsck = True
 
     if param.is_mounted and local_param is not param:
         print(
