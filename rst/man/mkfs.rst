@@ -18,7 +18,7 @@ Description
 .. include:: ../include/about.rst
 
 The |command| command creates a new file system in the location
-specified by *storage url*. The storage url depends on the backend
+specified by *storage url*. The format of the storage url depends on the backend
 that is used. The S3QL User's Guide should be consulted for a
 description of the available backends.
 
@@ -33,7 +33,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: python ../../bin/mkfs.s3ql --help
+.. pipeinclude:: python3 ../../bin/mkfs.s3ql --help
    :start-after: show this help message and exit
 
 

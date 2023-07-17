@@ -21,10 +21,10 @@ system.
 
 The :program:`umount.s3ql` command accepts the following options:
 
-.. pipeinclude:: python ../bin/umount.s3ql --help
+.. pipeinclude:: python3 ../bin/umount.s3ql --help
    :start-after: show this help message and exit
 
-If, for some reason, the `umount.sql` command does not work, the file
+If, for some reason, the `umount.s3ql` command does not work, the file
 system can also be unmounted with `fusermount -u -z`. Note that this
 command will return immediately and the file system may continue to
 upload data in the background for a while longer.

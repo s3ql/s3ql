@@ -11,7 +11,7 @@ following syntax::
 
 This command accepts the following options:
 
-.. pipeinclude:: python ../bin/mkfs.s3ql --help
+.. pipeinclude:: python3 ../bin/mkfs.s3ql --help
    :start-after: show this help message and exit
 
 Unless you have specified the :cmdopt:`--plain` option,

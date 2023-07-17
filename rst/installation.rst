@@ -41,8 +41,6 @@ that is not the case.
   * `dugong <https://pypi.org/project/dugong/>`_, any
     version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)
-  * `async_generator <https://pypi.org/project/async_generator/>`_
-    (not needed when using Python 3.7 or newer)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
     for enabling systemd support). Do *not* install the module from
     PyPi, this is from a third-party developer and incompatible with
@@ -67,21 +65,29 @@ that is not the case.
 Installing S3QL
 ===============
 
-To build and install S3QL itself, proceed as follows:
+To build and install S3QL, first download the release tarball from
+`GitHub <https://github.com/s3ql/s3ql/releases>`_. Then validate the tarball using
+`signify <https://github.com/aperezdc/signify>`_::
 
-1. Download S3QL from https://github.com/s3ql/s3ql/releases
-2. Validate the release: `signify -V -z -m s3ql-XX.tar.gz -p s3ql-XX.pub` (the
-   `s3ql-XX.pub` file contains the signing key and needs to be obtained from a trustworthy
-   source. Each S3QL release contains the signing key for the release after it in the
-   `signify` directory, so you only need to manually acquire this file once when you
-   install S3QL for the first time).
-3. Unpack it (`tar xzf s3ql-XX.tar.gz`) and change into the newly created `s3ql-XX`
-   directory.
-4. Run `python3 setup.py build_ext --inplace` to build S3QL.
-5. Run `python3 -m pytest tests/` to run a self-test. If this fails, ask
-   for help on the `mailing list
-   <http://groups.google.com/group/s3ql>`_ or report a bug in the
-   `issue tracker <https://github.com/s3ql/s3ql/issues>`_.
+  signify -V -z -m s3ql-XX.tar.gz -p s3ql-XX.pub
+
+The `s3ql-XX.pub` file needs to be obtained from a trustworthy source (it contains the
+signing key). Each S3QL release contains the signing key for the release after it in the
+`signify` directory, so you only need to manually acquire this file once when you install
+S3QL for the first time).
+
+After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z`
+directory. Then run::
+
+  python3 setup.py build_ext --inplace
+
+to build S3QL and ::
+
+  python3 -m pytest tests/
+
+to run a self-test. If this fails, ask for help on the `mailing list
+<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
+<https://github.com/s3ql/s3ql/issues>`_.
 
 Now you have three options:
 
@@ -157,13 +163,6 @@ server, you would add something like ::
   backend-login: GOOGIGWLONT238MD7HZ4
   backend-password: rmEbstjscoeunt1249oes1298gauidbs3hl
   test-fs: gs://joes-gs-bucket/s3ql_tests/
-
-On the next run of `runtest.py` (or `py.test` when using the
-development version), the additional tests will be run. If the tests
-are still skipped, you can get more information about why tests are
-being skipped by passing the :cmdopt:`-rs` argument to
-`runtest.py`/`py.test`.
-
 
 .. _Cython: http://www.cython.org/
 .. _Sphinx: http://sphinx.pocoo.org/

@@ -87,7 +87,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: python ../../contrib/expire_backups.py --help
+.. pipeinclude:: python3 ../../contrib/expire_backups.py --help
    :start-after: show this help message and exit
 
 

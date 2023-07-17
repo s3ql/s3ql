@@ -31,7 +31,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: python ../../contrib/pcp.py --help
+.. pipeinclude:: python3 ../../contrib/pcp.py --help
    :start-after: show this help message and exit
 
 

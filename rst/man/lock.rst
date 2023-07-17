@@ -32,30 +32,26 @@ Rationale
 
 .. begin_main_content
 
-Immutability is a feature designed for backups. Traditionally, backups
-have been made on external tape drives. Once a backup was made, the
-tape drive was removed and locked somewhere in a shelf. This has the
-great advantage that the contents of the backup are now permanently
-fixed. Nothing (short of physical destruction) can change or delete
-files in the backup.
+Immutability is a feature designed for backups. Traditionally, backups have been made on
+external tape drives. Once a backup was made, the tape drive was removed and locked away
+somewhere. This means that the contents of the backup are permanently fixed. Nothing
+(short of physical destruction) can change or delete files in the backup.
 
 In contrast, when backing up into an online storage system like S3QL,
 all backups are available every time the file system is mounted.
 Nothing prevents a file in an old backup from being changed again
 later on. In the worst case, this may make your entire backup system
-worthless. Imagine that your system gets infected by a nasty virus
+worthless. Imagine that your system gets infected by a virus
 that simply deletes all files it can find -- if the virus is active
 while the backup file system is mounted, the virus will destroy all
-your old backups as well!
+backups together with the originals.
 
-Even if the possibility of a malicious virus or trojan horse is
-excluded, being able to change a backup after it has been made is
-generally not a good idea. A common S3QL use case is to keep the file
-system mounted at all times and periodically create backups with
-:program:`rsync -a`. This allows every user to recover her files from a
-backup without having to call the system administrator. However, this
-also allows every user to accidentally change or delete files *in* one
-of the old backups.
+Even in the absence of malware,, being able to change a backup after it has been made is
+generally not a good idea. A common S3QL use case is to keep the file system mounted at
+all times and periodically create backups with :program:`rsync -a`. This allows every user
+to recover her files from a backup without having to call the system
+administrator. However, this also allows every user to accidentally change or delete files
+*in* one of the old backups.
 
 Making a backup immutable protects you against all these problems.
 Unless you happen to run into a virus that was specifically programmed
@@ -71,7 +67,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: python ../../bin/s3qllock --help
+.. pipeinclude:: python3 ../../bin/s3qllock --help
    :start-after: show this help message and exit
 
 

@@ -12,8 +12,8 @@ Synopsis
 
    s3qladm [options] <action> <storage url>
 
-where :var:`action` may be either of :program:`passphrase`,
-:program:`upgrade`, :program:`delete` or :program:`download-metadata`.
+where :var:`action` may be either of :program:`passphrase`, :program:`restore-metadata`,
+:program:`clear`, :program:`recover-key` or :program:`upgrade`.
 
 Description
 ===========
@@ -32,25 +32,31 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: python ../../bin/s3qladm --help
+.. pipeinclude:: python3 ../../bin/s3qladm --help
    :start-after: show this help message and exit
 
 Actions
 =======
 
-The following actions may be specified:
+The following actions may be specified. Please consult the S3QL User's Guide for more
+detailed information.
 
 passphrase
   Changes the encryption passphrase of the file system.
 
-upgrade
-  Upgrade the file system to the newest revision.
+restore-metadata
+  Interactively restore backups of the file system metadata.
 
 clear
   Delete the file system with all the stored data.
 
-download-metadata
-  Interactively download backups of the file system metadata.
+recover-key
+  Recover master encryption key from external backup.
+
+upgrade
+  Upgrade the file system to the newest revision.
+
+
 
 
 Exit Codes

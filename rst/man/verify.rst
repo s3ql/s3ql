@@ -31,7 +31,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: python ../../bin/s3ql_verify --help --log none
+.. pipeinclude:: python3 ../../bin/s3ql_verify --help --log none
    :start-after: show this help message and exit
 
 

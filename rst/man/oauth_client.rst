@@ -21,7 +21,7 @@ Description
 .. include:: ../include/about.rst
 
 The |command| command may be used to obtain OAuth2 authentication
-tokens for use with Google Storage. It requests "user code" from
+tokens for use with Google Storage. It requests a "user code" from
 Google which has to be pasted into the browser to complete the
 authentication process interactively. Once authentication in the
 browser has been completed, |command| displays the OAuth2 refresh
@@ -37,7 +37,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: python ../../bin/s3ql_oauth_client --help
+.. pipeinclude:: python3 ../../bin/s3ql_oauth_client --help
    :start-after: show this help message and exit
 
 
