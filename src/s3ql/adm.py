@@ -388,6 +388,7 @@ def upgrade(backend, options):
     # re-mount the filesystem with an older S3QL version.
     log.info('Backing up old metadata...')
     local_params['revision'] = CURRENT_FS_REV
+    local_params['seq_no'] += 1
     with tempfile.TemporaryFile() as tmpfh:
         backend.readinto_fh('s3ql_metadata', tmpfh)
         tmpfh.seek(0)
