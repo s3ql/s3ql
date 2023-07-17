@@ -447,6 +447,7 @@ def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
 
     # Download metadata
     if not db:
+        log.info('Downloading metadata...')
         db = download_metadata(backend, cachepath + '.db', param)
 
         # Drop cache

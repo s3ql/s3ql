@@ -16,20 +16,32 @@ import stat
 import sys
 import textwrap
 import time
+from datetime import datetime
 from os.path import basename
+from tempfile import NamedTemporaryFile
 
 import apsw
 
-from . import CTRL_INODE, ROOT_INODE
+from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import ComprencBackend
 from .backends.local import Backend as LocalBackend
-from .common import get_backend, get_path, inode_for_path, is_mounted, sha256_fh, time_ns
+from .common import (
+    get_backend,
+    get_path,
+    inode_for_path,
+    is_mounted,
+    sha256_fh,
+    thaw_basic_mapping,
+    time_ns,
+)
 from .database import (
     Connection,
+    FsAttributes,
     NoSuchRowError,
     download_metadata,
     expire_objects,
+    get_available_seq_nos,
     read_cached_params,
     read_remote_params,
     upload_metadata,
@@ -1309,6 +1321,7 @@ def main(args=None):
     if not db:
         # When file system was not unmounted cleanly, the checksum and size may not have been
         # updated.
+        log.info('Downloading metadata...')
         db = download_metadata(backend, cachepath + '.db', param, failsafe=param.is_mounted)
 
     log.info('Checking DB integrity...')
@@ -1325,6 +1338,9 @@ def main(args=None):
             'then re-run fsck.s3ql',
             exitcode=43,
         )
+
+    # To detect bugs in S3QL, make sure we can correctly download the last few metadata snapshots.
+    verify_metadata_snapshots(backend, count=5)
 
     param.is_mounted = True
     param.seq_no += 1
@@ -1382,6 +1398,38 @@ def to_str(name):
     '''Decode path name for printing'''
 
     return str(name, encoding='utf-8', errors='replace')
+
+
+def verify_metadata_snapshots(backend, count=5):
+    '''Verify the last *count* metadata snapshots.'''
+
+    log.info('Verifying consistency of most recent metadata backups:')
+    backups = sorted(get_available_seq_nos(backend))
+
+    if not backups:
+        raise RuntimeError(
+            'No metadata backups found. This should not happen, please report a bug.'
+        )
+
+    for seq_no in backups[-count:][::-1]:
+        # De-serialize directly instead of using read_remote_params() to avoid
+        # exceptions on old filesystem revisions.
+        d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
+        if d['revision'] != CURRENT_FS_REV:
+            break
+        params = FsAttributes(**d)
+        assert params.seq_no == seq_no
+        date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
+        log.info('Checking backup %010x (from %s))...', seq_no, date)
+        with NamedTemporaryFile() as fh:
+            conn = download_metadata(backend, fh.name, params)
+            res = conn.get_list('PRAGMA integrity_check(20)')
+            if res[0][0] != 'ok':
+                log.error('\n'.join(x[0] for x in res))
+                raise RuntimeError(
+                    'Metadata backup is corrupted. Please report this as a bug',
+                )
+            conn.close()
 
 
 if __name__ == '__main__':
