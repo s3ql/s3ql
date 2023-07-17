@@ -406,7 +406,13 @@ def restore_metadata_cmd(backend, options):
     print('The following backups are available:')
     print('Idx    Seq No: Last Modified:')
     for (i, seq_no) in enumerate(backups):
-        params = FsAttributes.deserialize(backend['s3ql_params_%010x' % seq_no])
+        # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
+        # filesystem revisions.
+        d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
+        if d['revision'] != CURRENT_FS_REV:
+            print(f'{i:3d} {seq_no:010x} (unsupported revision)')
+            continue
+        params = FsAttributes(**d)
         assert params.seq_no == seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
         print(f'{i:3d} {seq_no:010x} {date}')

@@ -18,6 +18,9 @@ from pyfuse3 import ROOT_INODE
 
 VERSION = '5.0.0'
 RELEASE = '%s' % VERSION
+
+# When bumping this up, figure out how database.py's expire_objects() should deal with older
+# filesystem revisions.
 CURRENT_FS_REV = 26
 
 # Buffer size when writing objects
