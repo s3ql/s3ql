@@ -1324,6 +1324,11 @@ def main(args=None):
         log.info('Downloading metadata...')
         db = download_metadata(backend, cachepath + '.db', param, failsafe=param.is_mounted)
 
+        # Don't download the same metadata again in verify_metadata_snapshots
+        check_current_metadata = False
+    else:
+        check_current_metadata = True
+
     log.info('Checking DB integrity...')
     try:
         # get_list may raise CorruptError itself
@@ -1340,7 +1345,7 @@ def main(args=None):
         )
 
     # To detect bugs in S3QL, make sure we can correctly download the last few metadata snapshots.
-    verify_metadata_snapshots(backend, count=5)
+    verify_metadata_snapshots(backend, count=5, include_most_recent=check_current_metadata)
 
     param.is_mounted = True
     param.seq_no += 1
@@ -1400,18 +1405,23 @@ def to_str(name):
     return str(name, encoding='utf-8', errors='replace')
 
 
-def verify_metadata_snapshots(backend, count=5):
+def verify_metadata_snapshots(backend, count: int = 5, include_most_recent: bool = True):
     '''Verify the last *count* metadata snapshots.'''
 
     log.info('Verifying consistency of most recent metadata backups:')
-    backups = sorted(get_available_seq_nos(backend))
+    backups = sorted(get_available_seq_nos(backend), reverse=True)
 
     if not backups:
         raise RuntimeError(
             'No metadata backups found. This should not happen, please report a bug.'
         )
 
-    for seq_no in backups[-count:][::-1]:
+    if include_most_recent:
+        to_check = backups[:count]
+    else:
+        to_check = backups[1 : count + 1]
+
+    for seq_no in to_check:
         # De-serialize directly instead of using read_remote_params() to avoid
         # exceptions on old filesystem revisions.
         d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
