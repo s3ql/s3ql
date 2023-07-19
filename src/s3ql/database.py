@@ -635,7 +635,7 @@ def upload_metadata(
                 processed,
                 total,
                 processed * 100 / total,
-                extra={'rate_limit': 1, 'update_console': True},
+                extra={'rate_limit': 1, 'update_console': True, 'is_last': processed == total},
             )
             obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
             fh.seek(blockno * blocksize)
