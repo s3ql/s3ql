@@ -1364,21 +1364,27 @@ def main(args=None):
             'Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql'
         )
 
+    # If the filesystem was not unmounted cleanly, the database may have changes that have not
+    # been uploaded yet are not tracked through the VFS, so we need to do a full upload. Just
+    # to be sure, we also do a full upload if we found any errors.
+    if param.needs_fsck or fsck.found_errors:
+        full_upload = True
+    else:
+        full_upload = False
+
     param.needs_fsck = False
     param.is_mounted = False
     param.last_fsck = time.time()
     param.last_modified = time.time()
 
-    # Since we're uploading the full database anyway, might as well try
-    # to reduce the size.
-    db.execute('VACUUM')
-
-    db.close()
-
-    # If the filesystem was not unmounted cleanly, the database may have changes
-    # that have not been uploaded yet are not tracked through the VFS. Therefore,
-    # always upload the full metadata in fsck.
-    upload_metadata(backend, db, param, incremental=False)
+    if full_upload:
+        # This is a good time to reduce DB size if possible
+        db.execute('VACUUM')
+        db.close()
+        upload_metadata(backend, db, param, incremental=False)
+    else:
+        db.close()
+        upload_metadata(backend, db, param, incremental=True)
 
     write_params(cachepath, param)
     upload_params(backend, param)
