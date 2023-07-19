@@ -692,9 +692,9 @@ class MetadataUploadTask:
                         )
                     )
 
-                # Now upload synchronously to get consistent snapshot (at the cost
-                # of stopping file system operation). As a future optimization, we could
-                # first copy all modified blocks locally, and then upload async...
+                # Now upload synchronously to get consistent snapshot (at the cost of stopping file
+                # system operation). As a future optimization, we could first copy all modified
+                # blocks locally, and then upload async...
                 self.params.last_modified = time.time()
                 upload_metadata(
                     backend,
@@ -705,7 +705,14 @@ class MetadataUploadTask:
                 )
                 write_params(self.options.cachepath, self.params)
                 upload_params(backend, self.params)
+
+                # Write a new params file immediately, so that we're in the same state as right
+                # after mounting and there is no window where we could have metadata_* objects with
+                # a sequence number for which there is no corresponding s3ql_params_* object.
                 self.params.seq_no += 1
+                write_params(self.options.cachepath, self.params)
+                upload_params(backend, self.params)
+
                 await trio.to_thread.run_sync(expire_objects, backend)
 
         log.debug('finished')
