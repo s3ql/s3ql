@@ -10,6 +10,8 @@ Unreleased Changes
   making yourself known on the S3QL mailing list or the backend may get removed due to
   apparent unuse.
 
+* The `s3ql_verify`` command now also checks if the contents of blocks hash to the
+  expected value.
 
 
 S3QL 5.0.0 (2023-07-08)
