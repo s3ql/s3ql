@@ -19,7 +19,7 @@ from queue import Full as QueueFull
 from queue import Queue
 
 from .backends.common import CorruptedObjectError, NoSuchObject
-from .common import AsyncFn, get_backend_factory, pretty_print_size
+from .common import AsyncFn, get_backend_factory, pretty_print_size, sha256_fh
 from .logging import delay_eval, setup_logging, setup_warnings
 from .mount import get_metadata
 from .parse_args import ArgumentParser
@@ -159,9 +159,9 @@ def retrieve_objects(
     total_count = db.get_val('SELECT COUNT(id) FROM objects')
     size_acc = 0
 
-    sql = 'SELECT id, phys_size, length FROM objects ORDER BY id'
+    sql = 'SELECT id, phys_size, hash, length FROM objects ORDER BY id'
     i = 0  # Make sure this is set if there are zero objects
-    for (i, (obj_id, obj_size, block_size)) in enumerate(db.query(sql)):
+    for (i, (obj_id, obj_size, hash_, block_size)) in enumerate(db.query(sql)):
         i += 1  # start at 1
         extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
         if full:
@@ -183,7 +183,7 @@ def retrieve_objects(
         # Avoid blocking if all threads terminated
         while True:
             try:
-                queue.put((obj_id, block_size), timeout=1)
+                queue.put((obj_id, hash_, block_size), timeout=1)
             except QueueFull:
                 pass
             else:
@@ -220,7 +220,7 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
             el = queue.get()
             if el is None:
                 break
-            (obj_id, exp_size) = el
+            (obj_id, exp_hash, exp_size) = el
 
             log.debug('reading object %s', obj_id)
             key = 's3ql_data_%d' % obj_id
@@ -228,7 +228,7 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
                 if full:
                     buf.seek(0)
                     backend.readinto_fh(key, buf)
-                    size = buf.tell()
+                    buf.truncate()
                 else:
                     backend.lookup(key)
             except NoSuchObject:
@@ -240,12 +240,29 @@ def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False)
                 print(key, file=corrupted_fh)
                 continue
 
-            if full and exp_size != size:
+            if not full:
+                continue
+
+            size = buf.tell()
+            buf.seek(0)
+            hash_ = sha256_fh(buf).digest()
+
+            if exp_size != size:
                 log.warning(
                     'Object %d is corrupted (expected size %d, actual size %d)',
                     obj_id,
                     exp_size,
                     size,
+                )
+                print(key, file=corrupted_fh)
+                continue
+
+            if exp_hash != hash_:
+                log.warning(
+                    'Object %d is corrupted (expected hash %s, got %s)',
+                    obj_id,
+                    exp_hash,
+                    hash_,
                 )
                 print(key, file=corrupted_fh)
                 continue
