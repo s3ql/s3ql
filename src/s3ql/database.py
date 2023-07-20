@@ -505,7 +505,7 @@ def download_metadata(
     with open(db_file, 'w+b', buffering=0) as fh:
         for (blockno, candidates) in block_list.items():
             off = blockno * blocksize
-            if off > file_size and not failsafe:
+            if off >= file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
             try:
@@ -550,6 +550,8 @@ def first_le_than(l: List[int], threshold: int):
     for e in l[::-1]:
         if e <= threshold:
             return e
+
+    raise ValueError('No element below %d in list of length %d' % (threshold, len(l)))
 
 
 def get_available_seq_nos(backend: AbstractBackend) -> List[int]:
