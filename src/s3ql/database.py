@@ -567,6 +567,7 @@ def get_available_seq_nos(backend: AbstractBackend) -> List[int]:
 def expire_objects(backend, versions_to_keep=32):
     '''Delete metadata objects that are no longer needed'''
 
+    log.debug('Expiring old metadata backups...')
     block_list = get_block_objects(backend)
     to_remove = []
 
@@ -588,6 +589,7 @@ def expire_objects(backend, versions_to_keep=32):
         max_blockno = math.ceil(params.db_size / blocksize) - 1
 
         for (blockno, candidates) in block_list.items():
+            log.debug('block %d has candidates %s', blockno, candidates)
             if blockno > max_blockno:
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
@@ -640,6 +642,7 @@ def upload_metadata(
             except KeyError:
                 break
 
+            log.debug('Uploading block %d', blockno)
             processed += 1
             log.info(
                 'Uploaded %d out of ~%d dirty blocks (%d%%)',
