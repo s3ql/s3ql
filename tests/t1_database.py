@@ -343,3 +343,34 @@ def test_expiration_downup(backend):
         [None, 40, None],  # block 3
     ]
     _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+
+
+@pytest.mark.parametrize("incremental", (True, False))
+def test_download_shorter(backend, incremental):
+    # Test downloading older snapshot when the filesize has grown
+    sqlite3ext.reset()
+    params = FsAttributes(
+        metadata_block_size=BLOCKSIZE,
+        data_block_size=BLOCKSIZE,
+        seq_no=1,
+    )
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        db = Connection(tmpfh.name, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT, data BLOB);")
+        for i in range(2):
+            db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
+
+        db.checkpoint()
+        upload_metadata(backend, db, params, incremental=incremental)
+        old_params = params.copy()
+        params.seq_no += 1
+
+        # Grow database
+        for i in range(2, 6):
+            db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
+        db.checkpoint()
+        upload_metadata(backend, db, params)
+        db.close()
+
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        download_metadata(backend, tmpfh.name, old_params)
