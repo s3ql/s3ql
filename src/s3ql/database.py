@@ -507,7 +507,14 @@ def download_metadata(
             if off > file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
-            seq_no = first_le_than(candidates, params.seq_no)
+            try:
+                seq_no = first_le_than(candidates, params.seq_no)
+            except ValueError:
+                # In filesafe mode we do not have accurate file size information, so
+                # the file may be shorter than this offset.
+                if not failsafe:
+                    raise
+
             processed += 1
             log.info(
                 'Downloaded %d/%d metadata blocks (%d%%)',
