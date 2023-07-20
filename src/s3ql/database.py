@@ -18,6 +18,7 @@ import collections
 import copy
 import dataclasses
 import logging
+import math
 import os
 import re
 import time
@@ -581,10 +582,13 @@ def expire_objects(backend, versions_to_keep=32):
         # has an older filesystem revision...
         params = read_remote_params(backend, seq_no)
         blocksize = params.metadata_block_size
-        max_blockno = (params.db_size + blocksize - 1) // blocksize
+
+        # math.ceil() calculates the number of blocks we need. To convert to
+        # the index, need to subtract one (with one blocks, the max index is 0).
+        max_blockno = math.ceil(params.db_size / blocksize) - 1
 
         for (blockno, candidates) in block_list.items():
-            if blockno >= max_blockno:
+            if blockno > max_blockno:
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
@@ -620,7 +624,7 @@ def upload_metadata(
             next_dirty_block = db.dirty_blocks.get_block
             total = db.dirty_blocks.get_count()
         else:
-            total = (db_size + blocksize - 1) // blocksize
+            total = math.ceil(db_size / blocksize)
             all_blocks = iter(range(0, total))
 
             def next_dirty_block():
