@@ -129,8 +129,14 @@ static int vfstraceWrite(
     if (!p->block_map) {
         return rc;
     }
+
+    size_t end_off = iOfst + iAmt;
+    size_t max_blockno = end_off / blocksize;
+    if (max_blockno * blocksize < end_off) {
+        max_blockno++;
+    }
     for (size_t blockno = iOfst / blocksize;
-        blockno <= (iOfst + iAmt) / blocksize;
+        blockno < max_blockno;
         blockno++) {
         p->block_map->insert(blockno);
     }

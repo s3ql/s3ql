@@ -16,6 +16,8 @@ if __name__ == "__main__":
 
 
 import logging
+import math
+import os
 import tempfile
 from argparse import Namespace
 from typing import List
@@ -62,6 +64,20 @@ def test_track_dirty():
         db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
         db.checkpoint()
         assert rows > db.dirty_blocks.get_count() > 0
+
+        db.close()
+
+
+def test_track_dirty_count():
+    sqlite3ext.reset()
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        db = Connection(tmpfh.name, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT);")
+        db.execute("INSERT INTO FOO VALUES(42)")
+
+        db.checkpoint()
+        db_size = tmpfh.seek(0, os.SEEK_END)
+        assert db.dirty_blocks.get_count() == math.ceil(db_size / BLOCKSIZE)
 
         db.close()
 
