@@ -24,7 +24,7 @@ from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from defusedxml import ElementTree
-from dugong import (
+from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,

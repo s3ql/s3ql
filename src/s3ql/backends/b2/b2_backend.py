@@ -20,7 +20,8 @@ from itertools import count
 from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import urlparse
 
-from dugong import (
+from s3ql.common import copyfh
+from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
@@ -28,8 +29,6 @@ from dugong import (
     HTTPConnection,
     is_temp_network_error,
 )
-
-from s3ql.common import copyfh
 
 from ...logging import QuietError
 from ..common import (

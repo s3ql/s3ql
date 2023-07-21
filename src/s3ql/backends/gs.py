@@ -19,12 +19,13 @@ from base64 import b64decode, b64encode
 from itertools import count
 from typing import Any, BinaryIO, Dict, Optional
 
-import dugong
-from dugong import (
+from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
     HTTPConnection,
+    HTTPResponse,
+    UnsupportedResponse,
     is_temp_network_error,
 )
 
@@ -59,7 +60,7 @@ class ServerResponseError(Exception):
     not be expected to have any specific format).
     '''
 
-    def __init__(self, resp: dugong.HTTPResponse, error: str, body: str):
+    def __init__(self, resp: HTTPResponse, error: str, body: str):
         self.resp = resp
         self.error = error
         self.body = body
@@ -582,7 +583,7 @@ class Backend(AbstractBackend):
             if self.conn.read(1):
                 is_truncated = True
                 self.conn.discard()
-        except dugong.UnsupportedResponse:
+        except UnsupportedResponse:
             log.warning('Unsupported response, trying to retrieve data from raw socket!')
             body = self.conn.read_raw(2048)
             self.conn.close()

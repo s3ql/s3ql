@@ -12,7 +12,7 @@ import re
 import urllib.parse
 from urllib.parse import urlsplit
 
-from dugong import CaseInsensitiveDict, HTTPConnection
+from s3ql.http import CaseInsensitiveDict, HTTPConnection
 
 from ..logging import QuietError
 from . import swift

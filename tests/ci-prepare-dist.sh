@@ -35,8 +35,6 @@ sudo python3 -m pip install \
      "pytest_trio == 0.6.0"
 
 if [ "${os}" = "Ubuntu-20.04" ]; then
-    sudo apt install -y \
-         python3-dugong
     sudo python3 -m pip install \
          "pyfuse3 >= 3.2.0, < 4.0" \
          "google-auth-oauthlib >= 0.4.0, < 0.5.0"
@@ -44,8 +42,6 @@ else
     sudo apt install -y \
          python3-pyfuse3 \
          python3-google-auth-oauthlib
-    sudo python3 -m pip install \
-         "dugong >= 3.4, < 4.0"
 fi
 
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"

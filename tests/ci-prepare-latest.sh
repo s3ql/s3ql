@@ -43,7 +43,6 @@ sudo python3 -m pip install --upgrade --upgrade-strategy eager \
      attrs \
      cython \
      defusedxml \
-     dugong \
      google-auth \
      google-auth-oauthlib \
      pyfuse3 \

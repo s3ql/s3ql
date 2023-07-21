@@ -65,7 +65,7 @@ class TestCtrl(t4_fuse.TestFuse):
     def tst_ctrl_log(self):
         try:
             s3ql.ctrl.main(['log', self.mnt_dir, 'warn'])
-            s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql', 'dugong'])
+            s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql'])
             s3ql.ctrl.main(['log', self.mnt_dir, 'info'])
         except:
             sys.excepthook(*sys.exc_info())
