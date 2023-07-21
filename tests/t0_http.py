@@ -45,7 +45,6 @@ from s3ql.http import (
     StateError,
     UnsupportedResponse,
     _Buffer,
-    _join,
     eval_coroutine,
 )
 
@@ -436,8 +435,7 @@ def test_blocking_read(conn, monkeypatch):
                     break
                 parts.append(buf)
         assert not conn.response_pending()
-
-        assert _join(parts) == b''.join(DUMMY_DATA[:x] for x in chunks)
+        assert b''.join(parts) == b''.join(DUMMY_DATA[:x] for x in chunks)
         if interrupted >= 8:
             break
         elif delay > 5000:
@@ -1034,8 +1032,7 @@ def test_mutable_read(conn):
     # Assert that buffer is full, but does not start at beginning
     assert conn._rbuf.b > 0
 
-    # Need to avoid conn.read(), because it converts to bytes
-    buf = eval_coroutine(conn.co_read(150))
+    buf = conn.read(150)
     pos = len(buf)
     assert buf == DUMMY_DATA[:pos]
     memoryview(buf)[:10] = b'\0' * 10
@@ -1043,7 +1040,7 @@ def test_mutable_read(conn):
     # Assert that buffer is empty
     assert conn._rbuf.b == 0
     assert conn._rbuf.e == 0
-    buf = eval_coroutine(conn.co_read(150))
+    buf = conn.read(150)
     assert buf == DUMMY_DATA[pos : pos + len(buf)]
     memoryview(buf)[:10] = b'\0' * 10
     pos += len(buf)

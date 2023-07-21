@@ -35,7 +35,6 @@ except ImportError:
     POLLIN, POLLOUT = 1, 2
     _USE_POLL = False
 
-import sys
 
 log = logging.getLogger(__name__)
 
@@ -515,23 +514,8 @@ class HTTPConnection:
 
         if self.ssl_context:
             log.debug('establishing ssl layer')
-            if sys.version_info >= (3, 5) or (sys.version_info >= (3, 4) and ssl.HAS_SNI):
-                # Automatic hostname verification was added in 3.4, but only
-                # if SNI is available. In 3.5 the hostname can be checked even
-                # if there is no SNI support.
-                server_hostname = self.hostname
-            else:
-                server_hostname = None
-            self._sock = self.ssl_context.wrap_socket(self._sock, server_hostname=server_hostname)
 
-            if server_hostname is None:
-                # Manually check hostname for Python < 3.4, or if we have
-                # 3.4 without SNI.
-                try:
-                    ssl.match_hostname(self._sock.getpeercert(), self.hostname)
-                except:
-                    self.close()
-                    raise
+            self._sock = self.ssl_context.wrap_socket(self._sock, server_hostname=self.hostname)
 
         self._sock.setblocking(False)
         self._rbuf.clear()
@@ -970,11 +954,6 @@ class HTTPConnection:
             return self.readall()
         buf = eval_coroutine(self.co_read(len_), self.timeout)
 
-        # Some modules like TextIOWrapper unfortunately rely on read()
-        # to return bytes, and do not accept bytearrays or memoryviews.
-        # cf. http://bugs.python.org/issue21057
-        if sys.version_info < (3, 5, 0) and not isinstance(buf, bytes):
-            buf = bytes(buf)
         return buf
 
     def co_read(self, len_=None):
@@ -1171,7 +1150,7 @@ class HTTPConnection:
             # substr may be split between last part and current buffer
             # This isn't very performant, but it should be pretty rare
             if parts and sub_len > 1:
-                buf = _join(
+                buf = b''.join(
                     (parts[-1][-sub_len:], rbuf.d[rbuf.b : min(rbuf.e, rbuf.b + sub_len - 1)])
                 )
                 idx = buf.find(substr)
@@ -1213,7 +1192,7 @@ class HTTPConnection:
 
         if parts:
             parts.append(buf)
-            buf = _join(parts)
+            buf = b''.join(parts)
 
         try:
             return buf.decode('latin1')
@@ -1291,7 +1270,7 @@ class HTTPConnection:
             if not buf:
                 break
             parts.append(buf)
-        buf = _join(parts)
+        buf = b''.join(parts)
         log.debug('done (%d bytes)', len(buf))
         if self.trace_fh:
             self.trace_fh.write(buf)
@@ -1379,33 +1358,6 @@ def _extend_HTTPConnection_docstrings():
 
 
 _extend_HTTPConnection_docstrings()
-
-if sys.version_info < (3, 4, 0):
-
-    def _join(parts):
-        '''Join a sequence of byte-like objects
-
-        This method is necessary because `bytes.join` does not work with
-        memoryviews prior to Python 3.4.
-        '''
-
-        size = 0
-        for part in parts:
-            size += len(part)
-
-        buf = bytearray(size)
-        i = 0
-        for part in parts:
-            len_ = len(part)
-            buf[i : i + len_] = part
-            i += len_
-
-        return buf
-
-else:
-
-    def _join(parts):
-        return b''.join(parts)
 
 
 def eval_coroutine(crt, timeout=None):
