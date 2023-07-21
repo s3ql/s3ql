@@ -1188,6 +1188,8 @@ class MockRequestHandler(BaseHTTPRequestHandler):
                 pass
             else:
                 raise
+        except (ssl.SSLEOFError, ssl.SSLZeroReturnError):
+            pass
         # Linux generates BrokenPipeError, FreeBSD uses ConnectionResetError
         except (BrokenPipeError, ConnectionResetError):
             pass
