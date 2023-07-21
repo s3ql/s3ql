@@ -93,8 +93,8 @@ class HTTPServerThread(threading.Thread):
         self.use_ssl = use_ssl
 
         if use_ssl:
-            ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-            ssl_context.options |= ssl.OP_NO_SSLv2
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
             ssl_context.verify_mode = ssl.CERT_NONE
             ssl_context.load_cert_chain(
                 os.path.join(TEST_DIR, 'server.crt'), os.path.join(TEST_DIR, 'server.key')
@@ -141,8 +141,8 @@ def http_server(request):
 @pytest.fixture()
 def conn(request, http_server):
     if http_server.use_ssl:
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-        ssl_context.options |= ssl.OP_NO_SSLv2
+        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
         ssl_context.verify_mode = ssl.CERT_REQUIRED
         ssl_context.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
     else:
@@ -178,8 +178,8 @@ def test_connect_ssl():
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_invalid_ssl():
     # Don't load certificates
-    context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    context.options |= ssl.OP_NO_SSLv2
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     context.verify_mode = ssl.CERT_REQUIRED
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=context)
