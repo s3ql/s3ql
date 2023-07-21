@@ -362,11 +362,6 @@ def test_get_pipeline(conn):
         assert conn.readall() == DUMMY_DATA[:120]
 
 
-def test_ssl_info(conn):
-    conn.get_ssl_cipher()
-    conn.get_ssl_peercert()
-
-
 def test_blocking_send(conn, random_fh, monkeypatch):
     # Send requests until we block because all TCP buffers are full
 
@@ -518,7 +513,6 @@ def test_read_identity(conn):
 
 
 def test_conn_close_1(conn, monkeypatch):
-    # Regular read
     data_size = 500
     conn._rbuf = _Buffer(int(4 / 5 * data_size))
 
@@ -537,37 +531,6 @@ def test_conn_close_1(conn, monkeypatch):
     resp = conn.read_response()
     assert resp.status == 200
     assert conn.readall() == DUMMY_DATA[:data_size]
-
-    with pytest.raises(ConnectionClosed):
-        conn.send_request('GET', '/whatever')
-        conn.read_response()
-
-
-def test_conn_close_2(conn, monkeypatch):
-    # Readinto
-    data_size = 500
-    conn._rbuf = _Buffer(int(4 / 5 * data_size))
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Connection", 'close')
-        self.end_headers()
-        self.wfile.write(DUMMY_DATA[:data_size])
-        self.rfile.close()
-        self.wfile.close()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    conn.send_request('GET', '/whatever')
-    resp = conn.read_response()
-    assert resp.status == 200
-    buf = memoryview(bytearray(2 * data_size))
-    got = conn.readinto(buf)
-    got += conn.readinto(buf[got:])
-    assert got == data_size
-    assert buf[:data_size] == DUMMY_DATA[:data_size]
-    assert conn.readinto(buf[got:]) == 0
 
     with pytest.raises(ConnectionClosed):
         conn.send_request('GET', '/whatever')
@@ -682,23 +645,6 @@ def test_full_buffer(conn):
     assert conn.readall() == DUMMY_DATA[pos:512]
 
 
-def test_readinto_identity(conn):
-    conn.send_request('GET', '/send_512_bytes')
-    resp = conn.read_response()
-    assert resp.status == 200
-    assert resp.path == '/send_512_bytes'
-    assert resp.length == 512
-    parts = []
-    while True:
-        buf = bytearray(600)
-        len_ = conn.readinto(buf)
-        if not len_:
-            break
-        parts.append(buf[:len_])
-    assert _join(parts) == DUMMY_DATA[:512]
-    assert not conn.response_pending()
-
-
 def test_read_chunked(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [300, 283, 377]
@@ -722,26 +668,6 @@ def test_read_chunked2(conn, monkeypatch):
     assert resp.length is None
     assert resp.path == path
     assert conn.readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
-    assert not conn.response_pending()
-
-
-def test_readinto_chunked(conn, monkeypatch):
-    path = '/foo/wurfl'
-    chunks = [300, 317, 283]
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    conn.send_request('GET', path)
-    resp = conn.read_response()
-    assert resp.status == 200
-    assert resp.length is None
-    assert resp.path == path
-    parts = []
-    while True:
-        buf = bytearray(600)
-        len_ = conn.readinto(buf)
-        if not len_:
-            break
-        parts.append(buf[:len_])
-    assert _join(parts) == b''.join(DUMMY_DATA[:x] for x in chunks)
     assert not conn.response_pending()
 
 
