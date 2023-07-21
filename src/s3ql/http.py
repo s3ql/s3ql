@@ -729,7 +729,7 @@ class HTTPConnection:
                 log.debug('yielding')
                 yield PollNeeded(self._sock.fileno(), POLLOUT)
                 continue
-            except (BrokenPipeError, ConnectionResetError):
+            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
             except OSError as exc:
                 if exc.errno == errno.EINVAL:
@@ -1220,7 +1220,7 @@ class HTTPConnection:
                 read = self._sock.recv_into(buf[pos:len_])
                 if self.trace_fh:
                     self.trace_fh.write(buf[pos : pos + read])
-            except (ConnectionResetError, BrokenPipeError):
+            except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
             except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
                 if pos:
@@ -1397,7 +1397,7 @@ class HTTPConnection:
         except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
             log.debug('done (nothing ready)')
             return None
-        except (ConnectionResetError, BrokenPipeError):
+        except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
             raise ConnectionClosed('connection was interrupted')
 
         rbuf.e += len_
