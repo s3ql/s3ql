@@ -1,33 +1,34 @@
 '''
-dugong.py - Python HTTP Client Module
+http.py - this file is part of S3QL.
 
-Copyright © 2014 Nikolaus Rath <Nikolaus.org>
+Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
-This module may be distributed under the terms of the Python Software Foundation
-License Version 2.
+This work can be distributed under the terms of the GNU GPLv3.
 
 The CaseInsensitiveDict implementation is copyright 2013 Kenneth Reitz and
 licensed under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0)
 '''
 
-import socket
-import logging
+import email
+import email.policy
 import errno
-import ssl
-import os
 import hashlib
-from inspect import getdoc
+import logging
+import os
+import select
+import socket
+import ssl
 import textwrap
 from base64 import b64encode
 from collections import deque
-from collections.abc import MutableMapping, Mapping
-import email
-import email.policy
-from http.client import (HTTPS_PORT, HTTP_PORT, NO_CONTENT, NOT_MODIFIED)
-import select
+from collections.abc import Mapping, MutableMapping
+from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
+from inspect import getdoc
+
 try:
     from select import POLLIN, POLLOUT
+
     _USE_POLL = True
 except ImportError:
     POLLIN, POLLOUT = 1, 2
@@ -46,21 +47,20 @@ try:
 except ImportError:
     Enum = object
 
-__version__ = '3.8.2'
-
 log = logging.getLogger(__name__)
 
 #: Internal buffer size
-BUFFER_SIZE = 64*1024
+BUFFER_SIZE = 64 * 1024
 
 #: Maximal length of HTTP status line. If the server sends a line longer than
 #: this value, `InvalidResponse` will be raised.
-MAX_LINE_SIZE = BUFFER_SIZE-1
+MAX_LINE_SIZE = BUFFER_SIZE - 1
 
 #: Maximal length of a response header (i.e., for all header
 #: lines together). If the server sends a header segment longer than
 #: this value, `InvalidResponse` will be raised.
-MAX_HEADER_SIZE = BUFFER_SIZE-1
+MAX_HEADER_SIZE = BUFFER_SIZE - 1
+
 
 class Symbol:
     '''
@@ -68,7 +68,8 @@ class Symbol:
     not relevant, as it should only ever be assigned to or compared
     with other variables.
     '''
-    __slots__ = [ 'name' ]
+
+    __slots__ = ['name']
 
     def __init__(self, name):
         self.name = name
@@ -77,11 +78,13 @@ class Symbol:
         return self.name
 
     def __repr__(self):
-        return '<%s>' % (self.name,)
+        return f'Symbol({self.name})'
+
 
 class Encodings(Enum):
     CHUNKED = 1
     IDENTITY = 2
+
 
 #: Sentinel for `HTTPConnection._out_remaining` to indicate that
 #: we're waiting for a 100-continue response from the server
@@ -97,12 +100,10 @@ RESPONSE_BODY_ERROR = Symbol('RESPONSE_BODY_ERROR')
 #: we should read until EOF (i.e., no keep-alive)
 READ_UNTIL_EOF = Symbol('READ_UNTIL_EOF')
 
-#: Sequence of ``(hostname, port)`` tuples that are used by
-#: dugong to distinguish between permanent and temporary name
-#: resolution problems.
-DNS_TEST_HOSTNAMES=(('www.google.com', 80),
-                    ('www.iana.org', 80),
-                    ('C.root-servers.org', 53))
+#: Sequence of ``(hostname, port)`` tuples that are used by distinguish between permanent and
+#: temporary name resolution problems.
+DNS_TEST_HOSTNAMES = (('www.google.com', 80), ('www.iana.org', 80), ('C.root-servers.org', 53))
+
 
 class PollNeeded(tuple):
     '''
@@ -154,7 +155,7 @@ class PollNeeded(tuple):
 
             log.debug('calling poll')
             if timeout:
-                return bool(poll.poll(timeout*1000)) # convert to ms
+                return bool(poll.poll(timeout * 1000))  # convert to ms
             else:
                 return bool(poll.poll())
         else:
@@ -176,8 +177,7 @@ class HTTPResponse:
     has to be read directly from the `HTTPConnection` instance.
     '''
 
-    def __init__(self, method, path, status, reason, headers,
-                 length=None):
+    def __init__(self, method, path, status, reason, headers, length=None):
 
         #: HTTP Method of the request this was response is associated with
         self.method = method
@@ -241,10 +241,11 @@ class _GeneralError(Exception):
     def __str__(self):
         return self.msg
 
+
 class HostnameNotResolvable(Exception):
     '''Raised if a host name does not resolve to an ip address.
 
-    Dugong raises this exception if a resolution attempt results in a `socket.gaierror` or
+    This exception is raised if a resolution attempt results in a `socket.gaierror` or
     `socket.herror` exception with errno :const:`!socket.EAI_NODATA` or
     :const:`!socket.EAI_NONAME`, but at least one of the hostnames in `DNS_TEST_HOSTNAMES`
     can be resolved.
@@ -260,7 +261,7 @@ class HostnameNotResolvable(Exception):
 class DNSUnavailable(Exception):
     '''Raised if the DNS server cannot be reached.
 
-    Dugong raises this exception if a resolution attempt results in a `socket.gaierror` or
+    This exception is raised if a resolution attempt results in a `socket.gaierror` or
     `socket.herror` exception with errno :const:`socket.EAI_AGAIN`, or if none of the
     hostnames in `DNS_TEST_HOSTNAMES` can be resolved.
     '''
@@ -315,7 +316,7 @@ class UnsupportedResponse(_GeneralError):
     supported. This should not happen for servers that are HTTP 1.1 compatible.
 
     If an `UnsupportedResponse` exception has been raised, this typically means
-    that synchronization with the server will be lost (i.e., dugong cannot
+    that synchronization with the server will be lost (i.e., we cannot
     determine where the current response ends and the next response starts), so
     the connection needs to be reset by calling the
     :meth:`~HTTPConnection.disconnect` method.
@@ -351,6 +352,7 @@ class ConnectionTimedOut(_GeneralError):
     '''
 
     msg = 'send/recv timeout exceeded'
+
 
 class _Buffer:
     '''
@@ -393,7 +395,7 @@ class _Buffer:
             return
 
         log.debug('compacting buffer')
-        buf = memoryview(self.d)[self.b:self.e]
+        buf = memoryview(self.d)[self.b : self.e]
         len_ = len(buf)
         self.d = bytearray(len(self.d))
         self.d[:len_] = buf
@@ -408,10 +410,10 @@ class _Buffer:
             # Return existing buffer after truncating it
             buf = self.d
             self.d = bytearray(len(self.d))
-            buf[self.e:] = b''
+            buf[self.e :] = b''
         else:
             log.debug('exhausting buffer (copying)')
-            buf = self.d[self.b:self.e]
+            buf = self.d[self.b : self.e]
 
         self.b = 0
         self.e = 0
@@ -491,8 +493,10 @@ class HTTPConnection:
     # can be wrapped in `io.TextIOWrapper` if desired.
     def writable(self):
         return True
+
     def readable(self):
         return True
+
     def seekable(self):
         return False
 
@@ -521,8 +525,7 @@ class HTTPConnection:
 
         if self.ssl_context:
             log.debug('establishing ssl layer')
-            if (sys.version_info >= (3, 5) or
-                (sys.version_info >= (3, 4) and ssl.HAS_SNI)):
+            if sys.version_info >= (3, 5) or (sys.version_info >= (3, 4) and ssl.HAS_SNI):
                 # Automatic hostname verification was added in 3.4, but only
                 # if SNI is available. In 3.5 the hostname can be checked even
                 # if there is no SNI support.
@@ -546,9 +549,10 @@ class HTTPConnection:
         self._in_remaining = None
         self._pending_requests = deque()
 
-        if 'DUGONG_TRACEFILE' in os.environ:
-            self.trace_fh = open(os.environ['DUGONG_TRACEFILE'] % id(self._sock),
-                                 'wb+', buffering=0)
+        if 'S3QL_HTTP_TRACEFILE' in os.environ:
+            self.trace_fh = open(
+                os.environ['S3QL_HTTP_TRACEFILE'] % id(self._sock), 'wb+', buffering=0
+            )
 
         log.debug('done')
 
@@ -557,8 +561,9 @@ class HTTPConnection:
 
         log.debug('start connecting to %s:%d', self.hostname, self.port)
 
-        yield from self._co_send(("CONNECT %s:%d HTTP/1.0\r\n\r\n"
-                                  % (self.hostname, self.port)).encode('latin1'))
+        yield from self._co_send(
+            ("CONNECT %s:%d HTTP/1.0\r\n\r\n" % (self.hostname, self.port)).encode('latin1')
+        )
 
         (status, reason) = yield from self._co_read_status()
         log.debug('got %03d %s', status, reason)
@@ -598,9 +603,10 @@ class HTTPConnection:
 
     def send_request(self, method, path, headers=None, body=None, expect100=False):
         '''placeholder, will be replaced dynamically'''
-        eval_coroutine(self.co_send_request(method, path, headers=headers,
-                                            body=body, expect100=expect100),
-                       self.timeout)
+        eval_coroutine(
+            self.co_send_request(method, path, headers=headers, body=body, expect100=expect100),
+            self.timeout,
+        )
 
     def co_send_request(self, method, path, headers=None, body=None, expect100=False):
         '''Send a new HTTP request to the server
@@ -682,7 +688,7 @@ class HTTPConnection:
             gpath = "http://{}{}".format(headers['Host'], path)
         else:
             gpath = path
-        request = [ '{} {} HTTP/1.1'.format(method, gpath).encode('latin1') ]
+        request = ['{} {} HTTP/1.1'.format(method, gpath).encode('latin1')]
         for key, val in headers.items():
             request.append('{}: {}'.format(key, val).encode('latin1'))
         request.append(b'')
@@ -764,8 +770,9 @@ class HTTPConnection:
             raise StateError("can't write when waiting for 100-continue")
 
         if len(buf) > remaining:
-            raise ExcessBodyData('trying to write %d bytes, but only %d bytes pending'
-                                    % (len(buf), remaining))
+            raise ExcessBodyData(
+                'trying to write %d bytes, but only %d bytes pending' % (len(buf), remaining)
+            )
 
         try:
             yield from self._co_send(buf)
@@ -891,13 +898,16 @@ class HTTPConnection:
             try:
                 body_length = int(body_length)
             except ValueError:
-                self._encoding = InvalidResponse('Invalid content-length: %s'
-                                                 % body_length)
+                self._encoding = InvalidResponse('Invalid content-length: %s' % body_length)
                 self._in_remaining = RESPONSE_BODY_ERROR
                 return None
 
-        if (status == NO_CONTENT or status == NOT_MODIFIED or
-            100 <= status < 200 or method == 'HEAD'):
+        if (
+            status == NO_CONTENT
+            or status == NOT_MODIFIED
+            or 100 <= status < 200
+            or method == 'HEAD'
+        ):
             log.debug('no content by RFC')
             self._in_remaining = None
             self._encoding = None
@@ -979,7 +989,7 @@ class HTTPConnection:
         rbuf = self._rbuf
         if len(rbuf) < 2:
             yield from self._co_fill_buffer(2)
-        if rbuf.d[rbuf.b:rbuf.b+2] == b'\r\n':
+        if rbuf.d[rbuf.b : rbuf.b + 2] == b'\r\n':
             log.debug('done (empty header)')
             rbuf.b += 2
             return ''
@@ -1001,7 +1011,7 @@ class HTTPConnection:
         # Some modules like TextIOWrapper unfortunately rely on read()
         # to return bytes, and do not accept bytearrays or memoryviews.
         # cf. http://bugs.python.org/issue21057
-        if sys.version_info < (3,5,0) and not isinstance(buf, bytes):
+        if sys.version_info < (3, 5, 0) and not isinstance(buf, bytes):
             buf = bytes(buf)
         return buf
 
@@ -1056,7 +1066,7 @@ class HTTPConnection:
         while len(buf) < size:
             len_ = min(size - len(buf), len(rbuf))
             if len_ < len(rbuf):
-                buf += rbuf.d[rbuf.b:rbuf.b+len_]
+                buf += rbuf.d[rbuf.b : rbuf.b + len_]
                 rbuf.b += len_
             elif len_ == 0:
                 buf2 = self._sock.recv(size - len(buf))
@@ -1145,7 +1155,7 @@ class HTTPConnection:
             self._in_remaining -= len_
 
         if len_ < len(rbuf):
-            buf = rbuf.d[rbuf.b:rbuf.b+len_]
+            buf = rbuf.d[rbuf.b : rbuf.b + len_]
             rbuf.b += len_
         else:
             buf = rbuf.exhaust()
@@ -1188,7 +1198,7 @@ class HTTPConnection:
         pos = min(len(rbuf), len_)
         if pos:
             log.debug('using buffered data')
-            buf[:pos] = rbuf.d[rbuf.b:rbuf.b+pos]
+            buf[:pos] = rbuf.d[rbuf.b : rbuf.b + pos]
             rbuf.b += pos
             if self._in_remaining is not READ_UNTIL_EOF:
                 self._in_remaining -= pos
@@ -1209,7 +1219,7 @@ class HTTPConnection:
             try:
                 read = self._sock.recv_into(buf[pos:len_])
                 if self.trace_fh:
-                    self.trace_fh.write(buf[pos:pos+read])
+                    self.trace_fh.write(buf[pos : pos + read])
             except (ConnectionResetError, BrokenPipeError):
                 raise ConnectionClosed('connection was interrupted')
             except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
@@ -1259,7 +1269,7 @@ class HTTPConnection:
             i = line.find(";")
             if i >= 0:
                 log.debug('stripping chunk extensions: %s', line[i:])
-                line = line[:i] # strip chunk-extensions
+                line = line[:i]  # strip chunk-extensions
             try:
                 self._in_remaining = int(line, 16)
             except ValueError:
@@ -1307,18 +1317,19 @@ class HTTPConnection:
             # substr may be split between last part and current buffer
             # This isn't very performant, but it should be pretty rare
             if parts and sub_len > 1:
-                buf = _join((parts[-1][-sub_len:],
-                            rbuf.d[rbuf.b:min(rbuf.e, rbuf.b+sub_len-1)]))
+                buf = _join(
+                    (parts[-1][-sub_len:], rbuf.d[rbuf.b : min(rbuf.e, rbuf.b + sub_len - 1)])
+                )
                 idx = buf.find(substr)
                 if idx >= 0:
                     idx -= sub_len
                     break
 
-            #log.debug('rbuf is: %s', rbuf.d[rbuf.b:min(rbuf.e, rbuf.b+512)])
+            # log.debug('rbuf is: %s', rbuf.d[rbuf.b:min(rbuf.e, rbuf.b+512)])
             stop = min(rbuf.e, rbuf.b + maxsize)
             idx = rbuf.d.find(substr, rbuf.b, stop)
 
-            if idx >= 0: # found
+            if idx >= 0:  # found
                 break
             if stop != rbuf.e:
                 raise _ChunkTooLong()
@@ -1343,7 +1354,7 @@ class HTTPConnection:
 
         log.debug('found substr at %d', idx)
         idx += len(substr)
-        buf = rbuf.d[rbuf.b:idx]
+        buf = rbuf.d[rbuf.b : idx]
         rbuf.b = idx
 
         if parts:
@@ -1380,9 +1391,9 @@ class HTTPConnection:
             raise ConnectionClosed('connection has been closed locally')
 
         try:
-            len_ = self._sock.recv_into(memoryview(rbuf.d)[rbuf.e:])
+            len_ = self._sock.recv_into(memoryview(rbuf.d)[rbuf.e :])
             if self.trace_fh:
-                self.trace_fh.write(rbuf.d[rbuf.e:rbuf.e+len_])
+                self.trace_fh.write(rbuf.d[rbuf.e : rbuf.e + len_])
         except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
             log.debug('done (nothing ready)')
             return None
@@ -1485,26 +1496,40 @@ class HTTPConnection:
         self.disconnect()
         return False
 
+
 def _extend_HTTPConnection_docstrings():
 
     co_suffix = '\n\n' + textwrap.fill(
         'This method returns a coroutine. `.%s` is a regular method '
-        'implementing the same functionality.', width=78)
+        'implementing the same functionality.',
+        width=78,
+    )
     reg_suffix = '\n\n' + textwrap.fill(
         'This method may block. `.co_%s` provides a coroutine '
-        'implementing the same functionality without blocking.', width=78)
+        'implementing the same functionality without blocking.',
+        width=78,
+    )
 
-    for name in ('read', 'read_response', 'readall', 'readinto', 'send_request',
-                 'write', 'discard'):
+    for name in (
+        'read',
+        'read_response',
+        'readall',
+        'readinto',
+        'send_request',
+        'write',
+        'discard',
+    ):
         fn = getattr(HTTPConnection, name)
         cofn = getattr(HTTPConnection, 'co_' + name)
 
         fn.__doc__ = getdoc(cofn) + reg_suffix % name
         cofn.__doc__ = getdoc(cofn) + co_suffix % name
 
+
 _extend_HTTPConnection_docstrings()
 
-if sys.version_info < (3,4,0):
+if sys.version_info < (3, 4, 0):
+
     def _join(parts):
         '''Join a sequence of byte-like objects
 
@@ -1520,13 +1545,16 @@ if sys.version_info < (3,4,0):
         i = 0
         for part in parts:
             len_ = len(part)
-            buf[i:i+len_] = part
+            buf[i : i + len_] = part
             i += len_
 
         return buf
+
 else:
+
     def _join(parts):
         return b''.join(parts)
+
 
 def eval_coroutine(crt, timeout=None):
     '''Evaluate *crt* (polling as needed) and return its result
@@ -1542,6 +1570,7 @@ def eval_coroutine(crt, timeout=None):
                 raise ConnectionTimedOut()
     except StopIteration as exc:
         return exc.value
+
 
 def create_socket(address):
     '''Create socket connected to *address**
@@ -1607,18 +1636,42 @@ def is_temp_network_error(exc):
     exceptions to `HostnameNotResolvable` or `DNSUnavailable` instead.
     '''
 
-    if isinstance(exc, (socket.timeout, ConnectionError, TimeoutError, InterruptedError,
-                        ConnectionClosed, ssl.SSLZeroReturnError, ssl.SSLEOFError,
-                        ssl.SSLSyscallError, ConnectionTimedOut, DNSUnavailable)):
+    if isinstance(
+        exc,
+        (
+            socket.timeout,
+            ConnectionError,
+            TimeoutError,
+            InterruptedError,
+            ConnectionClosed,
+            ssl.SSLZeroReturnError,
+            ssl.SSLEOFError,
+            ssl.SSLSyscallError,
+            ConnectionTimedOut,
+            DNSUnavailable,
+        ),
+    ):
         return True
 
     elif isinstance(exc, OSError):
         # We have to be careful when retrieving errno codes, because
         # not all of them may exist on every platform.
-        for errcode in ('EHOSTDOWN', 'EHOSTUNREACH', 'ENETDOWN',
-                        'ENETRESET', 'ENETUNREACH', 'ENOLINK',
-                        'ENONET', 'ENOTCONN', 'ENXIO', 'EPIPE',
-                        'EREMCHG', 'ESHUTDOWN', 'ETIMEDOUT', 'EAGAIN'):
+        for errcode in (
+            'EHOSTDOWN',
+            'EHOSTUNREACH',
+            'ENETDOWN',
+            'ENETRESET',
+            'ENETUNREACH',
+            'ENOLINK',
+            'ENONET',
+            'ENOTCONN',
+            'ENXIO',
+            'EPIPE',
+            'EREMCHG',
+            'ESHUTDOWN',
+            'ETIMEDOUT',
+            'EAGAIN',
+        ):
             try:
                 if getattr(errno, errcode) == exc.errno:
                     return True
@@ -1671,18 +1724,14 @@ class CaseInsensitiveDict(MutableMapping):
         del self._store[key.lower()]
 
     def __iter__(self):
-        return (casedkey for casedkey, mappedvalue in self._store.values())
+        return (casedkey for casedkey, _ in self._store.values())
 
     def __len__(self):
         return len(self._store)
 
     def lower_items(self):
         """Like :meth:`!items`, but with all lowercase keys."""
-        return (
-            (lowerkey, keyval[1])
-            for (lowerkey, keyval)
-            in self._store.items()
-        )
+        return ((lowerkey, keyval[1]) for (lowerkey, keyval) in self._store.items())
 
     def __eq__(self, other):
         if isinstance(other, Mapping):
@@ -1694,13 +1743,14 @@ class CaseInsensitiveDict(MutableMapping):
 
     # Copy is required
     def copy(self):
-         return CaseInsensitiveDict(self._store.values())
+        return CaseInsensitiveDict(self._store.values())
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, dict(self.items()))
 
 
 if asyncio:
+
     class AioFuture(asyncio.Future):
         '''
         This class wraps a coroutine that yields `PollNeeded` instances
@@ -1765,9 +1815,12 @@ if asyncio:
                 return
 
             if not isinstance(io_req, PollNeeded):
-                self._loop.call_soon(self._resume_crt,
-                                     TypeError('Coroutine passed to asyncio_future did not yield '
-                                               'PollNeeded instance!'))
+                self._loop.call_soon(
+                    self._resume_crt,
+                    TypeError(
+                        'Coroutine passed to asyncio_future did not yield ' 'PollNeeded instance!'
+                    ),
+                )
                 return
 
             if io_req.mask & POLLIN:
@@ -1779,8 +1832,10 @@ if asyncio:
                 elif reader is self:
                     log.debug('got poll needed, reusing read callback')
                 else:
-                    self._loop.call_soon(self._resume_crt,
-                                         RuntimeError('There is already a read callback for this socket'))
+                    self._loop.call_soon(
+                        self._resume_crt,
+                        RuntimeError('There is already a read callback for this socket'),
+                    )
                     return
 
             if io_req.mask & POLLOUT:
@@ -1792,8 +1847,10 @@ if asyncio:
                 elif writer is self:
                     log.debug('got poll needed, reusing write callback')
                 else:
-                    self._loop.call_soon(self._resume_crt,
-                                         RuntimeError('There is already a write callback for this socket'))
+                    self._loop.call_soon(
+                        self._resume_crt,
+                        RuntimeError('There is already a write callback for this socket'),
+                    )
                     return
 
             self._io_req = io_req
