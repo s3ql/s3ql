@@ -563,34 +563,6 @@ class HTTPConnection:
             self.disconnect()
             raise ConnectionError("Tunnel connection failed: %d %s" % (status, reason))
 
-    def get_ssl_peercert(self, binary_form=False):
-        '''Get peer SSL certificate
-
-        If plain HTTP is used, return `None`. Otherwise, the call is delegated
-        to the underlying SSL sockets `~ssl.SSLSocket.getpeercert` method.
-        '''
-
-        if not self.ssl_context:
-            return None
-        else:
-            if not self._sock:
-                self.connect()
-            return self._sock.getpeercert()
-
-    def get_ssl_cipher(self):
-        '''Get active SSL cipher
-
-        If plain HTTP is used, return `None`. Otherwise, the call is delegated
-        to the underlying SSL sockets `~ssl.SSLSocket.cipher` method.
-        '''
-
-        if not self.ssl_context:
-            return None
-        else:
-            if not self._sock:
-                self.connect()
-            return self._sock.cipher()
-
     def send_request(self, method, path, headers=None, body=None, expect100=False):
         '''placeholder, will be replaced dynamically'''
         eval_coroutine(
@@ -1070,32 +1042,6 @@ class HTTPConnection:
 
         return buf
 
-    def readinto(self, buf):
-        '''placeholder, will be replaced dynamically'''
-        return eval_coroutine(self.co_readinto(buf), self.timeout)
-
-    def co_readinto(self, buf):
-        '''Read response body data into *buf*
-
-        Return the number of bytes written or zero if the response body has been
-        read completely.
-
-        *buf* must implement the memoryview protocol.
-        '''
-
-        log.debug('start (buflen=%d)', len(buf))
-
-        if self._in_remaining is RESPONSE_BODY_ERROR:
-            raise self._encoding
-        elif len(buf) == 0 or self._in_remaining is None:
-            return 0
-        elif self._encoding is Encodings.IDENTITY:
-            return (yield from self._co_readinto_id(buf))
-        elif self._encoding is Encodings.CHUNKED:
-            return (yield from self._co_read_chunked(buf=buf))
-        else:
-            raise RuntimeError('ooops, this should not be possible')
-
     def _co_read_id(self, len_):
         '''Read up to *len* bytes of response body assuming identity encoding'''
 
@@ -1163,90 +1109,10 @@ class HTTPConnection:
         log.debug('done (%d bytes)', len(buf))
         return buf
 
-    def _co_readinto_id(self, buf):
-        '''Read response body into *buf* assuming identity encoding'''
+    def _co_read_chunked(self, len_: int):
+        '''Read response body assuming chunked encoding'''
 
-        log.debug('start (buflen=%d)', len(buf))
-
-        assert self._in_remaining is not None
-        if not self._in_remaining:
-            # Body retrieved completely, clean up
-            self._in_remaining = None
-            self._pending_requests.popleft()
-            return 0
-
-        rbuf = self._rbuf
-        if not isinstance(buf, memoryview):
-            buf = memoryview(buf)
-        if self._in_remaining is READ_UNTIL_EOF:
-            len_ = len(buf)
-        else:
-            len_ = min(len(buf), self._in_remaining)
-        log.debug('set len_=%d', len_)
-
-        # First use read buffer contents
-        pos = min(len(rbuf), len_)
-        if pos:
-            log.debug('using buffered data')
-            buf[:pos] = rbuf.d[rbuf.b : rbuf.b + pos]
-            rbuf.b += pos
-            if self._in_remaining is not READ_UNTIL_EOF:
-                self._in_remaining -= pos
-
-            # If we've read enough, return immediately
-            if pos == len_:
-                log.debug('done (buffer filled completely)')
-                return pos
-
-            # Otherwise, prepare to read more from socket
-            log.debug('got %d bytes from buffer', pos)
-            assert not len(rbuf)
-
-        while True:
-            log.debug('trying to read from socket')
-            if self._sock is None:
-                raise ConnectionClosed('connection has been closed locally')
-            try:
-                read = self._sock.recv_into(buf[pos:len_])
-                if self.trace_fh:
-                    self.trace_fh.write(buf[pos : pos + read])
-            except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
-                raise ConnectionClosed('connection was interrupted')
-            except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
-                if pos:
-                    log.debug('done, no additional data available')
-                    return pos
-                else:
-                    log.debug('no data yet and nothing to read, yielding..')
-                    yield PollNeeded(self._sock.fileno(), POLLIN)
-                    continue
-
-            if not read:
-                if self._in_remaining is READ_UNTIL_EOF:
-                    log.debug('reached EOF')
-                    self._in_remaining = 0
-                    return pos
-                else:
-                    raise ConnectionClosed('server closed connection')
-            log.debug('got %d bytes from socket', read)
-
-            if self._in_remaining is not READ_UNTIL_EOF:
-                self._in_remaining -= read
-            pos += read
-            if pos == len_:
-                log.debug('done (buffer filled completely)')
-                return pos
-
-    def _co_read_chunked(self, len_=None, buf=None):
-        '''Read response body assuming chunked encoding
-
-        If *len_* is not `None`, reads up to *len_* bytes of data and returns
-        a `bytes-like object`. If *buf* is not `None`, reads data into *buf*.
-        '''
-
-        log.debug('start (%s mode)', 'readinto' if buf else 'read')
-        assert (len_ is None) != (buf is None)
-        assert bool(len_) or bool(buf)
+        log.debug('start')
         assert isinstance(self._in_remaining, int)
 
         if self._in_remaining == 0:
@@ -1271,9 +1137,7 @@ class HTTPConnection:
                 self._pending_requests.popleft()
 
         if self._in_remaining is None:
-            res = 0 if buf else b''
-        elif buf:
-            res = yield from self._co_readinto_id(buf)
+            res = b''
         else:
             res = yield from self._co_read_id(len_)
 
@@ -1444,12 +1308,11 @@ class HTTPConnection:
             return
 
         log.debug('start')
-        buf = memoryview(bytearray(BUFFER_SIZE))
         while True:
-            len_ = yield from self.co_readinto(buf)
-            if not len_:
+            buf = yield from self.co_read(BUFFER_SIZE)
+            if not buf:
                 break
-            log.debug('discarding %d bytes', len_)
+            log.debug('discarding %d bytes', len(buf))
         log.debug('done')
 
     def reset(self):
@@ -1504,7 +1367,6 @@ def _extend_HTTPConnection_docstrings():
         'read',
         'read_response',
         'readall',
-        'readinto',
         'send_request',
         'write',
         'discard',
