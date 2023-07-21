@@ -30,6 +30,7 @@ from http.server import BaseHTTPRequestHandler
 from io import TextIOWrapper
 
 import pytest
+import trio
 from pytest import raises as assert_raises
 
 import s3ql.http
@@ -45,7 +46,6 @@ from s3ql.http import (
     StateError,
     UnsupportedResponse,
     _Buffer,
-    eval_coroutine,
 )
 
 # We want to test with a real certificate
@@ -90,6 +90,7 @@ class HTTPServerThread(threading.Thread):
         self.httpd = HTTPServer((self.host, 0), MockRequestHandler)
         self.port = self.httpd.socket.getsockname()[1]
         self.use_ssl = use_ssl
+        self.timeout = 1
 
         if use_ssl:
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -147,6 +148,7 @@ def conn(request, http_server):
     else:
         ssl_context = None
     conn = HTTPConnection(http_server.host, port=http_server.port, ssl_context=ssl_context)
+    conn.timeout = 0.5
     request.addfinalizer(conn.disconnect)
     return conn
 
@@ -160,6 +162,7 @@ def random_fh(request):
 
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_connect_ssl():
+
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
     ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -358,7 +361,7 @@ def test_get_pipeline(conn):
         assert conn.readall() == DUMMY_DATA[:120]
 
 
-def test_blocking_send(conn, random_fh, monkeypatch):
+async def test_blocking_send(conn, random_fh, monkeypatch):
     # Send requests until we block because all TCP buffers are full
 
     out_len = 102400
@@ -376,34 +379,52 @@ def test_blocking_send(conn, random_fh, monkeypatch):
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
     for count in itertools.count():
-        crt = conn.co_send_request('GET', path, body=random_fh.read(in_len)).__await__()
-        flag = False
-        for io_req in crt:
-            if not io_req.poll(1):
-                flag = True
-                break
-        if flag:
+        with trio.move_on_after(1) as ctx:
+            await conn.co_send_request('GET', path, body=random_fh.read(in_len))
+        if ctx.cancelled_caught:
             break
-        if count > 1000000:
+        elif count > 1000000:
             pytest.fail("no blocking even after %d requests!?" % count)
 
     # Read responses
     for _ in range(count):
-        resp = conn.read_response()
+        resp = await conn.co_read_response()
         assert resp.status == 200
-        conn.discard()
+        await conn.co_discard()
 
     # Now we should be able to complete the request
-    assert io_req.poll(5)
-    with pytest.raises(StopIteration):
-        next(crt)
+    await conn.co_send_request('GET', path, body=random_fh.read(in_len))
 
-    resp = conn.read_response()
+    resp = await conn.co_read_response()
     assert resp.status == 200
-    conn.discard()
+    await conn.co_discard()
 
 
-def test_blocking_read(conn, monkeypatch):
+class CountSuspensions:
+    '''Count how often a coroutine is suspended'''
+
+    def __init__(self):
+        self.n = 0
+
+    def __call__(self, /, fn, *a, **k):
+        self.fn = fn
+        self.a = a
+        self.k = k
+        return self
+
+    def __await__(self):
+        it = self.fn(*self.a, **self.k).__await__()
+        try:
+            r = None
+            while True:
+                r = it.send(r)
+                r = yield r
+                self.n += 1
+        except StopIteration as r:
+            return r.value
+
+
+async def test_blocking_read(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [120] * 10
     delay = 10
@@ -412,28 +433,22 @@ def test_blocking_read(conn, monkeypatch):
         monkeypatch.setattr(
             MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks, delay)
         )
-        conn.send_request('GET', path)
+        await conn.co_send_request('GET', path)
 
-        resp = conn.read_response()
+        resp = await conn.co_read_response()
         assert resp.status == 200
 
-        interrupted = 0
+        t = CountSuspensions()
         parts = []
         while True:
-            crt = conn.co_read(100).__await__()
-            try:
-                while True:
-                    io_req = next(crt)
-                    interrupted += 1
-                    assert io_req.poll(5)
-            except StopIteration as exc:
-                buf = exc.value
-                if not buf:
-                    break
-                parts.append(buf)
+            buf = await t(conn.co_read, 100)
+            if not buf:
+                break
+            parts.append(buf)
         assert not conn.response_pending()
         assert b''.join(parts) == b''.join(DUMMY_DATA[:x] for x in chunks)
-        if interrupted >= 8:
+
+        if t.n >= 8:
             break
         elif delay > 5000:
             pytest.fail('no blocking read even with %f sec sleep' % delay)
@@ -604,7 +619,7 @@ def test_conn_close_5(conn, monkeypatch):
 
 
 @pytest.mark.no_ssl
-def test_exhaust_buffer(conn):
+async def test_exhaust_buffer(conn):
     conn._rbuf = _Buffer(600)
     conn.send_request('GET', '/send_512_bytes')
     conn.read_response()
@@ -612,11 +627,10 @@ def test_exhaust_buffer(conn):
     # Test the case where the read buffer is truncated and
     # returned, instead of copied
     conn._rbuf.compact()
-    for io_req in conn._co_fill_buffer(1).__await__():
-        io_req.poll()
+    await conn._co_fill_buffer(1)
     assert conn._rbuf.b == 0
     assert conn._rbuf.e > 0
-    buf = conn.read(600)
+    buf = await conn.co_read(600)
     assert len(conn._rbuf.d) == 600
     assert buf == DUMMY_DATA[: len(buf)]
     assert conn.readall() == DUMMY_DATA[len(buf) : 512]
@@ -707,36 +721,6 @@ def test_abort_read(conn, monkeypatch):
     conn.read(200)
     conn.disconnect()
     assert_raises(ConnectionClosed, conn.read, 200)
-
-
-def test_abort_co_read(conn, monkeypatch):
-    # We need to delay the write to ensure that we encounter a blocking read
-    path = '/foo/wurfl'
-    chunks = [300, 317, 283]
-    delay = 10
-    while True:
-        monkeypatch.setattr(
-            MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks, delay)
-        )
-        conn.send_request('GET', path)
-        resp = conn.read_response()
-        assert resp.status == 200
-        cofun = conn.co_read(450).__await__()
-        try:
-            next(cofun)
-        except StopIteration:
-            # Not good, need to wait longer
-            pass
-        else:
-            break
-        finally:
-            conn.disconnect()
-
-        if delay > 5000:
-            pytest.fail('no blocking read even with %f sec sleep' % delay)
-        delay *= 2
-
-    assert_raises(ConnectionClosed, next, cofun)
 
 
 def test_abort_write(conn):
@@ -1047,7 +1031,7 @@ def test_mutable_read(conn):
 
 
 def test_recv_timeout(conn, monkeypatch):
-    conn.timeout = 1
+    conn.timeout = 0.5
 
     def do_GET(self):
         self.send_response(200)
@@ -1067,7 +1051,7 @@ def test_recv_timeout(conn, monkeypatch):
 
 
 def test_send_timeout(conn, monkeypatch, random_fh):
-    conn.timeout = 1
+    conn.timeout = 0.5
 
     def do_PUT(self):
         # Read just a tiny bit

@@ -26,15 +26,9 @@ from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
+from typing import Optional, Union
 
-try:
-    from select import POLLIN, POLLOUT
-
-    _USE_POLL = True
-except ImportError:
-    POLLIN, POLLOUT = 1, 2
-    _USE_POLL = False
-
+import trio
 
 log = logging.getLogger(__name__)
 
@@ -92,73 +86,6 @@ READ_UNTIL_EOF = Symbol('READ_UNTIL_EOF')
 #: Sequence of ``(hostname, port)`` tuples that are used by distinguish between permanent and
 #: temporary name resolution problems.
 DNS_TEST_HOSTNAMES = (('www.google.com', 80), ('www.iana.org', 80), ('C.root-servers.org', 53))
-
-
-class PollNeeded(tuple):
-    '''
-    This class encapsulates the requirements for a IO operation to continue.
-    `PollNeeded` instances are typically yielded by coroutines.
-    '''
-
-    __slots__ = ()
-
-    def __new__(self, fd, mask):
-        return tuple.__new__(self, (fd, mask))
-
-    @property
-    def fd(self):
-        '''File descriptor that the IO operation depends on'''
-
-        return self[0]
-
-    @property
-    def mask(self):
-        '''Event mask specifying the type of required IO
-
-        This attribute defines what type of IO the provider of the `PollNeeded`
-        instance needs to perform on *fd*. It is expected that, when *fd* is
-        ready for IO of the specified type, operation will continue without
-        blocking.
-
-        The type of IO is specified as a :ref:`poll <poll-objects>`
-        compatible event mask, i.e. a bitwise combination of `!select.POLLIN`
-        and `!select.POLLOUT`.
-        '''
-
-        return self[1]
-
-    def poll(self, timeout=None):
-        '''Wait until fd is ready for requested IO
-
-        This is a convenience function that uses `~select.poll` to wait until
-        `.fd` is ready for the requested type of IO. If poll is unavailable
-        (e.g. on Windows) it uses `~select.select` instead.
-
-        If *timeout* is specified, return `False` if the timeout is exceeded
-        without the file descriptor becoming ready.
-        '''
-
-        if _USE_POLL:
-            poll = select.poll()
-            poll.register(self.fd, self.mask)
-
-            log.debug('calling poll')
-            if timeout:
-                return bool(poll.poll(timeout * 1000))  # convert to ms
-            else:
-                return bool(poll.poll())
-        else:
-            read_fds = (self.fd,) if self.mask & POLLIN else ()
-            write_fds = (self.fd,) if self.mask & POLLOUT else ()
-
-            log.debug('calling select')
-            if timeout:
-                return any(select.select(read_fds, write_fds, (), timeout))
-            else:
-                return any(select.select(read_fds, write_fds, ()))
-
-    def __await__(self):
-        yield self
 
 
 class HTTPResponse:
@@ -442,6 +369,12 @@ class HTTPConnection:
         #: Socket object connecting to the server
         self._sock = None
 
+        #: `select.poll` method to query if connection is ready for sending
+        self._poll_send = None
+
+        #: `select.poll` method to query if connection is ready for receiving
+        self._poll_recv = None
+
         #: Read-buffer
         self._rbuf = _Buffer(BUFFER_SIZE)
 
@@ -472,14 +405,28 @@ class HTTPConnection:
         #: Transfer encoding of the active response (if any).
         self._encoding = None
 
-        #: If a regular `HTTPConnection` method is unable to send or receive
-        #: data for more than this period (in seconds), it will raise
-        #: `ConnectionTimedOut`. Coroutines are not affected by this
-        #: attribute.
-        self.timeout = None
+        #: If a regular `HTTPConnection` method is unable to send or receive data for more than
+        #: this period (in ms), it will raise `ConnectionTimedOut`. If zero, do not time out.
+        #: Coroutines are not affected by this attribute.
+        self._timeout_ms: Optional[int] = None
 
         #: Filehandler for tracing
         self.trace_fh = None
+
+        #: If set, coroutines will never yield and instead block internally.
+        #: (This is used for implementing the blocking/non-coroutine API).
+        self._sync_context = False
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout_ms / 1000
+
+    @timeout.setter
+    def timeout(self, value: Union[int, float, None]) -> None:
+        if value is None:
+            self._timeout_ms = None
+        else:
+            self._timeout_ms = int(value * 1000)
 
     # Implement bare-bones `io.BaseIO` interface, so that instances
     # can be wrapped in `io.TextIOWrapper` if desired.
@@ -510,7 +457,7 @@ class HTTPConnection:
             log.debug('connecting to %s', self.proxy)
             self._sock = create_socket(self.proxy)
             if self.ssl_context:
-                eval_coroutine(self._co_tunnel(), self.timeout)
+                self._tunnel()
         else:
             log.debug('connecting to %s', (self.hostname, self.port))
             self._sock = create_socket((self.hostname, self.port))
@@ -526,12 +473,29 @@ class HTTPConnection:
         self._in_remaining = None
         self._pending_requests = deque()
 
+        poll = select.poll()
+        poll.register(self._sock, select.POLLIN)
+        self._poll_recv = poll.poll
+
+        poll = select.poll()
+        poll.register(self._sock, select.POLLOUT)
+        self._poll_send = poll.poll
+
         if 'S3QL_HTTP_TRACEFILE' in os.environ:
             self.trace_fh = open(
                 os.environ['S3QL_HTTP_TRACEFILE'] % id(self._sock), 'wb+', buffering=0
             )
 
         log.debug('done')
+
+    def _tunnel(self):
+        '''placeholder, will be replaced dynamically'''
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self._co_tunnel())
+        finally:
+            self._sync_context = orig_context
 
     async def _co_tunnel(self):
         '''Set up CONNECT tunnel to destination server'''
@@ -552,10 +516,14 @@ class HTTPConnection:
 
     def send_request(self, method, path, headers=None, body=None, expect100=False):
         '''placeholder, will be replaced dynamically'''
-        eval_coroutine(
-            self.co_send_request(method, path, headers=headers, body=body, expect100=expect100),
-            self.timeout,
-        )
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(
+                self.co_send_request(method, path, headers=headers, body=body, expect100=expect100)
+            )
+        finally:
+            self._sync_context = orig_context
 
     async def co_send_request(self, method, path, headers=None, body=None, expect100=False):
         '''Send a new HTTP request to the server
@@ -676,7 +644,11 @@ class HTTPConnection:
                     raise BlockingIOError()
             except (socket.timeout, ssl.SSLWantWriteError, BlockingIOError):
                 log.debug('yielding')
-                await PollNeeded(self._sock.fileno(), POLLOUT)
+                if self._sync_context:
+                    if not self._poll_send(self._timeout_ms):
+                        raise ConnectionTimedOut('Timeout in send()')
+                else:
+                    await trio.lowlevel.wait_writable(self._sock)
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
@@ -700,7 +672,12 @@ class HTTPConnection:
 
     def write(self, buf):
         '''placeholder, will be replaced dynamically'''
-        eval_coroutine(self.co_write(buf), self.timeout)
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self.co_write(buf))
+        finally:
+            self._sync_context = orig_context
 
     async def co_write(self, buf):
         '''Write request body data
@@ -753,7 +730,12 @@ class HTTPConnection:
 
     def read_response(self):
         '''placeholder, will be replaced dynamically'''
-        return eval_coroutine(self.co_read_response(), self.timeout)
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self.co_read_response())
+        finally:
+            self._sync_context = orig_context
 
     async def co_read_response(self):
         '''Read response status line and headers
@@ -955,9 +937,12 @@ class HTTPConnection:
         '''placeholder, will be replaced dynamically'''
         if len_ is None:
             return self.readall()
-        buf = eval_coroutine(self.co_read(len_), self.timeout)
-
-        return buf
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self.co_read(len_))
+        finally:
+            self._sync_context = orig_context
 
     async def co_read(self, len_=None):
         '''Read up to *len_* bytes of response body data
@@ -1059,7 +1044,11 @@ class HTTPConnection:
                     break
                 else:
                     log.debug('buffer empty and nothing to read, yielding..')
-                    await PollNeeded(self._sock.fileno(), POLLIN)
+                if self._sync_context:
+                    if not self._poll_recv(self._timeout_ms):
+                        raise ConnectionTimedOut('Timeout in recv()')
+                else:
+                    await trio.lowlevel.wait_readable(self._sock)
             elif got_data == 0:
                 if self._in_remaining is READ_UNTIL_EOF:
                     log.debug('connection closed, %d bytes in buffer', len(rbuf))
@@ -1181,7 +1170,11 @@ class HTTPConnection:
                 res = self._try_fill_buffer()
                 if res is None:
                     log.debug('need more data, yielding')
-                    await PollNeeded(self._sock.fileno(), POLLIN)
+                    if self._sync_context:
+                        if not self._poll_recv(self._timeout_ms):
+                            raise ConnectionTimedOut('Timeout in recv()')
+                    else:
+                        await trio.lowlevel.wait_readable(self._sock)
                 elif res == 0:
                     raise ConnectionClosed('server closed connection')
                 else:
@@ -1250,13 +1243,22 @@ class HTTPConnection:
                 self._rbuf.compact()
             res = self._try_fill_buffer()
             if res is None:
-                await PollNeeded(self._sock.fileno(), POLLIN)
+                if self._sync_context:
+                    if not self._poll_recv(self._timeout_ms):
+                        raise ConnectionTimedOut('Timeout in recv()')
+                else:
+                    await trio.lowlevel.wait_readable(self._sock)
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
 
     def readall(self):
         '''placeholder, will be replaced dynamically'''
-        return eval_coroutine(self.co_readall(), self.timeout)
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self.co_readall())
+        finally:
+            self._sync_context = orig_context
 
     async def co_readall(self):
         '''Read and return complete response body'''
@@ -1280,7 +1282,12 @@ class HTTPConnection:
 
     def discard(self):
         '''placeholder, will be replaced dynamically'''
-        return eval_coroutine(self.co_discard(), self.timeout)
+        orig_context = self._sync_context
+        self._sync_context = True
+        try:
+            return eval_coroutine(self.co_discard())
+        finally:
+            self._sync_context = orig_context
 
     async def co_discard(self):
         '''Read and discard current response body'''
@@ -1320,6 +1327,8 @@ class HTTPConnection:
             self._sock.close()
             self._sock = None
             self._rbuf.clear()
+            self._poll_recv = None
+            self._poll_send = None
         else:
             log.debug('already closed')
 
@@ -1351,9 +1360,13 @@ def _extend_HTTPConnection_docstrings():
         'send_request',
         'write',
         'discard',
+        '_tunnel',
     ):
         fn = getattr(HTTPConnection, name)
-        cofn = getattr(HTTPConnection, 'co_' + name)
+        if name.startswith('_'):
+            cofn = getattr(HTTPConnection, '_co' + name)
+        else:
+            cofn = getattr(HTTPConnection, 'co_' + name)
 
         fn.__doc__ = getdoc(cofn) + reg_suffix % name
         cofn.__doc__ = getdoc(cofn) + co_suffix % name
@@ -1362,23 +1375,19 @@ def _extend_HTTPConnection_docstrings():
 _extend_HTTPConnection_docstrings()
 
 
-def eval_coroutine(crt, timeout=None):
-    '''Evaluate *crt* (polling as needed) and return its result
+def eval_coroutine(coroutine):
+    '''Retrieve the result of *coroutine*
 
-    If *timeout* seconds pass without being able to send or receive
-    anything, raises `ConnectionTimedOut`.
+    The coroutine must not yield.
     '''
 
-    it = crt.__await__()
-    while True:
-        try:
-            el = next(it)
-        except StopIteration as exc:
-            return exc.value
-
-        log.debug('polling')
-        if not el.poll(timeout=timeout):
-            raise ConnectionTimedOut()
+    it = coroutine.__await__()
+    try:
+        next(it)
+    except StopIteration as exc:
+        return exc.value
+    else:
+        raise RuntimeError("coroutine suspended, can't retrieve result")
 
 
 def create_socket(address):
