@@ -27,7 +27,6 @@ from io import BytesIO
 import mock_server
 import pytest
 from common import CLOCK_GRANULARITY, NoTestSection, get_remote_test_info
-from dugong import ConnectionClosed
 from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
 
@@ -37,6 +36,7 @@ from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
+from s3ql.http import ConnectionClosed
 
 log = logging.getLogger(__name__)
 empty_set = set()

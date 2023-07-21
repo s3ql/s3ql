@@ -79,7 +79,6 @@ def main():
         'cryptography',
         'requests',
         'defusedxml',
-        'dugong >= 3.4, < 4.0',
         'google-auth',
         'google-auth-oauthlib',
         # Need trio.lowlevel

@@ -38,8 +38,6 @@ that is not the case.
   * `trio <https://github.com/python-trio/trio>`_, version 0.15 or newer.
   * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
     version between 3.2.0 (inclusive) and 4.0 (exclusive)
-  * `dugong <https://pypi.org/project/dugong/>`_, any
-    version between 3.4 (inclusive) and 4.0 (exclusive)
   * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)
   * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
     for enabling systemd support). Do *not* install the module from

@@ -25,7 +25,7 @@ from getpass import getpass
 from typing import BinaryIO, Optional, Callable
 
 import pyfuse3
-from dugong import HostnameNotResolvable
+from s3ql.http import HostnameNotResolvable
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError

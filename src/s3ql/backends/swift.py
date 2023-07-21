@@ -16,7 +16,7 @@ import urllib.parse
 from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import urlsplit
 
-from dugong import (
+from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
