@@ -348,10 +348,7 @@ def test_get_pipeline(conn):
 
     # Send requests
     for path in paths:
-        crt = conn.co_send_request('GET', path)
-        for io_req in crt:
-            # If this fails, then internal buffers are too small
-            assert io_req.poll(10)
+        conn.send_request('GET', path)
 
     # Read responses
     for path in paths:
@@ -379,7 +376,7 @@ def test_blocking_send(conn, random_fh, monkeypatch):
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
     for count in itertools.count():
-        crt = conn.co_send_request('GET', path, body=random_fh.read(in_len))
+        crt = conn.co_send_request('GET', path, body=random_fh.read(in_len)).__await__()
         flag = False
         for io_req in crt:
             if not io_req.poll(1):
@@ -423,7 +420,7 @@ def test_blocking_read(conn, monkeypatch):
         interrupted = 0
         parts = []
         while True:
-            crt = conn.co_read(100)
+            crt = conn.co_read(100).__await__()
             try:
                 while True:
                     io_req = next(crt)
@@ -612,10 +609,10 @@ def test_exhaust_buffer(conn):
     conn.send_request('GET', '/send_512_bytes')
     conn.read_response()
 
-    # Test the case where the readbuffer is truncated and
+    # Test the case where the read buffer is truncated and
     # returned, instead of copied
     conn._rbuf.compact()
-    for io_req in conn._co_fill_buffer(1):
+    for io_req in conn._co_fill_buffer(1).__await__():
         io_req.poll()
     assert conn._rbuf.b == 0
     assert conn._rbuf.e > 0
@@ -724,7 +721,7 @@ def test_abort_co_read(conn, monkeypatch):
         conn.send_request('GET', path)
         resp = conn.read_response()
         assert resp.status == 200
-        cofun = conn.co_read(450)
+        cofun = conn.co_read(450).__await__()
         try:
             next(cofun)
         except StopIteration:

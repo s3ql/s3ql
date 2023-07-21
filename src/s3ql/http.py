@@ -157,6 +157,9 @@ class PollNeeded(tuple):
             else:
                 return any(select.select(read_fds, write_fds, ()))
 
+    def __await__(self):
+        yield self
+
 
 class HTTPResponse:
     '''
@@ -530,18 +533,18 @@ class HTTPConnection:
 
         log.debug('done')
 
-    def _co_tunnel(self):
+    async def _co_tunnel(self):
         '''Set up CONNECT tunnel to destination server'''
 
         log.debug('start connecting to %s:%d', self.hostname, self.port)
 
-        yield from self._co_send(
+        await self._co_send(
             ("CONNECT %s:%d HTTP/1.0\r\n\r\n" % (self.hostname, self.port)).encode('latin1')
         )
 
-        (status, reason) = yield from self._co_read_status()
+        (status, reason) = await self._co_read_status()
         log.debug('got %03d %s', status, reason)
-        yield from self._co_read_header()
+        await self._co_read_header()
 
         if status != 200:
             self.disconnect()
@@ -554,7 +557,7 @@ class HTTPConnection:
             self.timeout,
         )
 
-    def co_send_request(self, method, path, headers=None, body=None, expect100=False):
+    async def co_send_request(self, method, path, headers=None, body=None, expect100=False):
         '''Send a new HTTP request to the server
 
         The message body may be passed in the *body* argument or be sent
@@ -647,11 +650,11 @@ class HTTPConnection:
         buf = b'\r\n'.join(request)
 
         log.debug('sending %s %s', method, path)
-        yield from self._co_send(buf)
+        await self._co_send(buf)
         if not self._out_remaining or expect100:
             self._pending_requests.append((method, path, pending_body_size))
 
-    def _co_send(self, buf):
+    async def _co_send(self, buf):
         '''Send *buf* to server'''
 
         log.debug('trying to send %d bytes', len(buf))
@@ -673,7 +676,7 @@ class HTTPConnection:
                     raise BlockingIOError()
             except (socket.timeout, ssl.SSLWantWriteError, BlockingIOError):
                 log.debug('yielding')
-                yield PollNeeded(self._sock.fileno(), POLLOUT)
+                await PollNeeded(self._sock.fileno(), POLLOUT)
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
@@ -699,7 +702,7 @@ class HTTPConnection:
         '''placeholder, will be replaced dynamically'''
         eval_coroutine(self.co_write(buf), self.timeout)
 
-    def co_write(self, buf):
+    async def co_write(self, buf):
         '''Write request body data
 
         `ExcessBodyData` will be raised when attempting to send more data than
@@ -721,7 +724,7 @@ class HTTPConnection:
             )
 
         try:
-            yield from self._co_send(buf)
+            await self._co_send(buf)
         except ConnectionClosed:
             # If the server closed the connection, we pretend that all data
             # has been sent, so that we can still read a (buffered) error
@@ -752,7 +755,7 @@ class HTTPConnection:
         '''placeholder, will be replaced dynamically'''
         return eval_coroutine(self.co_read_response(), self.timeout)
 
-    def co_read_response(self):
+    async def co_read_response(self):
         '''Read response status line and headers
 
         Return a `HTTPResponse` instance containing information about response
@@ -772,10 +775,10 @@ class HTTPConnection:
 
         # Need to loop to handle any 1xx responses
         while True:
-            (status, reason) = yield from self._co_read_status()
+            (status, reason) = await self._co_read_status()
             log.debug('got %03d %s', status, reason)
 
-            hstring = yield from self._co_read_header()
+            hstring = await self._co_read_header()
             header = email.message_from_string(hstring, policy=email.policy.HTTP)
 
             if status < 100 or status > 199:
@@ -890,14 +893,14 @@ class HTTPConnection:
         self._in_remaining = RESPONSE_BODY_ERROR
         return None
 
-    def _co_read_status(self):
+    async def _co_read_status(self):
         '''Read response line'''
 
         log.debug('start')
 
         # read status
         try:
-            line = yield from self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
+            line = await self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
         except _ChunkTooLong:
             raise InvalidResponse('server send ridicously long status line')
 
@@ -925,7 +928,7 @@ class HTTPConnection:
         log.debug('done')
         return (status, reason.strip())
 
-    def _co_read_header(self):
+    async def _co_read_header(self):
         '''Read response header'''
 
         log.debug('start')
@@ -934,14 +937,14 @@ class HTTPConnection:
         # is empty (so our search for \r\n\r\n would fail)
         rbuf = self._rbuf
         if len(rbuf) < 2:
-            yield from self._co_fill_buffer(2)
+            await self._co_fill_buffer(2)
         if rbuf.d[rbuf.b : rbuf.b + 2] == b'\r\n':
             log.debug('done (empty header)')
             rbuf.b += 2
             return ''
 
         try:
-            hstring = yield from self._co_readstr_until(b'\r\n\r\n', MAX_HEADER_SIZE)
+            hstring = await self._co_readstr_until(b'\r\n\r\n', MAX_HEADER_SIZE)
         except _ChunkTooLong:
             raise InvalidResponse('server sent ridicously long header')
 
@@ -956,7 +959,7 @@ class HTTPConnection:
 
         return buf
 
-    def co_read(self, len_=None):
+    async def co_read(self, len_=None):
         '''Read up to *len_* bytes of response body data
 
         This method may return less than *len_* bytes, but will return ``b''`` only
@@ -970,13 +973,13 @@ class HTTPConnection:
         if self._in_remaining is RESPONSE_BODY_ERROR:
             raise self._encoding
         elif len_ is None:
-            return (yield from self.co_readall())
+            return await self.co_readall()
         elif len_ == 0 or self._in_remaining is None:
             return b''
         elif self._encoding is Encodings.IDENTITY:
-            return (yield from self._co_read_id(len_))
+            return await self._co_read_id(len_)
         elif self._encoding is Encodings.CHUNKED:
-            return (yield from self._co_read_chunked(len_=len_))
+            return await self._co_read_chunked(len_=len_)
         else:
             raise RuntimeError('ooops, this should not be possible')
 
@@ -1021,7 +1024,7 @@ class HTTPConnection:
 
         return buf
 
-    def _co_read_id(self, len_):
+    async def _co_read_id(self, len_):
         '''Read up to *len* bytes of response body assuming identity encoding'''
 
         log.debug('start (len=%d)', len_)
@@ -1056,7 +1059,7 @@ class HTTPConnection:
                     break
                 else:
                     log.debug('buffer empty and nothing to read, yielding..')
-                    yield PollNeeded(self._sock.fileno(), POLLIN)
+                    await PollNeeded(self._sock.fileno(), POLLIN)
             elif got_data == 0:
                 if self._in_remaining is READ_UNTIL_EOF:
                     log.debug('connection closed, %d bytes in buffer', len(rbuf))
@@ -1088,16 +1091,15 @@ class HTTPConnection:
         log.debug('done (%d bytes)', len(buf))
         return buf
 
-    def _co_read_chunked(self, len_: int):
+    async def _co_read_chunked(self, len_: int):
         '''Read response body assuming chunked encoding'''
 
-        log.debug('start')
         assert isinstance(self._in_remaining, int)
 
         if self._in_remaining == 0:
             log.debug('starting next chunk')
             try:
-                line = yield from self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
+                line = await self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
             except _ChunkTooLong:
                 raise InvalidResponse('could not find next chunk marker')
 
@@ -1118,16 +1120,16 @@ class HTTPConnection:
         if self._in_remaining is None:
             res = b''
         else:
-            res = yield from self._co_read_id(len_)
+            res = await self._co_read_id(len_)
 
         if not self._in_remaining:
             log.debug('chunk complete')
-            yield from self._co_read_header()
+            await self._co_read_header()
 
         log.debug('done')
         return res
 
-    def _co_readstr_until(self, substr, maxsize):
+    async def _co_readstr_until(self, substr, maxsize):
         '''Read from server until *substr*, and decode to latin1
 
         If *substr* cannot be found in the next *maxsize* bytes,
@@ -1179,7 +1181,7 @@ class HTTPConnection:
                 res = self._try_fill_buffer()
                 if res is None:
                     log.debug('need more data, yielding')
-                    yield PollNeeded(self._sock.fileno(), POLLIN)
+                    await PollNeeded(self._sock.fileno(), POLLIN)
                 elif res == 0:
                     raise ConnectionClosed('server closed connection')
                 else:
@@ -1237,7 +1239,7 @@ class HTTPConnection:
         log.debug('done (got %d bytes)', len_)
         return len_
 
-    def _co_fill_buffer(self, len_):
+    async def _co_fill_buffer(self, len_):
         '''Make sure that there are at least *len_* bytes in buffer'''
 
         rbuf = self._rbuf
@@ -1248,7 +1250,7 @@ class HTTPConnection:
                 self._rbuf.compact()
             res = self._try_fill_buffer()
             if res is None:
-                yield PollNeeded(self._sock.fileno(), POLLIN)
+                await PollNeeded(self._sock.fileno(), POLLIN)
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
 
@@ -1256,7 +1258,7 @@ class HTTPConnection:
         '''placeholder, will be replaced dynamically'''
         return eval_coroutine(self.co_readall(), self.timeout)
 
-    def co_readall(self):
+    async def co_readall(self):
         '''Read and return complete response body'''
 
         if self._in_remaining is None:
@@ -1265,7 +1267,7 @@ class HTTPConnection:
         log.debug('start')
         parts = []
         while True:
-            buf = yield from self.co_read(BUFFER_SIZE)
+            buf = await self.co_read(BUFFER_SIZE)
             log.debug('got %d bytes', len(buf))
             if not buf:
                 break
@@ -1280,7 +1282,7 @@ class HTTPConnection:
         '''placeholder, will be replaced dynamically'''
         return eval_coroutine(self.co_discard(), self.timeout)
 
-    def co_discard(self):
+    async def co_discard(self):
         '''Read and discard current response body'''
 
         if self._in_remaining is None:
@@ -1288,7 +1290,7 @@ class HTTPConnection:
 
         log.debug('start')
         while True:
-            buf = yield from self.co_read(BUFFER_SIZE)
+            buf = await self.co_read(BUFFER_SIZE)
             if not buf:
                 break
             log.debug('discarding %d bytes', len(buf))
@@ -1367,13 +1369,16 @@ def eval_coroutine(crt, timeout=None):
     anything, raises `ConnectionTimedOut`.
     '''
 
-    try:
-        while True:
-            log.debug('polling')
-            if not next(crt).poll(timeout=timeout):
-                raise ConnectionTimedOut()
-    except StopIteration as exc:
-        return exc.value
+    it = crt.__await__()
+    while True:
+        try:
+            el = next(it)
+        except StopIteration as exc:
+            return exc.value
+
+        log.debug('polling')
+        if not el.poll(timeout=timeout):
+            raise ConnectionTimedOut()
 
 
 def create_socket(address):
