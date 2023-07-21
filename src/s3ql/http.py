@@ -23,6 +23,7 @@ import textwrap
 from base64 import b64encode
 from collections import deque
 from collections.abc import Mapping, MutableMapping
+from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
 
@@ -35,17 +36,6 @@ except ImportError:
     _USE_POLL = False
 
 import sys
-
-try:
-    import asyncio
-except ImportError:
-    asyncio = None
-
-# Enums are only available in 3.4 and newer
-try:
-    from enum import Enum
-except ImportError:
-    Enum = object
 
 log = logging.getLogger(__name__)
 
@@ -1745,110 +1735,3 @@ class CaseInsensitiveDict(MutableMapping):
 
     def __repr__(self):
         return '%s(%r)' % (self.__class__.__name__, dict(self.items()))
-
-
-if asyncio:
-
-    class AioFuture(asyncio.Future):
-        '''
-        This class wraps a coroutine that yields `PollNeeded` instances
-        into an `asyncio` compatible `~asyncio.Future`.
-
-        This is done by registering a callback with the event loop that resumes
-        the coroutine when the requested IO is available.
-        '''
-
-        #: Set of fds that that any `_Future` instance currently has
-        #: read callbacks registered for (class attribute)
-        _read_fds = dict()
-
-        #: Set of fds that that any `_Future` instance currently has
-        #: write callbacks registered for (class attribute)
-        _write_fds = dict()
-
-        def __init__(self, crt, loop=None):
-            super().__init__(loop=loop)
-            self._crt = crt
-
-            #: The currently pending io request (that we have registered
-            #: callbacks for).
-            self._io_req = None
-
-            self._loop.call_soon(self._resume_crt)
-
-        def _resume_crt(self, exc=None):
-            '''Resume coroutine
-
-            If coroutine has completed, mark self as done. Otherwise, reschedule
-            call when requested io is available. If *exc* is specified, raise
-            *exc* in coroutine.
-            '''
-
-            log.debug('start')
-            try:
-                if exc is not None:
-                    io_req = self._crt.throw(exc)
-                else:
-                    io_req = next(self._crt)
-            except Exception as exc:
-                if isinstance(exc, StopIteration):
-                    log.debug('coroutine completed')
-                    self.set_result(exc.value)
-                else:
-                    log.debug('coroutine raised exception')
-                    self.set_exception(exc)
-                io_req = self._io_req
-                if io_req:
-                    # This is a bit fragile.. what if there is more than one
-                    # reader or writer? However, in practice this should not be
-                    # the case: they would read or write unpredictable parts of
-                    # the input/output.
-                    if io_req.mask & POLLIN:
-                        self._loop.remove_reader(io_req.fd)
-                        del self._read_fds[io_req.fd]
-                    if io_req.mask & POLLOUT:
-                        self._loop.remove_writer(io_req.fd)
-                        del self._write_fds[io_req.fd]
-                    self._io_req = None
-                return
-
-            if not isinstance(io_req, PollNeeded):
-                self._loop.call_soon(
-                    self._resume_crt,
-                    TypeError(
-                        'Coroutine passed to asyncio_future did not yield ' 'PollNeeded instance!'
-                    ),
-                )
-                return
-
-            if io_req.mask & POLLIN:
-                reader = self._read_fds.get(io_req.fd, None)
-                if reader is None:
-                    log.debug('got poll needed, registering reader')
-                    self._loop.add_reader(io_req.fd, self._resume_crt)
-                    self._read_fds[io_req.fd] = self
-                elif reader is self:
-                    log.debug('got poll needed, reusing read callback')
-                else:
-                    self._loop.call_soon(
-                        self._resume_crt,
-                        RuntimeError('There is already a read callback for this socket'),
-                    )
-                    return
-
-            if io_req.mask & POLLOUT:
-                writer = self._write_fds.get(io_req.fd, None)
-                if writer is None:
-                    log.debug('got poll needed, registering writer')
-                    self._loop.add_writer(io_req.fd, self._resume_crt)
-                    self._write_fds[io_req.fd] = self
-                elif writer is self:
-                    log.debug('got poll needed, reusing write callback')
-                else:
-                    self._loop.call_soon(
-                        self._resume_crt,
-                        RuntimeError('There is already a write callback for this socket'),
-                    )
-                    return
-
-            self._io_req = io_req
