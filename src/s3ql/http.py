@@ -113,7 +113,7 @@ class PollNeeded(tuple):
 
     @property
     def mask(self):
-        '''Event mask specifiying the type of required IO
+        '''Event mask specifying the type of required IO
 
         This attribute defines what type of IO the provider of the `PollNeeded`
         instance needs to perform on *fd*. It is expected that, when *fd* is
@@ -130,7 +130,7 @@ class PollNeeded(tuple):
     def poll(self, timeout=None):
         '''Wait until fd is ready for requested IO
 
-        This is a convenince function that uses `~select.poll` to wait until
+        This is a convenience function that uses `~select.poll` to wait until
         `.fd` is ready for the requested type of IO. If poll is unavailable
         (e.g. on Windows) it uses `~select.select` instead.
 
@@ -363,7 +363,7 @@ class _Buffer:
         #: been consumed ("*b*eginning")
         self.b = 0
 
-        #: Fill-level of the buffer ("*e*nd")
+        #: Fill-level of the buffer (e is for "end")
         self.e = 0
 
     def __len__(self):
@@ -809,7 +809,7 @@ class HTTPConnection:
             # that totally defeats the purpose of 100-continue, so we hope
             # that the server behaves sanely and does not attempt to read
             # the body of a request it has already handled. (As a side note,
-            # this ambuigity in the RFC also totally breaks HTTP pipelining,
+            # this ambiguity in the RFC also totally breaks HTTP pipelining,
             # as we can never be sure if the server is going to expect the
             # request or some request body data).
             self._out_remaining = None
@@ -1300,7 +1300,7 @@ class HTTPConnection:
         '''Reset HTTP connection
 
         This method resets the status of the HTTP connection after an exception
-        has occured. Any cached data and pending responses are discarded.
+        has occurred. Any cached data and pending responses are discarded.
         '''
         self.disconnect()
 
@@ -1509,7 +1509,7 @@ class CaseInsensitiveDict(MutableMapping):
     was originally stored.
 
     If the constructor, :meth:`!update`, or equality comparison operations are
-    given multiple keys that have equal lower-case representions, the behavior
+    given multiple keys that have equal lower-case representations, the behavior
     is undefined.
     """
 
