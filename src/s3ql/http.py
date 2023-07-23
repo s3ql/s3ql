@@ -1591,9 +1591,7 @@ def create_socket(address):
         try:
             return fn()
         except (socket.gaierror, socket.herror) as exc:
-            if exc.errno == socket.EAI_AGAIN:
-                raise DNSUnavailable(arg)
-            elif exc.errno in (socket.EAI_NODATA, socket.EAI_NONAME):
+            if exc.errno in (socket.EAI_NODATA, socket.EAI_NONAME, socket.EAI_AGAIN):
                 raise HostnameNotResolvableOrDNSUnavailable(arg)
             else:
                 raise
