@@ -55,6 +55,26 @@ SSL_TEST_HOST = 'www.google.com'
 TEST_DIR = os.path.dirname(__file__)
 
 
+def check_for_internet_access():
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+    ssl_context.verify_mode = ssl.CERT_REQUIRED
+    ssl_context.set_default_verify_paths()
+    try:
+        conn = http.client.HTTPSConnection(SSL_TEST_HOST, context=ssl_context)
+        conn.request('GET', '/')
+        resp = conn.getresponse()
+        assert resp.status in (200, 301, 302)
+        return True
+    except:
+        return False
+    finally:
+        conn.close()
+
+
+no_internet_access = not check_for_internet_access()
+
+
 class HTTPServer(socketserver.TCPServer):
     # Extended to add SSL support
     def get_request(self):
@@ -139,29 +159,10 @@ def random_fh(request):
     return fh
 
 
-def check_http_connection():
-    '''Skip test if we can't connect to ssl test server'''
-
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    ssl_context.options |= ssl.OP_NO_SSLv2
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
-    ssl_context.set_default_verify_paths()
-    try:
-        conn = http.client.HTTPSConnection(SSL_TEST_HOST, context=ssl_context)
-        conn.request('GET', '/')
-        resp = conn.getresponse()
-        assert resp.status in (200, 301, 302)
-    except:
-        pytest.skip('%s not reachable but required for testing' % SSL_TEST_HOST)
-    finally:
-        conn.close()
-
-
+@pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_connect_ssl():
-    check_http_connection()
-
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
-    ssl_context.options |= ssl.OP_NO_SSLv2
+    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
     ssl_context.verify_mode = ssl.CERT_REQUIRED
     ssl_context.set_default_verify_paths()
 
@@ -174,9 +175,8 @@ def test_connect_ssl():
     conn.disconnect()
 
 
+@pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_invalid_ssl():
-    check_http_connection()
-
     # Don't load certificates
     context = ssl.SSLContext(ssl.PROTOCOL_SSLv23)
     context.options |= ssl.OP_NO_SSLv2
@@ -188,8 +188,9 @@ def test_invalid_ssl():
     conn.disconnect()
 
 
+@pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_dns_one(monkeypatch):
-    monkeypatch.setattr(s3ql.http, 'DNS_TEST_HOSTNAMES', (('localhost', 80),))
+    monkeypatch.setattr(s3ql.http, 'DNS_TEST_HOSTNAMES', ((SSL_TEST_HOST, 443),))
     with pytest.raises(HostnameNotResolvable):
         conn = HTTPConnection('foobar.invalid')
         conn.connect()
