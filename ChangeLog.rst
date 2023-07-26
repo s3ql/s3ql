@@ -17,6 +17,9 @@ Unreleased Changes
   directory` errors in `mount.log` when shortly after running *s3qlrm* the system gets
   under memory pressure (or the filesystem is unmounted).
 
+* If a directory entry deleted by *s3qlrm* is watched using inotify, the watchers are now
+  informed that the entry has been deleted.
+
 
 S3QL 5.0.0 (2023-07-08)
 =======================

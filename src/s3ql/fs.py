@@ -437,8 +437,9 @@ class Operations(pyfuse3.Operations):
                         queue.append(id_)
                     else:
                         if is_open:
-                            # Ideally, we should specify delete=id_ here. See below for why we don't.
-                            pyfuse3.invalidate_entry_async(id_p, name, ignore_enoent=True)
+                            pyfuse3.invalidate_entry_async(
+                                id_p, name, deleted=id_, ignore_enoent=True
+                            )
                         await self._remove(id_p, name, id_, force=True)
                     processed += 1
 
@@ -455,13 +456,7 @@ class Operations(pyfuse3.Operations):
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
-            # Ideally, we should specify delete=id0 here so that inotify watchers are informed.
-            # However, this fails if the FORGET requests for entries underneath a directory have not
-            # yet been processed. So perhaps we should also defer the physical removal (update of
-            # the DB tables) until this has happened? In either case, this is tricky because there
-            # is no easy way to check when all the FORGET requires have arrived since we no longer
-            # know what used to be in the directory.
-            pyfuse3.invalidate_entry_async(id_p0, name0, ignore_enoent=True)
+            pyfuse3.invalidate_entry_async(id_p0, name0, deleted=id0, ignore_enoent=True)
         await self._remove(id_p0, name0, id0, force=True)
 
         await self.forget([(id0, 1)])
