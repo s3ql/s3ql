@@ -10,8 +10,12 @@ Unreleased Changes
   making yourself known on the S3QL mailing list or the backend may get removed due to
   apparent unuse.
 
-* The `s3ql_verify`` command now also checks if the contents of blocks hash to the
+* The `s3ql_verify` command now also checks if the contents of blocks hash to the
   expected value.
+
+* There should be no more `fuse_lowlevel_notify_inval_entry returned: No such file or
+  directory` errors in `mount.log` when shortly after running *s3qlrm* the system gets
+  under memory pressure (or the filesystem is unmounted).
 
 
 S3QL 5.0.0 (2023-07-08)
