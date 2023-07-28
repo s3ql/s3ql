@@ -17,6 +17,7 @@ from collections import OrderedDict
 from queue import Empty as QueueEmpty
 from queue import Full as QueueFull
 from queue import Queue
+from typing import Optional
 
 import trio
 
@@ -628,11 +629,32 @@ class BlockCache:
                     self.fs.failsafe = True
 
     @asynccontextmanager
-    async def get(self, inode, blockno):
-        """Get file handle for block `blockno` of `inode`."""
+    async def get(self, inode, blockno, max_write: Optional[int] = None):
+        """Get file handle for block `blockno` of `inode`
+
+        If *max_write* is not None, caller promises not to write into the
+        cache element beyond offset *max_write*.
+        """
 
         # log.debug('started with %d, %d', inode, blockno)
 
+        # Fast path: in cache and will not change size (so we do not need to worry about cache
+        # expiration). The `while` statement does not actually loop, we just use it so we can
+        # use `break` to jump out.
+        while max_write is not None:
+            async with self.mlock(inode, blockno):
+                try:
+                    el = self.cache[(inode, blockno)]
+                except KeyError:
+                    break
+                if max_write >= el.size:
+                    break
+                self.cache.move_to_end((inode, blockno), last=True)  # move to head
+                yield el
+                return
+
+        # Slow path - object is not yet cached or cached but will increase in size. Therefore, need
+        # to make sure there's enough room in the cache.
         if self.cache.is_full():
             await self.expire()
 

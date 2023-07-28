@@ -1226,6 +1226,7 @@ class Operations(pyfuse3.Operations):
             length = len(buf)
         elif buf is None:
             write = False
+            max_write = None
         else:
             raise TypeError("Don't know what to do!")
 
@@ -1233,8 +1234,14 @@ class Operations(pyfuse3.Operations):
         if offset_rel + length > self.max_obj_size:
             length = self.max_obj_size - offset_rel
 
+        if write:
+            # Point to the last byte that we will write
+            max_write = offset_rel + length - 1
+        else:
+            max_write = None
+
         try:
-            async with self.cache.get(id_, blockno) as fh:
+            async with self.cache.get(id_, blockno, max_write=max_write) as fh:
                 fh.seek(offset_rel)
                 if write:
                     fh.write(buf[:length])
