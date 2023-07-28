@@ -17,6 +17,9 @@ Unreleased Changes
   directory` errors in `mount.log` when shortly after running *s3qlrm* the system gets
   under memory pressure (or the filesystem is unmounted).
 
+* Reading and modifying existing data that is already cached no longer blocks if the cache
+  is full.
+
 
 S3QL 5.0.0 (2023-07-08)
 =======================
