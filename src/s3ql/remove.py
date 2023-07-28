@@ -6,6 +6,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+import errno
 import logging
 import os
 import sys
@@ -69,7 +70,16 @@ def main(args=None):
         pyfuse3.syncfs(name)
 
         cmd = ('(%d, %r)' % (fstat_p.st_ino, path2bytes(os.path.basename(name)))).encode()
-        pyfuse3.setxattr(ctrlfile, 'rmtree', cmd)
+        try:
+            pyfuse3.setxattr(ctrlfile, 'rmtree', cmd)
+        except OSError as exc:
+            if exc.errno == errno.ENOTEMPTY:
+                print(
+                    f'Unable to remove {name}: not empty even after removing all contents!\n',
+                    file=sys.stderr,
+                )
+                sys.exit(1)
+            raise
 
 
 if __name__ == '__main__':
