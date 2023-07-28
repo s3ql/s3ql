@@ -442,7 +442,7 @@ class Operations(pyfuse3.Operations):
                         await self._remove(id_p, name, id_, force=True)
                     processed += 1
 
-                if query_chunk and not reinserted:
+                if len(query_chunk) == batch_mgr.batch_size and not reinserted:
                     # Make sure to re-insert the directory to process the remaining
                     # contents and delete the directory itself.
                     queue.append(id_p)
