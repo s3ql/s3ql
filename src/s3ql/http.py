@@ -97,7 +97,6 @@ class HTTPResponse:
     '''
 
     def __init__(self, method, path, status, reason, headers, length=None):
-
         #: HTTP Method of the request this was response is associated with
         self.method = method
 
@@ -282,7 +281,6 @@ class _Buffer:
     __slots__ = ('d', 'b', 'e')
 
     def __init__(self, size):
-
         #: Holds the actual data
         self.d = bytearray(size)
 
@@ -354,7 +352,6 @@ class HTTPConnection:
     '''
 
     def __init__(self, hostname, port=None, ssl_context=None, proxy=None):
-
         if port is None:
             if ssl_context is None:
                 self.port = HTTP_PORT
@@ -1347,7 +1344,6 @@ class HTTPConnection:
 
 
 def _extend_HTTPConnection_docstrings():
-
     co_suffix = '\n\n' + textwrap.fill(
         'This method returns a coroutine. `.%s` is a regular method '
         'implementing the same functionality.',
@@ -1430,7 +1426,7 @@ def create_socket(address):
     # https://stackoverflow.com/questions/24855669/). Therefore, we try to resolve
     # "well-known" hosts to resolve the ambiguity.
 
-    for (hostname, port) in DNS_TEST_HOSTNAMES:
+    for hostname, port in DNS_TEST_HOSTNAMES:
         try:
             try_connect(lambda: socket.getaddrinfo(hostname, port), address[0])
         except HostnameNotResolvableOrDNSUnavailable:
