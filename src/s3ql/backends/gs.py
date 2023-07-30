@@ -326,7 +326,6 @@ class Backend(AbstractBackend):
 
     @retry
     def _list_page(self, prefix, page_token=None, batch_size=1000):
-
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
         query_string = {'prefix': prefix, 'maxResults': str(batch_size)}
@@ -357,7 +356,6 @@ class Backend(AbstractBackend):
         return _unwrap_user_meta(self._get_gs_meta(key))
 
     def _get_gs_meta(self, key):
-
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
             urllib.parse.quote(self.prefix + key, safe=''),
@@ -387,7 +385,6 @@ class Backend(AbstractBackend):
 
     @retry
     def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
-
         gs_meta = self._get_gs_meta(key)
         metadata = _unwrap_user_meta(gs_meta)
 
@@ -431,7 +428,6 @@ class Backend(AbstractBackend):
 
     @retry
     def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
-
         metadata = json.dumps(
             {
                 'metadata': _wrap_user_meta(metadata),
@@ -550,7 +546,6 @@ class Backend(AbstractBackend):
             'accounts.google.com', 443, proxy=self.proxy, ssl_context=self.ssl_context
         )
         try:
-
             conn.send_request('POST', '/o/oauth2/token', headers=headers, body=body.encode('utf-8'))
             resp = conn.read_response()
             json_resp = _parse_json_response(resp, conn.readall())
@@ -653,9 +648,8 @@ def _map_request_error(exc: RequestError, key: str):
 
 
 def _wrap_user_meta(user_meta):
-
     obj_meta = dict()
-    for (key, val) in user_meta.items():
+    for key, val in user_meta.items():
         if not isinstance(key, str):
             raise TypeError('metadata keys must be str, not %s' % type(key))
         if not isinstance(val, (str, bytes, int, float, complex, bool)) and val is not None:
@@ -689,14 +683,14 @@ def _unwrap_user_meta(json_resp):
             parts.append(part)
         buf = ''.join(parts)
         meta = literal_eval('{ %s }' % buf)
-        for (k, v) in meta.items():
+        for k, v in meta.items():
             if isinstance(v, bytes):
                 meta[k] = b64decode(v)
 
         return meta
 
     meta = {}
-    for (k, v) in meta_raw.items():
+    for k, v in meta_raw.items():
         try:
             v2 = literal_eval(v)
         except ValueError as exc:

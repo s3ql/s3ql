@@ -494,7 +494,7 @@ def thaw_basic_mapping(buf):
         raise ThawError()
 
     # Decode bytes values
-    for (k, v) in d.items():
+    for k, v in d.items():
         if not isinstance(v, bytes):
             continue
         try:
@@ -517,7 +517,7 @@ def freeze_basic_mapping(d):
     '''
 
     els = []
-    for (k, v) in d.items():
+    for k, v in d.items():
         if not isinstance(k, str):
             raise ValueError('key %s must be str, not %s' % (k, type(k)))
 

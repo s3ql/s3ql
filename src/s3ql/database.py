@@ -503,7 +503,7 @@ def download_metadata(
     processed = 0
 
     with open(db_file, 'w+b', buffering=0) as fh:
-        for (blockno, candidates) in block_list.items():
+        for blockno, candidates in block_list.items():
             off = blockno * blocksize
             if off >= file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
@@ -590,14 +590,14 @@ def expire_objects(backend, versions_to_keep=32):
         # the index, need to subtract one (with one blocks, the max index is 0).
         max_blockno = math.ceil(params.db_size / blocksize) - 1
 
-        for (blockno, candidates) in block_list.items():
+        for blockno, candidates in block_list.items():
             log.debug('block %d has candidates %s', blockno, candidates)
             if blockno > max_blockno:
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
     # Remove what's no longer needed
-    for (blockno, candidates) in block_list.items():
+    for blockno, candidates in block_list.items():
         for seq_no in candidates:
             if seq_no in to_keep[blockno]:
                 continue
