@@ -74,7 +74,7 @@ class ComprencBackend(AbstractBackend):
         self.compression = compression
         self.backend = backend
 
-        if compression[0] not in ('bzip2', 'lzma', 'zlib', 'zstd', None) 
+        if (compression[0] not in ('bzip2', 'lzma', 'zlib', 'zstd', None) 
            or (compression[0]!='zstd' and compression[1] not in range(10))
            or (compression[0]=='zstd' and compression[1] not in range(23))):
             raise ValueError('Unsupported compression: %s' % compression)
