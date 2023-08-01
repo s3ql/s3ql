@@ -13,8 +13,8 @@
 * `./make_release.sh`
 * Test tarball:
   * `./setup.py build_ext --inplace`
-  * `./build_docs.sh`
   * `python3 -m pytest tests/`
+* `git checkout master`
 * `git push && git push --tags`, create release on Github
 * `./setup.py upload_docs`
 * Write announcement to mailing list
