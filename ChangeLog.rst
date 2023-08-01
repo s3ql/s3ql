@@ -1,5 +1,5 @@
-Unreleased Changes
-==================
+S3QL 5.1.0 (2023-08-01)
+=======================
 
 * The user's guide has been fully reviewed and updated.
 
