@@ -67,7 +67,7 @@ To build and install S3QL, first download the release tarball from
 `GitHub <https://github.com/s3ql/s3ql/releases>`_. Then validate the tarball using
 `signify <https://github.com/aperezdc/signify>`_::
 
-  signify -V -z -m s3ql-XX.tar.gz -p s3ql-XX.pub
+  signify -V -m s3ql-XX.tar.gz -p s3ql-XX.pub
 
 The `s3ql-XX.pub` file needs to be obtained from a trustworthy source (it contains the
 signing key). Each S3QL release contains the signing key for the release after it in the

@@ -19,8 +19,10 @@ python3 setup.py build_cython build_ext --inplace
 (cd doc/pdf && latexmk)
 python3 ./setup.py sdist
 
-signify-openbsd -S -z -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
-mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
+# Ideally we'd use -z here to embed the signature in the gz header.
+# However, this is currently buggy: bugs.debian.org/1042837
+signify-openbsd -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
+#mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
 echo "Contributors from ${PREV_TAG} to ${TAG}:"
 git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | \
