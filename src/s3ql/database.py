@@ -136,7 +136,11 @@ class Connection:
     def __init__(self, file_: str, blocksize: Optional[int] = None):
         if blocksize:
             sqlite3ext.set_blocksize(blocksize)
-            file_ = os.path.abspath(file_)
+
+            # Need to make sure that SQLite and the write tracker module agree on the canonical path
+            # of the file (otherwise write tracking will not be enabled).
+            file_ = os.path.realpath(file_)
+
             self.dirty_blocks = sqlite3ext.track_writes(file_)
             self.conn = apsw.Connection(file_, vfs=sqlite3ext.get_vfsname())
         else:
