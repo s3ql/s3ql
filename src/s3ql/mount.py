@@ -695,6 +695,7 @@ class MetadataUploadTask:
                 # Now upload synchronously to get consistent snapshot (at the cost of stopping file
                 # system operation). As a future optimization, we could first copy all modified
                 # blocks locally, and then upload async...
+                self.db.checkpoint()
                 self.params.last_modified = time.time()
                 upload_metadata(
                     backend,
