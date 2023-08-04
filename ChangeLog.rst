@@ -1,3 +1,11 @@
+Unreleased Changes
+==================
+
+* Fixed a DATA LOSS issue: Metadata upload now works correctly if the cache directory
+  contains a symlink in its path. In S3QL 5.0.0 and 5.1.0, this would result in metadata
+  silently not being uploaded to the backend.
+
+
 S3QL 5.1.0 (2023-08-01)
 =======================
 

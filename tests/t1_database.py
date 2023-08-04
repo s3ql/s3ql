@@ -68,6 +68,32 @@ def test_track_dirty():
         db.close()
 
 
+def test_track_dirty_symlink():
+    rows = 11
+    sqlite3ext.reset()
+    with tempfile.TemporaryDirectory() as tmpdir:
+        os.mkdir(os.path.join(tmpdir, 'target'))
+        os.symlink('target', os.path.join(tmpdir, 'link'))
+        fname = os.path.join(tmpdir, 'link', 'testdb')
+
+        db = Connection(fname, BLOCKSIZE)
+        db.execute("CREATE TABLE foo (id INT, data BLOB);")
+        for i in range(rows):
+            db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
+
+        db.checkpoint()
+        assert db.dirty_blocks.get_count() >= rows
+
+        db.dirty_blocks.clear()
+        assert db.dirty_blocks.get_count() == 0
+
+        db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
+        db.checkpoint()
+        assert rows > db.dirty_blocks.get_count() > 0
+
+        db.close()
+
+
 def test_track_dirty_count():
     sqlite3ext.reset()
     with tempfile.NamedTemporaryFile() as tmpfh:
