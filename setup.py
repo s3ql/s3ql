@@ -116,6 +116,7 @@ def main():
                 ['src/s3ql/sqlite3ext.cpp'],
                 extra_compile_args=compile_args,
                 language='c++',
+                depends=['src/s3ql/_sqlite3ext.cpp'],
             ),
         ],
         data_files=[
