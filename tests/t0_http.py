@@ -563,8 +563,9 @@ def test_conn_close_3(conn, monkeypatch):
     assert resp.status == 200
     assert conn.readall() == DUMMY_DATA[:data_size]
 
-    conn.send_request('GET', '/whatever')
-    assert_raises(ConnectionClosed, conn.read_response)
+    with pytest.raises(ConnectionClosed):
+        conn.send_request('GET', '/whatever')
+        conn.read_response()
 
 
 def test_conn_close_4(conn, monkeypatch):
