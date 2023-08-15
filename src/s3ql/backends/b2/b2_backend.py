@@ -474,7 +474,7 @@ class B2Backend(AbstractBackend):
 
         self._add_b2_metadata_to_headers(headers, metadata)
 
-        key_with_prefix = self.backend._get_key_with_prefix(self.key)
+        key_with_prefix = self._get_key_with_prefix(key)
         conn = self._get_upload_conn()
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
@@ -491,7 +491,7 @@ class B2Backend(AbstractBackend):
                 'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
             )
             copyfh(fh, conn, len_=len_, update=sha1.update)
-            conn.write(sha1.hexdigest())
+            conn.write(sha1.hexdigest().encode())
 
             response = conn.read_response()
             response_body = conn.readall()
