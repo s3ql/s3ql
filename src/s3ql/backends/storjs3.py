@@ -13,7 +13,7 @@ import re
 
 log = logging.getLogger(__name__)
 
-OBJ_TRANSLATED_RE = re.compile(r'^(.*)/(-?[0-9])+$')
+OBJ_TRANSLATED_RE = re.compile(r'^(.*)/(-?[0-9]+)$')
 
 OBJ_DATA_RE = re.compile(r'^(s3ql_data_)([0-9]+)$')
 OBJ_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no_)([0-9]+)$')
@@ -98,7 +98,7 @@ class Backend(s3c.Backend):
         match = OBJ_TEST_RE.match(key)
         if match is not None:
             result = "random\\\'name\'/" + match.group(2)
-            log.info('translated test key: %s', result)
+            log.info('translated test key %s to: %s', key, result)
             return result
         raise RuntimeError(f'Failed to translate unsupported key from s3 to storj form: {key}')
 
@@ -137,9 +137,9 @@ class Backend(s3c.Backend):
             log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
             return result
         #special case: test key
-        elif name == "random\\\'name\'":
+        elif name.endswith("random\\\'name\'"):
             result = name + " " + idx
-            log.info('translated test key to: %s', result)
+            log.info('translated test key %s to: %s', key, result)
             return result
         #normal objects s3ql_data and s3ql_seq
         else:
@@ -186,7 +186,7 @@ class Backend(s3c.Backend):
     def list(self, prefix=''):
         prefix_t = self._translate_s3_prefix_to_storj(prefix)
         #needs back-conversion for list items
-        return super().list(prefix_t)
+        return ((self._translate_storj_key_to_s3(el)) for el in super().list(prefix_t))
 
     @copy_ancestor_docstring
     def lookup(self, key):
