@@ -8,15 +8,8 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import s3c
-from .s3c import get_S3Error
-from .common import NoSuchObject, retry
 from ..inherit_docstrings import copy_ancestor_docstring
-from xml.sax.saxutils import escape as xml_escape
 import re
-import time
-import urllib.parse
-import hashlib
-import hmac
 
 log = logging.getLogger(__name__)
 
