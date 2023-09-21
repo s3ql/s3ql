@@ -43,7 +43,9 @@ PFX_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no)(_)$')
 PFX_METADATA_RE = re.compile(r'^s3ql_metadata$')
 PFX_PASS_RE = re.compile(r'^s3ql_passphrase$')
 
-OBJ_TEST_RE = re.compile(r'^random\\(\'name\'\s)([0-9]+)$')
+PFX_TEST_RE = re.compile(r'^prefix[abc]$')
+OBJ_TEST_RE = re.compile(r'^(.*/?)(random\\\'name\')(\s)([0-9]+)$')
+OBJ_TRANS_TEST = "random\\\'name\'"
 
 class Backend(s3c.Backend):
     """A backend for Storj S3 gateway-st/mt
@@ -97,7 +99,7 @@ class Backend(s3c.Backend):
         #fix for non standard test-pattern
         match = OBJ_TEST_RE.match(key)
         if match is not None:
-            result = "random\\\'name\'/" + match.group(2)
+            result = match.group(1) + match.group(2) + "/" + match.group(4)
             log.info('translated test key %s to: %s', key, result)
             return result
         raise RuntimeError(f'Failed to translate unsupported key from s3 to storj form: {key}')
@@ -137,7 +139,7 @@ class Backend(s3c.Backend):
             log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
             return result
         #special case: test key
-        elif name.endswith("random\\\'name\'"):
+        elif name.endswith(OBJ_TRANS_TEST):
             result = name + " " + idx
             log.info('translated test key %s to: %s', key, result)
             return result
@@ -174,6 +176,12 @@ class Backend(s3c.Backend):
         if match is not None:
             result = "s3ql_passphrase_store/"
             log.info('translated passphrase prefix: %s', result)
+            return result
+        #match test prefix
+        match = PFX_TEST_RE.match(prefix)
+        if match is not None:
+            result = match.group()
+            log.info('translated test prefix: %s', result)
             return result
         raise RuntimeError(f'Failed to translate unsupported prefix to storj form: {prefix}')
 
