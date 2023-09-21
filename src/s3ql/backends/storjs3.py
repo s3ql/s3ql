@@ -13,7 +13,7 @@ import re
 
 log = logging.getLogger(__name__)
 
-OBJ_TRANSLATED_RE = re.compile(r'^.*/-?[0-9]+$')
+OBJ_TRANSLATED_RE = re.compile(r'^(.*)/(-?[0-9])+$')
 
 OBJ_DATA_RE = re.compile(r'^(s3ql_data_)([0-9]+)$')
 OBJ_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no_)([0-9]+)$')
@@ -23,6 +23,20 @@ OBJ_METADATA_RE = re.compile(r'^s3ql_metadata$')
 
 OBJ_PASS_BAK_RE = re.compile(r'^(s3ql_passphrase_bak)([0-9])$')
 OBJ_PASS_RE = re.compile(r'^s3ql_passphrase$')
+
+OBJ_TRANS_PASS = "s3ql_passphrase_store"
+OBJ_PASS = "s3ql_passphrase"
+OBJ_PASS_BAK = "s3ql_passphrase_bak"
+
+OBJ_TRANS_META = "s3ql_metadata_store"
+OBJ_META = "s3ql_metadata"
+OBJ_META_BAK = "s3ql_metadata_bak_"
+
+OBJ_TRANS_DATA = "s3ql_data"
+OBJ_TRANS_SEQ = "s3ql_seq_no"
+
+OBJ_BACK_PFX_PASS_RE = re.compile(r'^(.*/?)(s3ql_passphrase_store)$')
+OBJ_BACK_PFX_META_RE = re.compile(r'^(.*/?)(s3ql_metadata_store)$')
 
 PFX_DATA_RE = re.compile(r'^(s3ql_data)(_)$')
 PFX_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no)(_)$')
@@ -52,44 +66,85 @@ class Backend(s3c.Backend):
         #match sql_data or s3ql_seq_no keys
         match = OBJ_DATA_RE.match(key)
         if match is not None:
-            return "s3ql_data/" + match.group(2)
+            return OBJ_TRANS_DATA + "/" + match.group(2)
         match = OBJ_SEQ_NO_RE.match(key)
         if match is not None:
-            result = "s3ql_seq_no/" + match.group(2)
+            result = OBJ_TRANS_SEQ + "/" + match.group(2)
             log.info('translated seq_no key: %s', result)
             return result
         #match metadata keys
         match = OBJ_METADATA_BAK_RE.match(key)
         if match is not None:
-            result = "s3ql_metadata_store/" + match.group(2)
+            result = OBJ_TRANS_META + "/" + match.group(2)
             log.info('translated metadata key: %s', result)
             return result
         match = OBJ_METADATA_RE.match(key)
         if match is not None:
-            result = "s3ql_metadata_store/-1"
+            result = OBJ_TRANS_META + "/-1"
             log.info('translated metadata key: %s', result)
             return result
         #match s3ql_passphrase keys
         match = OBJ_PASS_BAK_RE.match(key)
         if match is not None:
-            result = "s3ql_passphrase_store/" + match.group(2)
+            result = OBJ_TRANS_PASS + "/" + match.group(2)
             log.info('translated passphrase key: %s', result)
             return result
         match = OBJ_PASS_RE.match(key)
         if match is not None:
-            result = "s3ql_passphrase_store/0"
+            result = OBJ_TRANS_PASS + "/0"
             log.info('translated passphrase key: %s', result)
             return result
-        #fix for test-pattern
+        #fix for non standard test-pattern
         match = OBJ_TEST_RE.match(key)
         if match is not None:
             result = "random\\\'name\'/" + match.group(2)
             log.info('translated test key: %s', result)
             return result
-        raise RuntimeError(f'Failed to translate unsupported key to storj form: {key}')
+        raise RuntimeError(f'Failed to translate unsupported key from s3 to storj form: {key}')
 
     def _translate_storj_key_to_s3(self, key):
         '''convert object key from storj form to normal s3 form'''
+        match = OBJ_TRANSLATED_RE.match(key)
+        if match is None:
+            raise RuntimeError(f'Failed to translate invalid storj key to s3 form: {key}')
+        #extract key name and index part
+        name = match.group(1)
+        idx = match.group(2)
+        #special case: passphrase
+        if name.endswith(OBJ_TRANS_PASS):
+            match = OBJ_BACK_PFX_PASS_RE.match(name)
+            if match is None:
+                raise RuntimeError(f'Failed to translate {OBJ_TRANS_PASS} key to s3 form: {key}')
+            pfx = match.group(1)
+            if idx == "0":
+                result = pfx + OBJ_PASS
+                log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
+                return result
+            result = pfx + OBJ_PASS_BAK + idx
+            log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
+            return result
+        #special case: metadata
+        elif name.endswith(OBJ_TRANS_META):
+            match = OBJ_BACK_PFX_META_RE.match(name)
+            if match is None:
+                raise RuntimeError(f'Failed to translate {OBJ_TRANS_META} key to s3 form: {key}')
+            pfx = match.group(1)
+            if idx == "-1":
+                result = pfx + OBJ_META
+                log.info('translated %s key to: %s', OBJ_TRANS_META, result)
+                return result
+            result = pfx + OBJ_META_BAK + idx
+            log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
+            return result
+        #special case: test key
+        elif name == "random\\\'name\'":
+            result = name + " " + idx
+            log.info('translated test key to: %s', result)
+            return result
+        #normal objects s3ql_data and s3ql_seq
+        else:
+            result = name + "_" + idx
+            return result
 
     def _translate_s3_prefix_to_storj(self, prefix):
         '''convert ListObjectsV2 search prefix to the form suitable for use with storj s3 bucket'''
