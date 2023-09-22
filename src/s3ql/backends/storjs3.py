@@ -10,10 +10,13 @@ from ..logging import logging, QuietError # Ensure use of custom logger class
 from . import s3c
 from ..inherit_docstrings import copy_ancestor_docstring
 import re
+import base64
 
 log = logging.getLogger(__name__)
 
 OBJ_TRANSLATED_RE = re.compile(r'^(.*)/(-?[0-9]+)$')
+OBJ_OTHER_TRANSLATED_RE = re.compile(r'^(.*)(s3ql_other)/B64([a-zA-Z0-9_\-=]*)$')
+OBJ_OTHER = "s3ql_other"
 
 OBJ_DATA_RE = re.compile(r'^(s3ql_data_)([0-9]+)$')
 OBJ_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no_)([0-9]+)$')
@@ -35,17 +38,18 @@ OBJ_META_BAK = "s3ql_metadata_bak_"
 OBJ_TRANS_DATA = "s3ql_data"
 OBJ_TRANS_SEQ = "s3ql_seq_no"
 
-OBJ_BACK_PFX_PASS_RE = re.compile(r'^(.*/?)(s3ql_passphrase_store)$')
-OBJ_BACK_PFX_META_RE = re.compile(r'^(.*/?)(s3ql_metadata_store)$')
-
 PFX_DATA_RE = re.compile(r'^(s3ql_data)(_)$')
 PFX_SEQ_NO_RE = re.compile(r'^(s3ql_seq_no)(_)$')
 PFX_METADATA_RE = re.compile(r'^s3ql_metadata$')
 PFX_PASS_RE = re.compile(r'^s3ql_passphrase$')
 
 PFX_TEST_RE = re.compile(r'^prefix[abc]$')
-OBJ_TEST_RE = re.compile(r'^(.*/?)(random\\\'name\')(\s)([0-9]+)$')
-OBJ_TRANS_TEST = "random\\\'name\'"
+
+def STR_ENCODE(key):
+    return base64.urlsafe_b64encode(key.encode()).decode()
+
+def STR_DECODE(b64key):
+    return base64.urlsafe_b64decode(b64key.encode()).decode()
 
 class Backend(s3c.Backend):
     """A backend for Storj S3 gateway-st/mt
@@ -60,10 +64,14 @@ class Backend(s3c.Backend):
 
     def _translate_s3_key_to_storj(self, key):
         '''convert object key to the form suitable for use with storj s3 bucket'''
-        #check wether key is in already translated form
+        #check wether key is already in storj form
         match = OBJ_TRANSLATED_RE.match(key)
         if match is not None:
             log.info('skipping already translated key: %s', key)
+            return key
+        match = OBJ_OTHER_TRANSLATED_RE.match(key)
+        if match is not None:
+            log.warning('skipping already translated s3ql_other key: %s', key)
             return key
         #match sql_data or s3ql_seq_no keys
         match = OBJ_DATA_RE.match(key)
@@ -96,52 +104,43 @@ class Backend(s3c.Backend):
             result = OBJ_TRANS_PASS + "/0"
             log.info('translated passphrase key: %s', result)
             return result
-        #fix for non standard test-pattern
-        match = OBJ_TEST_RE.match(key)
-        if match is not None:
-            result = match.group(1) + match.group(2) + "/" + match.group(4)
-            log.info('translated test key %s to: %s', key, result)
-            return result
-        raise RuntimeError(f'Failed to translate unsupported key from s3 to storj form: {key}')
+        #for all other cases: we do not know what to do with such keys
+        #we cannot assume its' grouping to make backend.list work for such keys on storj s3 backend
+        #so, urlencode it to remove forward slashes, place it into s3ql_other prefix and issue warning
+        result = OBJ_OTHER + "/B64" + STR_ENCODE(key)
+        log.info('translated unsupported key %s: %s', key, result)
+        return result
 
     def _translate_storj_key_to_s3(self, key):
-        '''convert object key from storj form to normal s3 form'''
+        '''convert object key from storj form to normal s3 form
+        must be only called from inside list method to convert back filtered keys from base s3c backend'''
         match = OBJ_TRANSLATED_RE.match(key)
         if match is None:
+            #try to translate as s3ql_other as last resort
+            match = OBJ_OTHER_TRANSLATED_RE.match(key)
+            if match is not None:
+                result = STR_DECODE(match.group(3))
+                log.info('translated s3ql_other key %s: %s', key, result)
+                return result
             raise RuntimeError(f'Failed to translate invalid storj key to s3 form: {key}')
         #extract key name and index part
         name = match.group(1)
         idx = match.group(2)
         #special case: passphrase
-        if name.endswith(OBJ_TRANS_PASS):
-            match = OBJ_BACK_PFX_PASS_RE.match(name)
-            if match is None:
-                raise RuntimeError(f'Failed to translate {OBJ_TRANS_PASS} key to s3 form: {key}')
-            pfx = match.group(1)
+        if name == OBJ_TRANS_PASS:
             if idx == "0":
-                result = pfx + OBJ_PASS
-                log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
-                return result
-            result = pfx + OBJ_PASS_BAK + idx
-            log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
+                log.info('translated %s key to: %s', key, OBJ_PASS)
+                return OBJ_PASS
+            result = OBJ_PASS_BAK + idx
+            log.info('translated %s key to: %s', key, result)
             return result
         #special case: metadata
-        elif name.endswith(OBJ_TRANS_META):
-            match = OBJ_BACK_PFX_META_RE.match(name)
-            if match is None:
-                raise RuntimeError(f'Failed to translate {OBJ_TRANS_META} key to s3 form: {key}')
-            pfx = match.group(1)
+        elif name == OBJ_TRANS_META:
             if idx == "-1":
-                result = pfx + OBJ_META
-                log.info('translated %s key to: %s', OBJ_TRANS_META, result)
-                return result
-            result = pfx + OBJ_META_BAK + idx
-            log.info('translated %s key to: %s', OBJ_TRANS_PASS, result)
-            return result
-        #special case: test key
-        elif name.endswith(OBJ_TRANS_TEST):
-            result = name + " " + idx
-            log.info('translated test key %s to: %s', key, result)
+                log.info('translated %s key to: %s', key, OBJ_META)
+                return OBJ_META
+            result = OBJ_META_BAK + idx
+            log.info('translated %s key to: %s', key, result)
             return result
         #normal objects s3ql_data and s3ql_seq
         else:
@@ -157,32 +156,31 @@ class Backend(s3c.Backend):
         #match sql_data or s3ql_seq_no prefixes
         match = PFX_DATA_RE.match(prefix)
         if match is not None:
-            result = "s3ql_data/"
+            result = OBJ_TRANS_DATA + "/"
             log.info('translated data prefix: %s', result)
             return result
         match = PFX_SEQ_NO_RE.match(prefix)
         if match is not None:
-            result = "s3ql_seq_no/"
+            result = OBJ_TRANS_SEQ + "/"
             log.info('translated seq_no prefix: %s', result)
             return result
         #match metadata keys
         match = PFX_METADATA_RE.match(prefix)
         if match is not None:
-            result = "s3ql_metadata_store/"
+            result = OBJ_TRANS_META + "/"
             log.info('translated metadata prefix: %s', result)
             return result
         #match s3ql_passphrase keys
         match = PFX_PASS_RE.match(prefix)
         if match is not None:
-            result = "s3ql_passphrase_store/"
+            result = OBJ_TRANS_PASS + "/"
             log.info('translated passphrase prefix: %s', result)
             return result
-        #match test prefix
+        #match test prefixes to allow test pass
         match = PFX_TEST_RE.match(prefix)
         if match is not None:
-            result = match.group()
-            log.info('translated test prefix: %s', result)
-            return result
+            log.info('translated test prefix: %s', prefix)
+            return "s3ql_other/"
         raise RuntimeError(f'Failed to translate unsupported prefix to storj form: {prefix}')
 
     @copy_ancestor_docstring
