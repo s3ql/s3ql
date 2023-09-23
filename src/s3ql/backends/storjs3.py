@@ -91,14 +91,17 @@ class Backend(s3c.Backend):
         if not isinstance(prefix, str):
             log.info('filter prefix is not a string: %s', prefix)
             prefix='%s' % prefix
+        log.info('list requested for prefix: %s', prefix)
         #list s3ql_data segments for any partial s3ql_data_ or empty searches
         if PFX_DATA.startswith(prefix):
+            log.info('running list for %s sub-prefix', PFX_DATA_TRANSLATED)
             inner_list = super().list(PFX_DATA_TRANSLATED)
             for el in inner_list:
                 yield self._translate_data_key_to_s3(el)
         #iterate over sql_other store, if search prefix not exactly "sql_data_"
         if prefix != PFX_DATA:
             #get inner list generator for s3ql_other/ prefix
+            log.info('running list for %s sub-prefix with manual filtering', PFX_OTHER_TRANSLATED)
             inner_list = super().list(PFX_OTHER_TRANSLATED)
             #translate keys for s3 form and filter against requested prefix manually
             for el in inner_list:
