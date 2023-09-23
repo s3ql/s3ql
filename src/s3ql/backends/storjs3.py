@@ -80,7 +80,7 @@ class Backend(s3c.Backend):
         '''convert object key from storj form to normal s3 form'''
         match = OBJ_DATA_TRANSLATED_RE.match(key)
         if match is not None:
-            result = STR_DECODE(match.group(3))
+            result = PFX_DATA + match.group(3)
             #log.info('translated storj key %s: %s', key, result)
             return result
         raise RuntimeError(f'Failed to translate data key to s3 form: {key}')
