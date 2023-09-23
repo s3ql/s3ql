@@ -43,6 +43,9 @@ class Backend(s3c.Backend):
     def _translate_s3_key_to_storj(self, key):
         '''convert object key to the form suitable for use with storj s3 bucket'''
         #check wether key is already in storj format, needed if backend methods called recursively from ObjectR or ObjectW classes
+        if not isinstance(key, str):
+            log.info('key is not a string: %s', key)
+            key='%s' % key
         match = OBJ_DATA_TRANSLATED_RE.match(key)
         if match is not None:
             log.info('skipping already translated data key: %s', key)
@@ -84,6 +87,9 @@ class Backend(s3c.Backend):
     @copy_ancestor_docstring
     def list(self, prefix=''):
         #list s3ql_data segments for any partial s3ql_data_ or empty searches
+        if not isinstance(prefix, str):
+            log.info('filter prefix is not a string: %s', prefix)
+            prefix='%s' % prefix
         if PFX_DATA.startswith(prefix):
             inner_list = super().list(PFX_DATA_TRANSLATED)
             for el in inner_list:
