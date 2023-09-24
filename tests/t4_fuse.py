@@ -110,7 +110,7 @@ class TestFuse:
 
         proc = subprocess.Popen(self.s3ql_cmd_argv('umount.s3ql') +
                                 ['--quiet', self.mnt_dir])
-        retry(120, lambda : proc.poll() is not None)
+        retry(30, lambda : proc.poll() is not None)
         assert proc.wait() == 0
 
         assert self.mount_process.poll() == 0
