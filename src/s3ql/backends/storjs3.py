@@ -86,7 +86,6 @@ class Backend(s3c.Backend):
             return result
         raise RuntimeError(f'Failed to translate data key to s3 form: {key}')
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         #try to convert binary string key to string in a same manner as in s3c class
         if not isinstance(prefix, str):
@@ -111,32 +110,26 @@ class Backend(s3c.Backend):
                     continue
                 yield el_t
 
-    @copy_ancestor_docstring
     def delete(self, key, force=False):
         key_t = self._translate_s3_key_to_storj(key)
         return super().delete(key_t, force)
 
-    @copy_ancestor_docstring
     def lookup(self, key):
         key_t = self._translate_s3_key_to_storj(key)
         return super().lookup(key_t)
 
-    @copy_ancestor_docstring
     def get_size(self, key):
         key_t = self._translate_s3_key_to_storj(key)
         return super().get_size(key_t)
 
-    @copy_ancestor_docstring
     def open_read(self, key):
         key_t = self._translate_s3_key_to_storj(key)
         return super().open_read(key_t)
 
-    @copy_ancestor_docstring
     def open_write(self, key, metadata=None, is_compressed=False, extra_headers=None):
         key_t = self._translate_s3_key_to_storj(key)
         return super().open_write(key_t, metadata, is_compressed, extra_headers)
 
-    @copy_ancestor_docstring
     def copy(self, src, dest, metadata=None, extra_headers=None):
         src_t = self._translate_s3_key_to_storj(src)
         dest_t = self._translate_s3_key_to_storj(dest)
