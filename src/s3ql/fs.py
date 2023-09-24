@@ -6,22 +6,24 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging
-from . import deltadump, CTRL_NAME, CTRL_INODE
-from .backends.common import NoSuchObject, CorruptedObjectError
-from .common import get_path, parse_literal, time_ns
-from .database import NoSuchRowError
-from io import BytesIO
 import collections
 import errno
-import pyfuse3
-from pyfuse3 import FUSEError
+import logging
 import math
 import os
 import stat
 import struct
 import time
+from io import BytesIO
+
+import pyfuse3
 import trio
+from pyfuse3 import FUSEError
+
+from . import CTRL_INODE, CTRL_NAME
+from .backends.common import CorruptedObjectError, NoSuchObject
+from .common import get_path, parse_literal, time_ns
+from .database import Connection, NoSuchRowError
 
 # We work in bytes
 CTRL_NAME = CTRL_NAME.encode('us-ascii')
@@ -62,6 +64,7 @@ class _TruncSetattrFields:
     """A private class used for O_TRUNC.
 
     This is needed because pyfuse3.SetattrFields fields are read only"""
+
     def __getattr__(self, name):
         """Only return ``True`` for ``update_size`` and ``update_mtime`.
         Anything else will return ``False``"""
@@ -113,8 +116,7 @@ class Operations(pyfuse3.Operations):
     enable_acl = False
     enable_writeback_cache = True
 
-    def __init__(self, block_cache, db, max_obj_size, inode_cache,
-                 upload_task=None):
+    def __init__(self, block_cache, db: Connection, max_obj_size, inode_cache, upload_task=None):
         super().__init__()
 
         self.inodes = inode_cache
@@ -151,14 +153,14 @@ class Operations(pyfuse3.Operations):
             inode = self.inodes[id_p]
 
         elif name == '..':
-            id_ = self.db.get_val("SELECT parent_inode FROM contents WHERE inode=?",
-                                  (id_p,))
+            id_ = self.db.get_val("SELECT parent_inode FROM contents WHERE inode=?", (id_p,))
             inode = self.inodes[id_]
 
         else:
             try:
-                id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
-                                      (name, id_p))
+                id_ = self.db.get_val(
+                    "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (name, id_p)
+                )
             except NoSuchRowError:
                 raise FUSEError(errno.ENOENT)
             inode = self.inodes[id_]
@@ -205,12 +207,15 @@ class Operations(pyfuse3.Operations):
 
         # NFS treats offsets 1 and 2 special, so we have to exclude
         # them.
-        with self.db.query("SELECT name_id, name, inode FROM contents_v "
-                           'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
-                           (id_, off-3)) as res:
-            for (next_, name, cid_) in res:
+        with self.db.query(
+            "SELECT name_id, name, inode FROM contents_v "
+            'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
+            (id_, off - 3),
+        ) as res:
+            for next_, name, cid_ in res:
                 if not pyfuse3.readdir_reply(
-                    token, name, self.inodes[cid_].entry_attributes(), next_+3):
+                    token, name, self.inodes[cid_].entry_attributes(), next_ + 3
+                ):
                     break
                 self.open_inodes[cid_] += 1
 
@@ -227,14 +232,14 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EINVAL)
 
         # http://code.google.com/p/s3ql/issues/detail?id=385
-        elif name in (b'system.posix_acl_access',
-                      b'system.posix_acl_default'):
+        elif name in (b'system.posix_acl_access', b'system.posix_acl_default'):
             raise FUSEError(ACL_ERRNO)
 
         else:
             try:
-                value = self.db.get_val('SELECT value FROM ext_attributes_v WHERE inode=? AND name=?',
-                                          (id_, name))
+                value = self.db.get_val(
+                    'SELECT value FROM ext_attributes_v WHERE inode=? AND name=?', (id_, name)
+                )
             except NoSuchRowError:
                 raise FUSEError(pyfuse3.ENOATTR)
             return value
@@ -292,7 +297,7 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'logging':
                 try:
-                    (lvl, modules)= parse_literal(value, (int, str))
+                    (lvl, modules) = parse_literal(value, (int, str))
                 except (ValueError, KeyError):
                     log.warning('Received malformed command via control inode')
                     raise FUSEError.EINVAL()
@@ -311,19 +316,17 @@ class Operations(pyfuse3.Operations):
                 raise FUSEError(errno.EINVAL)
 
         # http://code.google.com/p/s3ql/issues/detail?id=385
-        elif name in (b'system.posix_acl_access',
-                      b'system.posix_acl_default'):
+        elif name in (b'system.posix_acl_access', b'system.posix_acl_default'):
             raise FUSEError(ACL_ERRNO)
 
         else:
             if self.failsafe or self.inodes[id_].locked:
                 raise FUSEError(errno.EPERM)
 
-            if len(value) > deltadump.MAX_BLOB_SIZE:
-                raise FUSEError(errno.EINVAL)
-
-            self.db.execute('INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) '
-                            'VALUES(?, ?, ?)', (id_, self._add_name(name), value))
+            self.db.execute(
+                'INSERT OR REPLACE INTO ext_attributes (inode, name_id, value) VALUES(?, ?, ?)',
+                (id_, self._add_name(name), value),
+            )
             self.inodes[id_].ctime_ns = time_ns()
 
     async def removexattr(self, id_, name, ctx):
@@ -337,8 +340,9 @@ class Operations(pyfuse3.Operations):
         except NoSuchRowError:
             raise FUSEError(pyfuse3.ENOATTR)
 
-        changes = self.db.execute('DELETE FROM ext_attributes WHERE inode=? AND name_id=?',
-                                  (id_, name_id))
+        changes = self.db.execute(
+            'DELETE FROM ext_attributes WHERE inode=? AND name_id=?', (id_, name_id)
+        )
         if changes == 0:
             raise FUSEError(pyfuse3.ENOATTR)
 
@@ -351,28 +355,42 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EPERM)
 
         log.debug('started with %d', id0)
-        queue = [ (id0, -1) ]
+        queue = [(id0, -1)]
         self.inodes[id0].locked = True
-        while queue:
-            (id_p, off) = queue.pop()
-            log.debug('Processing directory (%d, %d)', id_p, off)
-            processed = 0
-            with self.db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
-                               'AND name_id > ? ORDER BY name_id', (id_p, off)) as res:
-                for (name_id, id_) in res:
-                    self.inodes[id_].locked = True
+        conn = self.db
 
-                    if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                        queue.append((id_, -1))
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:
+                (id_p, off) = queue.pop()
+                log.debug('Processing directory (%d, %d)', id_p, off)
 
-                    # Break every once in a while - note that we can't yield
-                    # right here because there's an active DB query.
-                    processed += 1
-                    if processed > 200:
-                        queue.append((id_p, name_id))
-                        break
+                with conn.query(
+                    'SELECT name_id, inode FROM contents WHERE parent_inode=? '
+                    'AND name_id > ? ORDER BY name_id',
+                    (id_p, off),
+                ) as res:
+                    for name_id, id_ in res:
+                        self.inodes[id_].locked = True
 
-            await trio.lowlevel.checkpoint()
+                        if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                            queue.append((id_, -1))
+
+                        # Break every once in a while - note that we can't yield
+                        # right here because there's an active DB query.
+                        processed += 1
+                        if processed > batch_mgr.batch_size:
+                            queue.append((id_p, name_id))
+                            break
+
+                if processed > batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         log.debug('finished')
 
@@ -387,55 +405,70 @@ class Operations(pyfuse3.Operations):
         if self.inodes[id_p0].locked:
             raise FUSEError(errno.EPERM)
 
+        conn = self.db
         id0 = self._lookup(id_p0, name0, ctx=None).id
-        queue = [ id0 ]  # Directories that we still need to delete
-        batch_size = 200 # Entries to process before checkpointing
-        stamp = time.time() # Time of last checkpoint
-        while queue: # For every directory
-            id_p = queue.pop()
-            is_open = id_p in self.open_inodes
+        queue = [id0]  # Directories that we still need to delete
 
-            # Per https://sqlite.org/isolation.html, results of removing rows
-            # during select are undefined. Therefore, process data in chunks.
-            # This is also a nice opportunity to release the GIL...
-            query_chunk = self.db.get_list(
-                'SELECT name, name_id, inode FROM contents_v WHERE '
-                'parent_inode=? LIMIT %d' % batch_size, (id_p,))
-            reinserted = False
-            for (name, name_id, id_) in query_chunk:
-                if self.db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                    # First delete subdirectories
-                    if not reinserted:
-                        queue.append(id_p)
-                        reinserted = True
-                    queue.append(id_)
-                else:
-                    if is_open:
-                        pyfuse3.invalidate_entry_async(id_p, name)
-                    await self._remove(id_p, name, id_, force=True)
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:  # For every directory
+                id_p = queue.pop()
+                is_open = id_p in self.open_inodes
 
-            if query_chunk and not reinserted:
-                # Make sure to re-insert the directory to process the remaining
-                # contents and delete the directory itself.
-                queue.append(id_p)
+                # Per https://sqlite.org/isolation.html, results of removing rows
+                # during select are undefined. Therefore, process data in chunks.
+                # This is also a nice opportunity to release the GIL...
+                query_chunk = conn.get_list(
+                    'SELECT name, name_id, inode FROM contents_v WHERE '
+                    'parent_inode=? LIMIT %d' % batch_mgr.batch_size,
+                    (id_p,),
+                )
+                reinserted = False
 
-            dt = time.time() - stamp
-            batch_size = int(batch_size * CHECKPOINT_INTERVAL / dt)
-            batch_size = min(batch_size, 200) # somewhat arbitrary...
-            batch_size = max(batch_size, 20000)
-            log.debug('Adjusting batch_size to %d and yielding', batch_size)
-            await trio.lowlevel.checkpoint()
-            log.debug('re-acquired lock')
-            stamp = time.time()
+                for name, _, id_ in query_chunk:
+                    if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                        # First delete subdirectories
+                        if not reinserted:
+                            queue.append(id_p)
+                            reinserted = True
+                        queue.append(id_)
+                    else:
+                        if is_open:
+                            # This may fail with ENOTEMPTY in rare circumstances. See below for details.
+                            pyfuse3.invalidate_entry_async(
+                                id_p, name, deleted=id_, ignore_enoent=True
+                            )
+                        await self._remove(id_p, name, id_, force=True)
+                    processed += 1
+
+                if len(query_chunk) == batch_mgr.batch_size and not reinserted:
+                    # Make sure to re-insert the directory to process the remaining
+                    # contents and delete the directory itself.
+                    queue.append(id_p)
+
+                if processed > batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
-            pyfuse3.invalidate_entry_async(id_p0, name0)
+            # This may fail with ENOTEMPTY if the control file has been looked up underneath this
+            # path (same for the invalidate_entry_call_async above). In normal operation this should
+            # be rare, since the control file is not included in readdir() output and only S3QL
+            # tools know about its existence. We could preemtively run invalidate_entry_async() for
+            # the control file whenever we run it for a directory, but that would still leave a
+            # window in which the file could be looked up again and would also impose a performance
+            # penalty for something that is exceedingly rare. Tracked in https://github.com/s3ql/s3ql/issues/319.
+            pyfuse3.invalidate_entry_async(id_p0, name0, deleted=id0, ignore_enoent=True)
         await self._remove(id_p0, name0, id0, force=True)
 
         await self.forget([(id0, 1)])
         log.debug('finished')
-
 
     async def copy_tree(self, src_id, target_id):
         '''Efficiently copy directory tree'''
@@ -463,76 +496,110 @@ class Operations(pyfuse3.Operations):
         # We first replicate into a dummy inode, so that we
         # need to invalidate only once.
         now_ns = time_ns()
-        tmp = make_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
-                         uid=0, gid=0, mode=0, refcount=0)
+        tmp = make_inode(
+            mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns, uid=0, gid=0, mode=0, refcount=0
+        )
 
-        queue = [ (src_id, tmp.id, -1) ]
+        queue = [(src_id, tmp.id, -1)]
         id_cache = dict()
-        while queue:
-            (src_id, target_id, off) = queue.pop()
-            log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
-            processed = 0
-            with db.query('SELECT name_id, inode FROM contents WHERE parent_inode=? '
-                          'AND name_id > ? ORDER BY name_id', (src_id, off)) as res:
-                for (name_id, id_) in res:
 
-                    # Make sure that all blocks are in the database
-                    if id_ in self.open_inodes:
-                        await self.cache.start_flush(id_)
+        # Batching updates makes things much faster when using WAL. We don't want to rollback on
+        # error, because in that case the database gets out of sync with the inode cache (which
+        # probably makes things worse).
+        processed = 0
+        with db.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+            while queue:
+                (src_id, target_id, off) = queue.pop()
+                # log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
 
-                    if id_ not in id_cache:
-                        inode = self.inodes[id_]
-                        inode_new = make_inode(refcount=1, mode=inode.mode, size=inode.size,
-                                               uid=inode.uid, gid=inode.gid,
-                                               mtime_ns=inode.mtime_ns, atime_ns=inode.atime_ns,
-                                               ctime_ns=inode.ctime_ns, rdev=inode.rdev)
+                with db.query(
+                    'SELECT name_id, inode FROM contents WHERE parent_inode=? '
+                    'AND name_id > ? ORDER BY name_id',
+                    (src_id, off),
+                ) as res:
+                    for name_id, id_ in res:
+                        # Make sure that all blocks are in the database
+                        if id_ in self.open_inodes:
+                            await self.cache.start_flush(id_)
 
-                        id_new = inode_new.id
+                        if id_ not in id_cache:
+                            inode = self.inodes[id_]
+                            inode_new = make_inode(
+                                refcount=1,
+                                mode=inode.mode,
+                                size=inode.size,
+                                uid=inode.uid,
+                                gid=inode.gid,
+                                mtime_ns=inode.mtime_ns,
+                                atime_ns=inode.atime_ns,
+                                ctime_ns=inode.ctime_ns,
+                                rdev=inode.rdev,
+                            )
 
-                        if inode.refcount != 1:
-                            id_cache[id_] = id_new
+                            id_new = inode_new.id
 
-                        db.execute('INSERT INTO symlink_targets (inode, target) '
-                                   'SELECT ?, target FROM symlink_targets WHERE inode=?',
-                                   (id_new, id_))
+                            if inode.refcount != 1:
+                                id_cache[id_] = id_new
 
-                        db.execute('INSERT INTO ext_attributes (inode, name_id, value) '
-                                   'SELECT ?, name_id, value FROM ext_attributes WHERE inode=?',
-                                   (id_new, id_))
-                        db.execute('UPDATE names SET refcount = refcount + 1 WHERE '
-                                   'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                                   (id_,))
+                            db.execute(
+                                'INSERT INTO symlink_targets (inode, target) '
+                                'SELECT ?, target FROM symlink_targets WHERE inode=?',
+                                (id_new, id_),
+                            )
 
-                        processed += db.execute('INSERT INTO inode_blocks (inode, blockno, obj_id) '
-                                                'SELECT ?, blockno, obj_id FROM inode_blocks '
-                                                'WHERE inode=?', (id_new, id_))
-                        db.execute('REPLACE INTO objects (id, hash, refcount, phys_size, length) '
-                                   'SELECT id, hash, refcount+COUNT(id), phys_size, length '
-                                   'FROM inode_blocks JOIN objects ON obj_id = id '
-                                   'WHERE inode = ? GROUP BY id', (id_new,))
+                            db.execute(
+                                'INSERT INTO ext_attributes (inode, name_id, value) '
+                                'SELECT ?, name_id, value FROM ext_attributes WHERE inode=?',
+                                (id_new, id_),
+                            )
+                            db.execute(
+                                'UPDATE names SET refcount = refcount + 1 WHERE '
+                                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                                (id_,),
+                            )
 
-                        if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
-                            queue.append((id_, id_new, -1))
-                    else:
-                        id_new = id_cache[id_]
-                        self.inodes[id_new].refcount += 1
+                            processed += db.execute(
+                                'INSERT INTO inode_blocks (inode, blockno, obj_id) '
+                                'SELECT ?, blockno, obj_id FROM inode_blocks '
+                                'WHERE inode=?',
+                                (id_new, id_),
+                            )
+                            db.execute(
+                                'REPLACE INTO objects (id, hash, refcount, phys_size, length) '
+                                'SELECT id, hash, refcount+COUNT(id), phys_size, length '
+                                'FROM inode_blocks JOIN objects ON obj_id = id '
+                                'WHERE inode = ? GROUP BY id',
+                                (id_new,),
+                            )
 
-                    db.execute('INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
-                               (name_id, id_new, target_id))
-                    db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
+                            if db.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
+                                queue.append((id_, id_new, -1))
+                        else:
+                            id_new = id_cache[id_]
+                            self.inodes[id_new].refcount += 1
 
-                    # Break every once in a while - note that we can't yield
-                    # right here because there's an active DB query.
-                    processed += 1
-                    if processed > 200:
-                        queue.append((src_id, target_id, name_id))
-                        break
+                        db.execute(
+                            'INSERT INTO contents (name_id, inode, parent_inode) VALUES(?, ?, ?)',
+                            (name_id, id_new, target_id),
+                        )
+                        db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
 
-            await trio.lowlevel.checkpoint()
+                        # Can't finish batch here because there's an active DB query.
+                        processed += 1
+                        if processed >= batch_mgr.batch_size:
+                            queue.append((src_id, target_id, name_id))
+                            break
+
+                if processed >= batch_mgr.batch_size:
+                    batch_mgr.finish_batch(processed)
+                    await trio.lowlevel.checkpoint()
+                    processed = 0
+                    batch_mgr.start_batch()
 
         # Make replication visible
-        self.db.execute('UPDATE contents SET parent_inode=? WHERE parent_inode=?',
-                        (target_inode.id, tmp.id))
+        self.db.execute(
+            'UPDATE contents SET parent_inode=? WHERE parent_inode=?', (target_inode.id, tmp.id)
+        )
         del self.inodes[tmp.id]
         pyfuse3.invalidate_inode(target_inode.id)
 
@@ -582,16 +649,14 @@ class Operations(pyfuse3.Operations):
 
         # Check that there are no child entries
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_,)):
-            log.debug("Attempted to remove entry with children: %s",
-                      get_path(id_p, self.db, name))
+            log.debug("Attempted to remove entry with children: %s", get_path(id_p, self.db, name))
             raise FUSEError(errno.ENOTEMPTY)
 
         if self.inodes[id_p].locked and not force:
             raise FUSEError(errno.EPERM)
 
         name_id = self._del_name(name)
-        self.db.execute("DELETE FROM contents WHERE name_id=? AND parent_inode=?",
-                        (name_id, id_p))
+        self.db.execute("DELETE FROM contents WHERE name_id=? AND parent_inode=?", (name_id, id_p))
 
         inode = self.inodes[id_]
         inode.refcount -= 1
@@ -606,12 +671,16 @@ class Operations(pyfuse3.Operations):
             await self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
-            self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
-                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                            (id_,))
-            self.db.execute('DELETE FROM names WHERE refcount=0 AND '
-                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                            (id_,))
+            self.db.execute(
+                'UPDATE names SET refcount = refcount - 1 WHERE '
+                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                (id_,),
+            )
+            self.db.execute(
+                'DELETE FROM names WHERE refcount=0 AND '
+                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                (id_,),
+            )
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
             del self.inodes[id_]
@@ -624,9 +693,18 @@ class Operations(pyfuse3.Operations):
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
-        mode = (stat.S_IFLNK | stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR |
-                stat.S_IRGRP | stat.S_IWGRP | stat.S_IXGRP |
-                stat.S_IROTH | stat.S_IWOTH | stat.S_IXOTH)
+        mode = (
+            stat.S_IFLNK
+            | stat.S_IRUSR
+            | stat.S_IWUSR
+            | stat.S_IXUSR
+            | stat.S_IRGRP
+            | stat.S_IWGRP
+            | stat.S_IXGRP
+            | stat.S_IROTH
+            | stat.S_IWOTH
+            | stat.S_IXOTH
+        )
 
         # Unix semantics require the size of a symlink to be the length
         # of its target. Therefore, we create symlink directory entries
@@ -634,8 +712,9 @@ class Operations(pyfuse3.Operations):
         # symlinks directly, it will read the corresponding number of \0
         # bytes.
         inode = self._create(id_p, name, mode, ctx, size=len(target))
-        self.db.execute('INSERT INTO symlink_targets (inode, target) VALUES(?,?)',
-                        (inode.id, target))
+        self.db.execute(
+            'INSERT INTO symlink_targets (inode, target) VALUES(?,?)', (inode.id, target)
+        )
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
@@ -645,14 +724,14 @@ class Operations(pyfuse3.Operations):
 
         log.debug('started with %d, %r, %d, %r', id_p_old, name_old, id_p_new, name_new)
         if name_new == CTRL_NAME or name_old == CTRL_NAME:
-            log.warning('Attempted to rename s3ql control file (%s -> %s)',
-                      get_path(id_p_old, self.db, name_old),
-                      get_path(id_p_new, self.db, name_new))
+            log.warning(
+                'Attempted to rename s3ql control file (%s -> %s)',
+                get_path(id_p_old, self.db, name_old),
+                get_path(id_p_new, self.db, name_new),
+            )
             raise FUSEError(errno.EACCES)
 
-
-        if (self.failsafe or self.inodes[id_p_old].locked
-            or self.inodes[id_p_new].locked):
+        if self.failsafe or self.inodes[id_p_old].locked or self.inodes[id_p_new].locked:
             raise FUSEError(errno.EPERM)
 
         inode_old = self._lookup(id_p_old, name_old, ctx)
@@ -668,8 +747,7 @@ class Operations(pyfuse3.Operations):
             target_exists = True
 
         if target_exists:
-            self._replace(id_p_old, name_old, id_p_new, name_new,
-                          inode_old.id, inode_new.id)
+            self._replace(id_p_old, name_old, id_p_new, name_new, inode_old.id, inode_new.id)
             await self.forget([(inode_old.id, 1), (inode_new.id, 1)])
         else:
             self._rename(id_p_old, name_old, id_p_new, name_new)
@@ -684,8 +762,7 @@ class Operations(pyfuse3.Operations):
         try:
             name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (name,))
         except NoSuchRowError:
-            name_id = self.db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)',
-                                    (name, 1))
+            name_id = self.db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)', (name, 1))
         else:
             self.db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         return name_id
@@ -697,7 +774,9 @@ class Operations(pyfuse3.Operations):
         (possibly former) id of the name.
         '''
 
-        (name_id, refcount) = self.db.get_row('SELECT id, refcount FROM names WHERE name=?', (name,))
+        (name_id, refcount) = self.db.get_row(
+            'SELECT id, refcount FROM names WHERE name=?', (name,)
+        )
 
         if refcount > 1:
             self.db.execute('UPDATE names SET refcount=refcount-1 WHERE id=?', (name_id,))
@@ -712,9 +791,10 @@ class Operations(pyfuse3.Operations):
         name_id_new = self._add_name(name_new)
         name_id_old = self._del_name(name_old)
 
-        self.db.execute("UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? "
-                        "AND parent_inode=?", (name_id_new, id_p_new,
-                                               name_id_old, id_p_old))
+        self.db.execute(
+            "UPDATE contents SET name_id=?, parent_inode=? WHERE name_id=? AND parent_inode=?",
+            (name_id_new, id_p_new, name_id_old, id_p_old),
+        )
 
         inode_p_old = self.inodes[id_p_old]
         inode_p_old.mtime_ns = now_ns
@@ -724,25 +804,28 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
         inode_p_new.ctime_ns = now_ns
 
-    def _replace(self, id_p_old, name_old, id_p_new, name_new,
-                 id_old, id_new):
-
+    def _replace(self, id_p_old, name_old, id_p_new, name_new, id_old, id_new):
         now_ns = time_ns()
 
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
-            log.info("Attempted to overwrite entry with children: %s",
-                      get_path(id_p_new, self.db, name_new))
+            log.info(
+                "Attempted to overwrite entry with children: %s",
+                get_path(id_p_new, self.db, name_new),
+            )
             raise FUSEError(errno.EINVAL)
 
         # Replace target
         name_id_new = self.db.get_val('SELECT id FROM names WHERE name=?', (name_new,))
-        self.db.execute("UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?",
-                        (id_old, name_id_new, id_p_new))
+        self.db.execute(
+            "UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?",
+            (id_old, name_id_new, id_p_new),
+        )
 
         # Delete old name
         name_id_old = self._del_name(name_old)
-        self.db.execute('DELETE FROM contents WHERE name_id=? AND parent_inode=?',
-                        (name_id_old, id_p_old))
+        self.db.execute(
+            'DELETE FROM contents WHERE name_id=? AND parent_inode=?', (name_id_old, id_p_old)
+        )
 
         inode_new = self.inodes[id_new]
         inode_new.refcount -= 1
@@ -757,33 +840,33 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
-            self.cache.remove(id_new, 0,
-                              int(math.ceil(inode_new.size / self.max_obj_size)))
+            self.cache.remove(id_new, 0, int(math.ceil(inode_new.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
-            self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
-                            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                            (id_new,))
+            self.db.execute(
+                'UPDATE names SET refcount = refcount - 1 WHERE '
+                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                (id_new,),
+            )
             self.db.execute('DELETE FROM names WHERE refcount=0')
             self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_new,))
             del self.inodes[id_new]
 
-
     async def link(self, id_, new_id_p, new_name, ctx):
         log.debug('started with %d, %d, %r', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
-            log.warning('Attempted to create s3ql control file at %s',
-                      get_path(new_id_p, self.db, new_name))
+            log.warning(
+                'Attempted to create s3ql control file at %s', get_path(new_id_p, self.db, new_name)
+            )
             raise FUSEError(errno.EACCES)
 
         now_ns = time_ns()
         inode_p = self.inodes[new_id_p]
 
         if inode_p.refcount == 0:
-            log.warning('Attempted to create entry %s with unlinked parent %d',
-                     new_name, new_id_p)
+            log.warning('Attempted to create entry %s with unlinked parent %d', new_name, new_id_p)
             raise FUSEError(errno.EINVAL)
 
         if self.failsafe or inode_p.locked:
@@ -792,8 +875,10 @@ class Operations(pyfuse3.Operations):
         inode_p.ctime_ns = now_ns
         inode_p.mtime_ns = now_ns
 
-        self.db.execute("INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
-                        (self._add_name(new_name), id_, new_id_p))
+        self.db.execute(
+            "INSERT INTO contents (name_id, inode, parent_inode) VALUES(?,?,?)",
+            (self._add_name(new_name), id_, new_id_p),
+        )
         inode = self.inodes[id_]
         inode.refcount += 1
         inode.ctime_ns = now_ns
@@ -821,9 +906,13 @@ class Operations(pyfuse3.Operations):
             inode.gid = attr.st_gid
 
         if fields.update_atime:
+            if attr.st_atime_ns.bit_length() > 63:
+                raise FUSEError(errno.EINVAL)
             inode.atime_ns = attr.st_atime_ns
 
         if fields.update_mtime:
+            if attr.st_mtime_ns.bit_length() > 63:
+                raise FUSEError(errno.EINVAL)
             inode.mtime_ns = attr.st_mtime_ns
 
         inode.ctime_ns = now_ns
@@ -850,17 +939,21 @@ class Operations(pyfuse3.Operations):
                     async with self.cache.get(id_, last_block) as fh:
                         fh.truncate(cutoff)
                 except NoSuchObject as exc:
-                    log.warning('Backend lost block %d of inode %d (id %s)!',
-                             last_block, id_, exc.key)
+                    log.warning(
+                        'Backend lost block %d of inode %d (id %s)!', last_block, id_, exc.key
+                    )
                     raise
 
                 except CorruptedObjectError as exc:
-                    log.warning('Backend returned malformed data for block %d of inode %d (%s)',
-                                last_block, id_, exc)
+                    log.warning(
+                        'Backend returned malformed data for block %d of inode %d (%s)',
+                        last_block,
+                        id_,
+                        exc,
+                    )
                     self.failsafe = True
                     self.broken_blocks[id_].add(last_block)
                     raise FUSEError(errno.EIO)
-
 
         return inode.entry_attributes()
 
@@ -895,20 +988,35 @@ class Operations(pyfuse3.Operations):
         dedup_size = self.db.get_val('SELECT SUM(length) FROM objects') or 0
 
         # Objects that are currently being uploaded/compressed have size == -1
-        compr_size = self.db.get_val('SELECT SUM(phys_size) FROM objects '
-                                     'WHERE phys_size > 0') or 0
+        compr_size = self.db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0') or 0
 
-        return struct.pack('QQQQQQQQQQQQ', entries, objects, inodes, fs_size, dedup_size,
-                           compr_size, self.db.get_size(), *self.cache.get_usage())
+        return struct.pack(
+            'QQQQQQQQQQQQ',
+            entries,
+            objects,
+            inodes,
+            fs_size,
+            dedup_size,
+            compr_size,
+            self.db.get_size(),
+            *self.cache.get_usage()
+        )
 
-    async def statfs(self, ctx):
+    async def statfs(self, ctx, _cache=[]):
         log.debug('started')
 
         stat_ = pyfuse3.StatvfsData()
 
-        objects = self.db.get_val("SELECT COUNT(id) FROM objects")
-        inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-        size = self.db.get_val('SELECT SUM(length) FROM objects')
+        # Some applications call statfs() very often and repeatedly (VSCode). Since the SELECT
+        # queries need to iterate over the full database, this is very expensive and slows other
+        # filesystem users down. To avoid that, we cache results for a short time.
+        if _cache and time.time() - _cache[3] < 30:
+            (objects, inodes, size) = _cache[:3]
+        else:
+            objects = self.db.get_val("SELECT COUNT(id) FROM objects")
+            inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
+            size = self.db.get_val('SELECT SUM(length) FROM objects')
+            _cache[:] = (objects, inodes, size, time.time())
 
         if size is None:
             size = 0
@@ -927,23 +1035,24 @@ class Operations(pyfuse3.Operations):
 
         # size of fs in f_frsize units. Since backend is supposed to be unlimited,
         # always return a half-full filesystem, but at least 1 TB)
-        fs_size = max(2 * size, 1024 ** 4)
+        fs_size = max(2 * size, 1024**4)
 
         stat_.f_blocks = fs_size // stat_.f_frsize
         stat_.f_bfree = (fs_size - size) // stat_.f_frsize
-        stat_.f_bavail = stat_.f_bfree # free for non-root
+        stat_.f_bavail = stat_.f_bfree  # free for non-root
 
         total_inodes = max(2 * inodes, 1000000)
         stat_.f_files = total_inodes
         stat_.f_ffree = total_inodes - inodes
-        stat_.f_favail = total_inodes - inodes # free for non-root
+        stat_.f_favail = total_inodes - inodes  # free for non-root
 
         return stat_
 
     async def open(self, id_, flags, ctx):
         log.debug('started with %d', id_)
-        if ((flags & os.O_RDWR or flags & os.O_WRONLY)
-            and (self.failsafe or self.inodes[id_].locked)):
+        if (flags & os.O_RDWR or flags & os.O_WRONLY) and (
+            self.failsafe or self.inodes[id_].locked
+        ):
             raise FUSEError(errno.EPERM)
 
         if flags & os.O_TRUNC:
@@ -972,7 +1081,7 @@ class Operations(pyfuse3.Operations):
         enabled, the `default_permissions` FUSE option should be set).
         '''
         # Yeah, could be a function and has unused arguments
-        #pylint: disable=R0201,W0613
+        # pylint: disable=R0201,W0613
 
         log.debug('started with %d', id_)
         return True
@@ -983,8 +1092,9 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EPERM)
 
         try:
-            id_ = self.db.get_val("SELECT inode FROM contents_v WHERE name=? AND parent_inode=?",
-                                  (name, id_p))
+            id_ = self.db.get_val(
+                "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (name, id_p)
+            )
         except NoSuchRowError:
             inode = self._create(id_p, name, mode, ctx)
         else:
@@ -996,8 +1106,9 @@ class Operations(pyfuse3.Operations):
 
     def _create(self, id_p, name, mode, ctx, rdev=0, size=0):
         if name == CTRL_NAME:
-            log.warning('Attempted to create s3ql control file at %s',
-                     get_path(id_p, self.db, name))
+            log.warning(
+                'Attempted to create s3ql control file at %s', get_path(id_p, self.db, name)
+            )
             raise FUSEError(errno.EACCES)
 
         now_ns = time_ns()
@@ -1007,8 +1118,7 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EPERM)
 
         if inode_p.refcount == 0:
-            log.warning('Attempted to create entry %s with unlinked parent %d',
-                     name, id_p)
+            log.warning('Attempted to create entry %s with unlinked parent %d', name, id_p)
             raise FUSEError(errno.EINVAL)
         inode_p.mtime_ns = now_ns
         inode_p.ctime_ns = now_ns
@@ -1019,22 +1129,31 @@ class Operations(pyfuse3.Operations):
                 mode |= stat.S_ISGID
         else:
             gid = ctx.gid
-        inode = self.inodes.create_inode(mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns,
-                                         uid=ctx.uid, gid=gid, mode=mode, refcount=1,
-                                         rdev=rdev, size=size)
+        inode = self.inodes.create_inode(
+            mtime_ns=now_ns,
+            ctime_ns=now_ns,
+            atime_ns=now_ns,
+            uid=ctx.uid,
+            gid=gid,
+            mode=mode,
+            refcount=1,
+            rdev=rdev,
+            size=size,
+        )
 
-        self.db.execute("INSERT INTO contents(name_id, inode, parent_inode) VALUES(?,?,?)",
-                        (self._add_name(name), inode.id, id_p))
+        self.db.execute(
+            "INSERT INTO contents(name_id, inode, parent_inode) VALUES(?,?,?)",
+            (self._add_name(name), inode.id, id_p),
+        )
 
         return inode
-
 
     async def read(self, fh, offset, length):
         '''Read `size` bytes from `fh` at position `off`
 
         Unless EOF is reached, returns exactly `size` bytes.
         '''
-        #log.debug('started with %d, %d, %d', fh, offset, length)
+        # log.debug('started with %d, %d, %d', fh, offset, length)
         buf = BytesIO()
         inode = self.inodes[fh]
 
@@ -1058,11 +1177,10 @@ class Operations(pyfuse3.Operations):
 
         return buf.getvalue()
 
-
     async def write(self, fh, offset, buf):
         '''Handle FUSE write requests.'''
 
-        #log.debug('started with %d, %d, datalen=%d', fh, offset, len(buf))
+        # log.debug('started with %d, %d, datalen=%d', fh, offset, len(buf))
 
         if self.failsafe or self.inodes[fh].locked:
             raise FUSEError(errno.EPERM)
@@ -1109,6 +1227,7 @@ class Operations(pyfuse3.Operations):
             length = len(buf)
         elif buf is None:
             write = False
+            max_write = None
         else:
             raise TypeError("Don't know what to do!")
 
@@ -1116,8 +1235,14 @@ class Operations(pyfuse3.Operations):
         if offset_rel + length > self.max_obj_size:
             length = self.max_obj_size - offset_rel
 
+        if write:
+            # Point to the last byte that we will write
+            max_write = offset_rel + length - 1
+        else:
+            max_write = None
+
         try:
-            async with self.cache.get(id_, blockno) as fh:
+            async with self.cache.get(id_, blockno, max_write=max_write) as fh:
                 fh.seek(offset_rel)
                 if write:
                     fh.write(buf[:length])
@@ -1125,15 +1250,15 @@ class Operations(pyfuse3.Operations):
                     buf = fh.read(length)
 
         except NoSuchObject as exc:
-            log.error('Backend lost block %d of inode %d (id %s)!',
-                      blockno, id_, exc.key)
+            log.error('Backend lost block %d of inode %d (id %s)!', blockno, id_, exc.key)
             self.failsafe = True
             self.broken_blocks[id_].add(blockno)
             raise FUSEError(errno.EIO)
 
         except CorruptedObjectError as exc:
-            log.error('Backend returned malformed data for block %d of inode %d (%s)',
-                      blockno, id_, exc)
+            log.error(
+                'Backend returned malformed data for block %d of inode %d (%s)', blockno, id_, exc
+            )
             self.failsafe = True
             self.broken_blocks[id_].add(blockno)
             raise FUSEError(errno.EIO)
@@ -1157,7 +1282,7 @@ class Operations(pyfuse3.Operations):
     async def forget(self, forget_list):
         log.debug('started with %s', forget_list)
 
-        for (id_, nlookup) in forget_list:
+        for id_, nlookup in forget_list:
             self.open_inodes[id_] -= nlookup
 
             if self.open_inodes[id_] == 0:
@@ -1171,16 +1296,19 @@ class Operations(pyfuse3.Operations):
                     await self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
                     # Since the inode is not open, it's not possible that new blocks
                     # get created at this point and we can safely delete the inode
-                    self.db.execute('UPDATE names SET refcount = refcount - 1 WHERE '
-                                    'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                                    (id_,))
-                    self.db.execute('DELETE FROM names WHERE refcount=0 AND '
-                                    'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                                    (id_,))
+                    self.db.execute(
+                        'UPDATE names SET refcount = refcount - 1 WHERE '
+                        'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                        (id_,),
+                    )
+                    self.db.execute(
+                        'DELETE FROM names WHERE refcount=0 AND '
+                        'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+                        (id_,),
+                    )
                     self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
                     self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
                     del self.inodes[id_]
-
 
     async def fsyncdir(self, fh, datasync):
         log.debug('started with %d, %s', fh, datasync)

@@ -6,22 +6,26 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from . import BUFSIZE
-from .database import NoSuchRowError
-from .backends.common import NoSuchObject
-from .multi_lock import MultiLock
-from .logging import logging # Ensure use of custom logger class
-from collections import OrderedDict
-from queue import Queue, Empty as QueueEmpty, Full as QueueFull
-from argparse import Namespace
+import logging
 import os
-import hashlib
-import shutil
-import threading
-import time
-import trio
 import re
 import sys
+import threading
+import time
+from argparse import Namespace
+from collections import OrderedDict
+from queue import Empty as QueueEmpty
+from queue import Full as QueueFull
+from queue import Queue
+from typing import Optional
+
+import trio
+
+from s3ql.common import sha256_fh
+
+from .backends.common import NoSuchObject
+from .database import NoSuchRowError
+from .multi_lock import MultiLock
 
 try:
     from contextlib import asynccontextmanager
@@ -38,6 +42,7 @@ QuitSentinel = object()
 # be flushed
 FlushSentinel = object()
 
+
 class NoWorkerThreads(Exception):
     '''
     Raised when trying to enqueue an object, but there
@@ -46,7 +51,8 @@ class NoWorkerThreads(Exception):
 
     pass
 
-class CacheEntry(object):
+
+class CacheEntry:
     """An element in the block cache
 
     Attributes:
@@ -57,8 +63,7 @@ class CacheEntry(object):
     :pos: current position in file
     """
 
-    __slots__ = [ 'dirty', 'inode', 'blockno', 'last_write',
-                  'size', 'pos', 'fh', 'removed' ]
+    __slots__ = ['dirty', 'inode', 'blockno', 'last_write', 'size', 'pos', 'fh', 'removed']
 
     def __init__(self, inode, blockno, filename, mode='w+b'):
         super().__init__()
@@ -111,8 +116,11 @@ class CacheEntry(object):
         os.unlink(self.fh.name)
 
     def __str__(self):
-        return ('<%sCacheEntry, inode=%d, blockno=%d>'
-                % ('Dirty ' if self.dirty else '', self.inode, self.blockno))
+        return '<%sCacheEntry, inode=%d, blockno=%d>' % (
+            'Dirty ' if self.dirty else '',
+            self.inode,
+            self.blockno,
+        )
 
 
 class CacheDict(OrderedDict):
@@ -142,10 +150,10 @@ class CacheDict(OrderedDict):
             el.unlink()
 
     def is_full(self):
-        return (self.size > self.max_size
-                or len(self) > self.max_entries)
+        return self.size > self.max_size or len(self) > self.max_entries
 
-class BlockCache(object):
+
+class BlockCache:
     """Provides access to file blocks
 
     This class manages access to file blocks. It takes care of creation,
@@ -190,7 +198,7 @@ class BlockCache(object):
         else:
             os.mkdir(self.path)
 
-        # Initialized fromt the outside to prevent cyclic dependency,
+        # Initialized from the outside to prevent cyclic dependency,
         # used only to set failsafe attribute
         self.fs = Namespace()
 
@@ -204,8 +212,7 @@ class BlockCache(object):
             inode = int(match.group(1))
             blockno = int(match.group(2))
 
-            el = CacheEntry(inode, blockno,
-                            os.path.join(self.path, filename), mode='r+b')
+            el = CacheEntry(inode, blockno, os.path.join(self.path, filename), mode='r+b')
             self.cache[(inode, blockno)] = el
             self.cache.size += el.size
 
@@ -229,13 +236,13 @@ class BlockCache(object):
 
         if has_delete_multi:
             t = threading.Thread(target=self._removal_loop_multi)
-            t.daemon = True # interruption will do no permanent harm
+            t.daemon = True  # interruption will do no permanent harm
             t.start()
             self.removal_threads.append(t)
         else:
             for _ in range(20):
                 t = threading.Thread(target=self._removal_loop_simple)
-                t.daemon = True # interruption will do no permanent harm
+                t.daemon = True  # interruption will do no permanent harm
                 t.start()
                 self.removal_threads.append(t)
 
@@ -285,8 +292,7 @@ class BlockCache(object):
         except QueueEmpty:
             pass
         else:
-            log.error('Could not complete object removals, '
-                      'no removal threads left alive')
+            log.error('Could not complete object removals, no removal threads left alive')
 
         self.to_upload = None
         self.to_remove = None
@@ -298,7 +304,6 @@ class BlockCache(object):
 
         log.debug('cleanup done.')
 
-
     def _upload_loop(self):
         '''Process upload queue.
 
@@ -307,8 +312,7 @@ class BlockCache(object):
 
         while True:
             log.debug('reading from upload queue...')
-            tmp = trio.from_thread.run(
-                self.to_upload[1].receive, trio_token=self.trio_token)
+            tmp = trio.from_thread.run(self.to_upload[1].receive, trio_token=self.trio_token)
 
             if tmp is QuitSentinel:
                 log.debug('got QuitSentinel')
@@ -317,23 +321,14 @@ class BlockCache(object):
 
             self._do_upload(*tmp)
 
-
     def _do_upload(self, el, obj_id):
         '''Upload object.
 
         This method runs in a separate thread outside the trio event loop.
         '''
 
-        def do_write(fh):
-            el.seek(0)
-            while True:
-                buf = el.read(BUFSIZE)
-                if not buf:
-                    break
-                fh.write(buf)
-            return fh
-
         success = False
+
         async def with_event_loop(exc_info):
             if success:
                 self.db.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
@@ -346,7 +341,7 @@ class BlockCache(object):
                 # to be de-duplicated against this (missing) one. However, this
                 # may already have happened during the attempted upload. The
                 # only way to avoid this problem is to insert the hash into the
-                # objects table *after* successfull upload. But this would open
+                # objects table *after* successful upload. But this would open
                 # a window without de-duplication just to handle the special
                 # case of an upload failing.
                 #
@@ -371,22 +366,19 @@ class BlockCache(object):
 
         try:
             with self.backend_pool() as backend:
+                el.seek(0)
                 if log.isEnabledFor(logging.DEBUG):
                     time_ = time.time()
-                    obj_size = backend.perform_write(do_write, 's3ql_data_%d'
-                                                     % obj_id).get_obj_size()
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
                     time_ = time.time() - time_
-                    rate = el.size / (1024 ** 2 * time_) if time_ != 0 else 0
-                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s',
-                              el.size, time_, rate)
+                    rate = el.size / (1024**2 * time_) if time_ != 0 else 0
+                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
                 else:
-                    obj_size = backend.perform_write(do_write, 's3ql_data_%d'
-                                                     % obj_id).get_obj_size()
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
             success = True
         finally:
             self.in_transit.remove(el)
             trio.from_thread.run(with_event_loop, sys.exc_info(), trio_token=self.trio_token)
-
 
     async def wait(self):
         '''Wait until an object has been uploaded
@@ -438,18 +430,9 @@ class BlockCache(object):
             log.debug('uploading %s..', el)
             self.in_transit.add(el)
             added_to_transit = True
-            sha = hashlib.sha256()
             el.seek(0)
-
-            def with_lock_released():
-                while True:
-                    buf = el.read(BUFSIZE)
-                    if not buf:
-                        break
-                    sha.update(buf)
-                return sha.digest()
-            hash_ = await trio.to_thread.run_sync(with_lock_released)
-
+            sha = await trio.to_thread.run_sync(sha256_fh, el)
+            hash_ = sha.digest()
         except:
             if added_to_transit:
                 self.in_transit.discard(el)
@@ -459,9 +442,10 @@ class BlockCache(object):
         obj_lock_taken = False
         try:
             try:
-                old_obj_id = self.db.get_val('SELECT obj_id FROM inode_blocks '
-                                             'WHERE inode=? AND blockno=?',
-                                             (el.inode, el.blockno))
+                old_obj_id = self.db.get_val(
+                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
+                    (el.inode, el.blockno),
+                )
             except NoSuchRowError:
                 old_obj_id = None
 
@@ -470,15 +454,19 @@ class BlockCache(object):
 
             # No object with same hash
             except NoSuchRowError:
-                obj_id = self.db.rowid('INSERT INTO objects (refcount, hash, length, phys_size) '
-                                       'VALUES(?, ?, ?, ?)', (1, hash_, el.size, -1))
+                obj_id = self.db.rowid(
+                    'INSERT INTO objects (refcount, hash, length, phys_size) VALUES(?, ?, ?, ?)',
+                    (1, hash_, el.size, -1),
+                )
                 log.debug('created new object %d, adding to upload queue', obj_id)
 
                 # Note: we must finish all db transactions before adding to
                 # in_transit, otherwise commit() may return before all blocks
                 # are available in db.
-                self.db.execute('INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) '
-                                'VALUES(?,?,?)', (obj_id, el.inode, el.blockno))
+                self.db.execute(
+                    'INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) VALUES(?,?,?)',
+                    (obj_id, el.inode, el.blockno),
+                )
 
                 await self.mlock.acquire(obj_id)
                 obj_lock_taken = True
@@ -488,10 +476,12 @@ class BlockCache(object):
             else:
                 if old_obj_id != obj_id:
                     log.debug('(re)linking to %d', obj_id)
-                    self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?',
-                                    (obj_id,))
-                    self.db.execute('INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) '
-                                    'VALUES(?,?,?)', (obj_id, el.inode, el.blockno))
+                    self.db.execute('UPDATE objects SET refcount=refcount+1 WHERE id=?', (obj_id,))
+                    self.db.execute(
+                        'INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) '
+                        'VALUES(?,?,?)',
+                        (obj_id, el.inode, el.blockno),
+                    )
 
                 el.dirty = False
                 self.in_transit.remove(el)
@@ -514,7 +504,6 @@ class BlockCache(object):
             log.debug('no old object')
 
         return obj_lock_taken
-
 
     async def _queue_upload(self, obj):
         '''Put *obj* into upload queue'''
@@ -552,8 +541,9 @@ class BlockCache(object):
         If reference counter drops to zero, remove object.
         '''
 
-        (refcount, size) = self.db.get_row('SELECT refcount, phys_size FROM objects WHERE id=?',
-                                           (obj_id,))
+        (refcount, size) = self.db.get_row(
+            'SELECT refcount, phys_size FROM objects WHERE id=?', (obj_id,)
+        )
         if refcount > 1:
             log.debug('decreased refcount for object: %d', obj_id)
             self.db.execute('UPDATE objects SET refcount=refcount-1 WHERE id=?', (obj_id,))
@@ -600,8 +590,8 @@ class BlockCache(object):
         ids = []
         while True:
             try:
-                log.debug('reading from queue (blocking=%s)', len(ids)==0)
-                tmp = self.to_remove.get(block=len(ids)==0)
+                log.debug('reading from queue (blocking=%s)', len(ids) == 0)
+                tmp = self.to_remove.get(block=len(ids) == 0)
             except QueueEmpty:
                 tmp = FlushSentinel
 
@@ -639,11 +629,32 @@ class BlockCache(object):
                     self.fs.failsafe = True
 
     @asynccontextmanager
-    async def get(self, inode, blockno):
-        """Get file handle for block `blockno` of `inode`."""
+    async def get(self, inode, blockno, max_write: Optional[int] = None):
+        """Get file handle for block `blockno` of `inode`
 
-        #log.debug('started with %d, %d', inode, blockno)
+        If *max_write* is not None, caller promises not to write into the
+        cache element beyond offset *max_write*.
+        """
 
+        # log.debug('started with %d, %d', inode, blockno)
+
+        # Fast path: in cache and will not change size (so we do not need to worry about cache
+        # expiration). The `while` statement does not actually loop, we just use it so we can
+        # use `break` to jump out.
+        while max_write is not None:
+            async with self.mlock(inode, blockno):
+                try:
+                    el = self.cache[(inode, blockno)]
+                except KeyError:
+                    break
+                if max_write >= el.size:
+                    break
+                self.cache.move_to_end((inode, blockno), last=True)  # move to head
+                yield el
+                return
+
+        # Slow path - object is not yet cached or cached but will increase in size. Therefore, need
+        # to make sure there's enough room in the cache.
         if self.cache.is_full():
             await self.expire()
 
@@ -660,7 +671,7 @@ class BlockCache(object):
         finally:
             await self.mlock.release(inode, blockno)
 
-        #log.debug('finished')
+        # log.debug('finished')
 
     async def _get_entry(self, inode, blockno):
         '''Get cache entry for `blockno` of `inode`
@@ -676,8 +687,10 @@ class BlockCache(object):
         except KeyError:
             filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
             try:
-                obj_id = self.db.get_val('SELECT obj_id FROM inode_blocks '
-                                         'WHERE inode=? AND blockno=?', (inode, blockno))
+                obj_id = self.db.get_val(
+                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
+                    (inode, blockno),
+                )
 
             # No corresponding object
             except NoSuchRowError:
@@ -690,11 +703,6 @@ class BlockCache(object):
             log.debug('downloading object %d..', obj_id)
             tmpfh = open(filename + '.tmp', 'wb')
             try:
-                def do_read(fh):
-                    tmpfh.seek(0)
-                    tmpfh.truncate()
-                    shutil.copyfileobj(fh, tmpfh, BUFSIZE)
-
                 # Lock object. This ensures that we wait until the object
                 # is uploaded. We don't have to worry about deletion, because
                 # as long as the current cache entry exists, there will always be
@@ -705,7 +713,8 @@ class BlockCache(object):
 
                 def with_lock_released():
                     with self.backend_pool() as backend:
-                        backend.perform_read(do_read, 's3ql_data_%d' % obj_id)
+                        backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh)
+
                 await trio.to_thread.run_sync(with_lock_released)
 
                 tmpfh.flush()
@@ -723,8 +732,8 @@ class BlockCache(object):
 
         # In Cache
         else:
-            #log.debug('in cache')
-            self.cache.move_to_end((inode, blockno), last=True) # move to head
+            # log.debug('in cache')
+            self.cache.move_to_end((inode, blockno), last=True)  # move to head
 
         return el
 
@@ -778,7 +787,6 @@ class BlockCache(object):
 
         log.debug('finished')
 
-
     async def remove(self, inode, start_no, end_no=None):
         """Remove blocks for `inode`
 
@@ -812,15 +820,18 @@ class BlockCache(object):
                         self.cache.remove((inode, blockno))
 
                     try:
-                        obj_id = self.db.get_val('SELECT obj_id FROM inode_blocks '
-                                                 'WHERE inode=? AND blockno=?', (inode, blockno))
+                        obj_id = self.db.get_val(
+                            'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
+                            (inode, blockno),
+                        )
                     except NoSuchRowError:
                         log.debug('block not in db')
                         continue
 
                     # Detach inode from block
-                    self.db.execute('DELETE FROM inode_blocks WHERE inode=? AND blockno=?',
-                                    (inode, blockno))
+                    self.db.execute(
+                        'DELETE FROM inode_blocks WHERE inode=? AND blockno=?', (inode, blockno)
+                    )
 
                 finally:
                     await self.mlock.release(inode, blockno)
@@ -854,8 +865,7 @@ class BlockCache(object):
         if inode is None:
             to_flush = list(self.cache.values())
         else:
-            to_flush = [ x for x in self.cache.values()
-                         if x.inode == inode ]
+            to_flush = [x for x in self.cache.values() if x.inode == inode]
 
         for el in to_flush:
             await self.upload_if_dirty(el)
@@ -936,8 +946,7 @@ class BlockCache(object):
         # Force execution of sys.excepthook (exceptions raised
         # by __del__ are ignored)
         try:
-            raise RuntimeError("BlockManager instance was destroyed without "
-                               "calling destroy()!")
+            raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
         except RuntimeError:
             exc_info = sys.exc_info()
 

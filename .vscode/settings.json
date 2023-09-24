@@ -1,3 +1,49 @@
 {
-    "python.formatting.provider": "black"
+    "rewrap.wrappingColumn": 100,
+    "pythonIndent.keepHangingBracketOnLine": true,
+    "files.trimTrailingWhitespace": true,
+    "pythonIndent.trimLinesWithOnlyWhitespace": true,
+    "python.analysis.importFormat": "absolute",
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": [
+        "--line-length=100",
+        "--skip-string-normalization",
+        "--required-version=23.3.0"
+    ],
+    "editor.formatOnSave": true,
+    "C_Cpp.vcFormat.newLine.beforeOpenBrace.block": "sameLine",
+    "C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "sameLine",
+    "C_Cpp.formatting": "vcFormat",
+    "C_Cpp.vcFormat.newLine.beforeCatch": false,
+    "C_Cpp.vcFormat.newLine.beforeElse": false,
+    "C_Cpp.vcFormat.newLine.beforeOpenBrace.namespace": "sameLine",
+    "C_Cpp.vcFormat.newLine.beforeOpenBrace.type": "sameLine",
+    "python.analysis.extraPaths": [
+        "src"
+    ],
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportShadowedImports": "none",
+        "reportUnusedVariable": "warning",
+        "reportUnusedImport": "warning",
+        "reportUnusedClass": "warning",
+        "reportUnusedFunction": "warning",
+        "reportFunctionMemberAccess": "warning",
+        "reportDuplicateImport": "warning",
+        "reportDeprecated": "information",
+        "reportUnnecessaryIsInstance": "warning",
+        "reportUnnecessaryTypeIgnoreComment": "warning",
+    },
+    "[python]": {
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        },
+        "editor.defaultFormatter": "ms-python.black-formatter"
+    },
+    "isort.check": true,
+    "python.analysis.exclude": [
+        "s3ql.old/"
+    ],
+    "python.linting.mypyEnabled": false,
+    "black-formatter.importStrategy": "useBundled"
 }

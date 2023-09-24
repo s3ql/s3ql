@@ -8,21 +8,25 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import pyfuse3
 import os.path
-import s3ql.lock
-import s3ql.remove
 import sys
-from pytest import raises as assert_raises
+
+import pyfuse3
 import pytest
 import t4_fuse
+from pytest import raises as assert_raises
+
+import s3ql.lock
+import s3ql.remove
+
 
 class TestLockRemove(t4_fuse.TestFuse):
-
     def test(self):
         self.mkfs()
         self.mount()
@@ -31,7 +35,6 @@ class TestLockRemove(t4_fuse.TestFuse):
         self.fsck()
 
     def tst_lock_rm(self):
-
         # Extract tar
         tempdir = os.path.join(self.mnt_dir, 'lock_dir')
         filename = os.path.join(tempdir, 'myfile')

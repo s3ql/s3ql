@@ -8,29 +8,32 @@ All Rights Reserved.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import t4_fuse
-from s3ql.common import _escape
-import pytest
 import os
 import shutil
-import tempfile
 import subprocess
+import tempfile
 import time
 from os.path import join as pjoin
+
+import pytest
+import t4_fuse
+
+from s3ql.common import escape
 
 with open(__file__, 'rb') as fh:
     TEST_DATA = fh.read()
 
-class TestPerstCache(t4_fuse.TestFuse):
 
+class TestPerstCache(t4_fuse.TestFuse):
     # Need to overwrite parent class' method with something, thus the
     # inexpressive name.
     def test(self):
-
         # Write test data
         self.mkfs()
         self.mount(extra_args=['--keep-cache'])
@@ -39,8 +42,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount()
 
         # Poison backend storage object
-        with open(pjoin(self.backend_dir, 's3ql_data_',
-                        's3ql_data_1'), 'wb') as fh:
+        with open(pjoin(self.backend_dir, 's3ql_data_', 's3ql_data_1'), 'wb') as fh:
             fh.write(b'poison!')
 
         # fsck.s3ql shouldn't report errors
@@ -69,26 +71,27 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount_fuse()
 
         # Update cache files
-        cache_file = pjoin(self.cache_dir,  _escape(self.storage_url) + '-cache', '4-0')
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '4-0')
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
         self.fsck(expect_retcode=128)
         assert not os.path.exists(cache_file)
 
         # Ensure that we get updated data
+        self.reg_output(r'^WARNING: sqlite3: recovered [0-9]+ frames from WAL file', count=1)
         self.mount()
         with open(pjoin(self.mnt_dir, 'testfile'), 'rb') as fh:
             assert fh.read() == TEST_DATA[::-1]
         self.umount()
 
     def upload_meta(self):
-        subprocess.check_call(self.s3ql_cmd_argv('s3qlctrl') +
-                              [ '--quiet', 'upload-meta', self.mnt_dir ])
+        subprocess.check_call(
+            self.s3ql_cmd_argv('s3qlctrl') + ['--quiet', 'backup-metadata', self.mnt_dir]
+        )
 
     # Check that cache is ignored if fs was mounted elsewhere
     @pytest.mark.parametrize("with_fsck", (True, False))
     def test_cache_flush(self, with_fsck):
-
         # Write test data
         self.mkfs()
         self.mount(extra_args=['--keep-cache'])
@@ -98,8 +101,7 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount()
 
         # Taint cache file, so we'll get an error if it's re-used
-        cache_file = pjoin(self.cache_dir,  _escape(self.storage_url)
-                           + '-cache', '%d-0' % (ino,))
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '%d-0' % (ino,))
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
 
@@ -148,17 +150,16 @@ class TestPerstCache(t4_fuse.TestFuse):
         self.umount_fuse()
 
         # Update cache files
-        cache_file = pjoin(self.cache_dir,  _escape(self.storage_url)
-                           + '-cache', '4-0')
+        cache_file = pjoin(self.cache_dir, escape(self.storage_url) + '-cache', '4-0')
         with open(cache_file, 'rb+') as fh:
             fh.write(TEST_DATA[::-1])
 
         # Mount elsewhere
+        self.reg_output(r'^WARNING: sqlite3: recovered [0-9]+ frames from WAL file', count=1)
         bak = self.cache_dir
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
         try:
-            self.fsck(expect_retcode=0,
-                      args=['--force-remote'])
+            self.fsck(expect_retcode=0, args=['--force-remote'])
             self.mount()
             with open(pjoin(self.mnt_dir, 'testfile2'), 'wb') as fh:
                 fh.write(b'hello')
@@ -170,8 +171,7 @@ class TestPerstCache(t4_fuse.TestFuse):
             self.cache_dir = bak
 
         # Make sure that cache is ignored
-        self.fsck(expect_retcode=0,
-                  args=['--force-remote', '--keep-cache'])
+        self.fsck(expect_retcode=0, args=['--force-remote', '--keep-cache'])
         self.mount()
         with open(pjoin(self.mnt_dir, 'testfile'), 'rb') as fh:
             assert fh.read() == TEST_DATA

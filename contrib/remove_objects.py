@@ -7,23 +7,26 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import os
-import sys
 import argparse
 import atexit
+import logging
+import os
+import sys
 
 # We are running from the S3QL source directory, make sure
 # that we use modules from this directory
 basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-if (os.path.exists(os.path.join(basedir, 'setup.py')) and
-    os.path.exists(os.path.join(basedir, 'src', 's3ql', '__init__.py'))):
+if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
+    os.path.join(basedir, 'src', 's3ql', '__init__.py')
+):
     sys.path = [os.path.join(basedir, 'src')] + sys.path
 
-from s3ql.logging import logging, setup_logging
 from s3ql.common import get_backend
+from s3ql.logging import setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
+
 
 def parse_args(args):
     '''Parse command line'''
@@ -37,8 +40,11 @@ def parse_args(args):
     parser.add_backend_options()
     parser.add_version()
 
-    parser.add_argument("file", type=argparse.FileType(mode='r', encoding='utf-8'),
-                        help='File with newline separated object keys to delete')
+    parser.add_argument(
+        "file",
+        type=argparse.FileType(mode='r', encoding='utf-8'),
+        help='File with newline separated object keys to delete',
+    )
 
     return parser.parse_args(args)
 
@@ -47,6 +53,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 
@@ -57,6 +64,7 @@ def main(args=None):
         key = line.rstrip()
         log.info('Deleting %s', key)
         backend.delete(key)
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

@@ -5,12 +5,12 @@ Known Issues
 ============
 
 * S3QL de-duplicates data blocks based solely only on SHA256
-  checksums, without doing a byte-by-byte comparison of the blocks.
+  checksums, without doing a byte-by-byte comparison of the data.
   Since it is possible for two data blocks to have the same checksum
   despite having different contents, this can lead to problems. If two
   such blocks are stored in an S3QL file system, the data in one block
   will be lost and replaced by the data in the other block. However,
-  the chances of this occuring for any two blocks are about 1 in 10^77
+  the chances of this occurring for any two blocks are about 1 in 10^77
   (2^256). For a file system that holds a total of 10^34 blocks, the
   chances of a collision increase to about 1 in 10^9. Storing more
   than 10^34 blocks (or about 10^25 TB with an (extremely small) block
@@ -72,8 +72,3 @@ Known Issues
   S3QL first writes data into the cache, it can no longer return an
   error when it later turns out that the cache can not be committed to
   the backend.
-
-* When using python-dugong versions 3.3 or earlier, S3QL supports only
-  CONNECT-style proxying, which may cause issues with some proxy
-  servers when using plain HTTP. Upgrading to python-dugong 3.4 or
-  newer removes this limitation.

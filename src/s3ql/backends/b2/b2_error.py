@@ -1,5 +1,6 @@
 from ..s3c import HTTPError
 
+
 class B2Error(HTTPError):
     '''
     Represents an error returned by Backblaze B2 API call
@@ -19,4 +20,5 @@ class B2Error(HTTPError):
         return '%s : %s - %s' % (self.status, self.code, self.msg)
 
 
-class BadDigestError(B2Error): pass
+class BadDigestError(B2Error):
+    pass

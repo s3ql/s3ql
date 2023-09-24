@@ -6,22 +6,24 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
-from .. import BUFSIZE
-from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
-from ..common import ThawError, freeze_basic_mapping, thaw_basic_mapping
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
-import cryptography.hazmat.primitives.ciphers as crypto_ciphers
-import cryptography.hazmat.backends as crypto_backends
+from ast import Bytes
 import bz2
 import hashlib
 import hmac
-import lzma
 import io
+import logging
+import lzma
 import struct
 import time
 import zlib
+from typing import Any, BinaryIO, Dict, Optional
+
+import cryptography.hazmat.backends as crypto_backends
+import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+
+from .. import BUFSIZE
+from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
+from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
 
 log = logging.getLogger(__name__)
 
@@ -29,8 +31,10 @@ HMAC_SIZE = 32
 
 crypto_backend = crypto_backends.default_backend()
 
-def sha256(s):
+
+def sha256(s: Bytes) -> Bytes:
     return hashlib.sha256(s).digest()
+
 
 def aes_encryptor(key):
     '''Return AES cipher in CTR mode for *key*'''
@@ -38,8 +42,10 @@ def aes_encryptor(key):
     cipher = crypto_ciphers.Cipher(
         crypto_ciphers.algorithms.AES(key),
         crypto_ciphers.modes.CTR(nonce=bytes(16)),
-        backend=crypto_backend)
+        backend=crypto_backend,
+    )
     return cipher.encryptor()
+
 
 def aes_decryptor(key):
     '''Return AES cipher in CTR mode for *key*'''
@@ -47,10 +53,12 @@ def aes_decryptor(key):
     cipher = crypto_ciphers.Cipher(
         crypto_ciphers.algorithms.AES(key),
         crypto_ciphers.modes.CTR(nonce=bytes(16)),
-        backend=crypto_backend)
+        backend=crypto_backend,
+    )
     return cipher.decryptor()
 
-class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
+
+class ComprencBackend(AbstractBackend):
     '''
     This class adds encryption, compression and integrity protection to a plain
     backend.
@@ -65,30 +73,20 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         self.compression = compression
         self.backend = backend
 
-        if (compression[0] not in ('bzip2', 'lzma', 'zlib', None)
-            or compression[1] not in range(10)):
+        if compression[0] not in ('bzip2', 'lzma', 'zlib', None) or compression[1] not in range(10):
             raise ValueError('Unsupported compression: %s' % compression)
 
     @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return self.backend.has_native_rename
-
-    @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return self.backend.has_delete_multi
 
-    @copy_ancestor_docstring
     def reset(self):
         self.backend.reset()
 
-    @copy_ancestor_docstring
     def lookup(self, key):
         meta_raw = self.backend.lookup(key)
         return self._verify_meta(key, meta_raw)[1]
 
-    @prepend_ancestor_docstring
     def get_size(self, key):
         '''
         This method returns the compressed size, i.e. the storage space
@@ -97,7 +95,6 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return self.backend.get_size(key)
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
@@ -121,7 +118,7 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise CorruptedObjectError('meta key %s is missing' % mkey)
 
         encr_alg = metadata['encryption']
-        encrypted = (encr_alg != 'None')
+        encrypted = encr_alg != 'None'
 
         if encrypted and self.passphrase is None:
             raise CorruptedObjectError('Encrypted object and no passphrase supplied')
@@ -150,8 +147,9 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
             raise CorruptedObjectError('HMAC mismatch')
 
         if stored_key != key:
-            raise CorruptedObjectError('Object content does not match its key (%s vs %s)'
-                                       % (stored_key, key))
+            raise CorruptedObjectError(
+                'Object content does not match its key (%s vs %s)' % (stored_key, key)
+            )
 
         decryptor = aes_decryptor(meta_key)
         buf = decryptor.update(meta_buf) + decryptor.finalize()
@@ -161,505 +159,241 @@ class ComprencBackend(AbstractBackend, metaclass=ABCDocstMeta):
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 
-    @prepend_ancestor_docstring
-    def open_read(self, key):
-        """
-        If the backend has a password set but the object is not encrypted,
-        `ObjectNotEncrypted` is raised.
-        """
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
 
-        fh = self.backend.open_read(key)
-        try:
-            meta_raw = fh.metadata
-            (nonce, meta) = self._verify_meta(key, meta_raw)
-            if nonce:
-                data_key = sha256(self.passphrase + nonce)
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
 
-            # The `payload_offset` key only exists if the storage object was
-            # created with on old S3QL version. In order to avoid having to
-            # download and re-upload the entire object during the upgrade, the
-            # upgrade procedure adds this header to tell us how many bytes at
-            # the beginning of the object we have to skip to get to the payload.
-            if 'payload_offset' in meta_raw:
-                to_skip = meta_raw['payload_offset']
-                while to_skip:
-                    to_skip -= len(fh.read(to_skip))
+        If the backend has a password set but the object is not encrypted, `ObjectNotEncrypted` is
+        raised.
+        '''
 
-            encr_alg = meta_raw['encryption']
-            if encr_alg == 'AES_v2':
-                fh = DecryptFilter(fh, data_key)
-            elif encr_alg != 'None':
-                raise RuntimeError('Unsupported encryption: %s' % encr_alg)
+        buf1 = io.BytesIO()
+        meta_raw = self.backend.readinto_fh(key, buf1)
+        (nonce, meta) = self._verify_meta(key, meta_raw)
+        compr_alg = meta_raw['compression']
+        encr_alg = meta_raw['encryption']
+        if nonce:
+            data_key = sha256(self.passphrase + nonce)
 
-            compr_alg = meta_raw['compression']
-            if compr_alg == 'BZIP2':
-                fh = DecompressFilter(fh, bz2.BZ2Decompressor())
-            elif compr_alg == 'LZMA':
-                fh = DecompressFilter(fh, lzma.LZMADecompressor())
-            elif compr_alg == 'ZLIB':
-                fh = DecompressFilter(fh,zlib.decompressobj())
-            elif compr_alg != 'None':
-                raise RuntimeError('Unsupported compression: %s' % compr_alg)
+        # The `payload_offset` key only exists if the storage object was created with on old S3QL
+        # version. In order to avoid having to download and re-upload the entire object during the
+        # upgrade, the upgrade procedure adds this header to tell us how many bytes at the beginning
+        # of the object we have to skip to get to the payload.
+        if 'payload_offset' in meta_raw:
+            buf1.seek(meta_raw['payload_offset'])
+        else:
+            buf1.seek(0)
 
-            fh.metadata = meta
-        except:
-            # Don't emit checksum warning, caller hasn't even
-            # started reading anything.
-            fh.close(checksum_warning=False)
-            raise
+        # If not compressed, decrypt directly into `fh`. Otherwise, use intermediate buffer.
+        if compr_alg == 'None':
+            buf2 = fh
+        else:
+            buf2 = io.BytesIO()
 
-        return fh
+        if encr_alg == 'AES_v2':
+            decrypt_fh(buf1, buf2, data_key)
+        elif encr_alg == 'None':
+            copyfh(buf1, buf2)
+        else:
+            raise RuntimeError('Unsupported encryption: %s' % encr_alg)
 
-    @copy_ancestor_docstring
-    def open_write(self, key, metadata=None, is_compressed=False):
+        if compr_alg == 'None':
+            assert buf2 is fh
+            return meta
+
+        if compr_alg == 'BZIP2':
+            decompressor = bz2.BZ2Decompressor()
+        elif compr_alg == 'LZMA':
+            decompressor = lzma.LZMADecompressor()
+        elif compr_alg == 'ZLIB':
+            decompressor = zlib.decompressobj()
+        else:
+            raise RuntimeError('Unsupported compression: %s' % compr_alg)
+        assert buf2 is not fh
+        buf2.seek(0)
+        decompress_fh(buf2, fh, decompressor)
+
+        return meta
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+        dont_compress: bool = False,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried.  Returns the size of the resulting storage object (which may be less due
+        to compression)'''
 
         if metadata is None:
             metadata = dict()
-        elif not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
 
         meta_buf = freeze_basic_mapping(metadata)
         meta_raw = dict(format_version=2)
 
-        if is_compressed or self.compression[0] is None:
-            compr = None
+        if dont_compress or self.compression[0] is None:
             meta_raw['compression'] = 'None'
-        elif self.compression[0] == 'zlib':
-            compr = zlib.compressobj(self.compression[1])
-            meta_raw['compression'] = 'ZLIB'
-        elif self.compression[0] == 'bzip2':
-            compr = bz2.BZ2Compressor(self.compression[1])
-            meta_raw['compression'] = 'BZIP2'
-        elif self.compression[0] == 'lzma':
-            compr = lzma.LZMACompressor(preset=self.compression[1])
-            meta_raw['compression'] = 'LZMA'
+        else:
+            if self.compression[0] == 'zlib':
+                compr = zlib.compressobj(self.compression[1])
+                meta_raw['compression'] = 'ZLIB'
+            elif self.compression[0] == 'bzip2':
+                compr = bz2.BZ2Compressor(self.compression[1])
+                meta_raw['compression'] = 'BZIP2'
+            elif self.compression[0] == 'lzma':
+                compr = lzma.LZMACompressor(preset=self.compression[1])
+                meta_raw['compression'] = 'LZMA'
+            buf = io.BytesIO()
+            compress_fh(fh, buf, compr, len_=len_)
+            buf.seek(0)
+            fh = buf
+            len_ = None
 
-        if self.passphrase is not None:
+        if self.passphrase is None:
+            meta_raw['encryption'] = 'None'
+            meta_raw['data'] = meta_buf
+        else:
             nonce = struct.pack('<d', time.time()) + key.encode('utf-8')
             meta_key = sha256(self.passphrase + nonce + b'meta')
-            data_key = sha256(self.passphrase + nonce)
             encryptor = aes_encryptor(meta_key)
             meta_raw['encryption'] = 'AES_v2'
             meta_raw['nonce'] = nonce
             meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
             meta_raw['object_id'] = key
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
-        else:
-            meta_raw['encryption'] = 'None'
-            meta_raw['data'] = meta_buf
+            data_key = sha256(self.passphrase + nonce)
+            buf = io.BytesIO()
+            encrypt_fh(fh, buf, data_key, len_=len_)
+            buf.seek(0)
+            fh = buf
 
-        fh = self.backend.open_write(key, meta_raw)
+        return self.backend.write_fh(key, fh, meta_raw)
 
-        if self.passphrase is not None:
-            fh = EncryptFilter(fh, data_key)
-        if compr:
-            fh = CompressFilter(fh, compr)
-
-        return fh
-
-    @copy_ancestor_docstring
     def contains(self, key):
         return self.backend.contains(key)
 
-    @copy_ancestor_docstring
-    def delete(self, key, force=False):
-        return self.backend.delete(key, force)
+    def delete(self, key):
+        return self.backend.delete(key)
 
-    @copy_ancestor_docstring
-    def delete_multi(self, keys, force=False):
-        return self.backend.delete_multi(keys, force=force)
+    def delete_multi(self, keys):
+        return self.backend.delete_multi(keys)
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         return self.backend.list(prefix)
 
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        if not isinstance(metadata, dict):
-            raise TypeError('*metadata*: expected dict, got %s' % type(metadata))
-        self._copy_or_rename(src=key, dest=key, rename=False,
-                             metadata=metadata)
-
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        self._copy_or_rename(src, dest, rename=False, metadata=metadata)
-
-    @copy_ancestor_docstring
-    def rename(self, src, dest, metadata=None):
-        if not (metadata is None or isinstance(metadata, dict)):
-            raise TypeError('*metadata*: expected dict or None, got %s' % type(metadata))
-        self._copy_or_rename(src, dest, rename=True, metadata=metadata)
-
-    def _copy_or_rename(self, src, dest, rename, metadata=None):
-        meta_raw = self.backend.lookup(src)
-        (nonce, meta_old) = self._verify_meta(src, meta_raw)
-
-        if nonce:
-            meta_key = sha256(self.passphrase + nonce + b'meta')
-            if metadata is None:
-                meta_buf = freeze_basic_mapping(meta_old)
-            else:
-                meta_buf = freeze_basic_mapping(metadata)
-            encryptor = aes_encryptor(meta_key)
-            meta_raw['data'] = encryptor.update(meta_buf) + encryptor.finalize()
-            meta_raw['object_id'] = dest
-            meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
-        elif metadata is None:
-            # Just copy old metadata
-            meta_raw = None
-        else:
-            meta_raw['data'] = freeze_basic_mapping(metadata)
-
-        if src == dest: # metadata update only
-            self.backend.update_meta(src, meta_raw)
-        elif rename:
-            self.backend.rename(src, dest, metadata=meta_raw)
-        else:
-            self.backend.copy(src, dest, metadata=meta_raw)
-
-    @copy_ancestor_docstring
     def close(self):
         self.backend.close()
 
-class CompressFilter(object):
-    '''Compress data while writing'''
 
-    def __init__(self, fh, compr):
-        '''Initialize
+def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr, len_: Optional[int] = None):
+    '''Compress *len_* bytes from *ifh* into *ofh* using *compr*'''
 
-        *fh* should be a file-like object. *decomp* should be a fresh compressor
-        instance with a *compress* method.
-        '''
-        super().__init__()
-
-        self.fh = fh
-        self.compr = compr
-        self.obj_size = 0
-        self.closed = False
-
-    def write(self, data):
-        '''Write *data*'''
-
-        buf = self.compr.compress(data)
+    while len_ is None or len_ > 0:
+        max_ = BUFSIZE if len_ is None else min(BUFSIZE, len_)
+        buf = ifh.read(max_)
+        if not buf:
+            break
+        if len_:
+            len_ -= len(buf)
+        buf = compr.compress(buf)
         if buf:
-            self.fh.write(buf)
-            self.obj_size += len(buf)
+            ofh.write(buf)
 
-    def close(self):
-        # There may be errors when calling fh.close(), so we make sure that a
-        # repeated call is forwarded to fh.close(), even if we already cleaned
-        # up.
-        if not self.closed:
-            buf = self.compr.flush()
-            if buf:
-                self.fh.write(buf)
-                self.obj_size += len(buf)
-            self.closed = True
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
-
-class InputFilter(io.RawIOBase):
-
-    # Overwrite default implementation to make sure that we're using a decent
-    # blocksize
-    def readall(self):
-        """Read until EOF, using multiple read() calls."""
-
-        res = bytearray()
-        while True:
-            data = self.read(BUFSIZE)
-            if not data:
-                break
-            res += data
-        return res
-
-    def readable(self):
-        return True
-
-    def readinto(self, buf):
-        var = self.read(len(buf))
-        buf[:len(var)] = var
-        return var
-
-    def read(self, size=-1):
-        if size == -1:
-            return self.readall()
-        elif size == 0:
-            return b''
-
-        b = bytearray(size)
-        len_ = self.readinto(b)
-        return b[:len_]
-
-    def discard_input(self):
-        while True:
-            buf = self.fh.read(BUFSIZE)
-            if not buf:
-                break
-
-class DecompressFilter(InputFilter):
-    '''Decompress data while reading'''
-
-    def __init__(self, fh, decomp, metadata=None):
-        '''Initialize
-
-        *fh* should be a file-like object and may be unbuffered. *decomp* should
-        be a fresh decompressor instance with a *decompress* method.
-        '''
-        super().__init__()
-
-        self.fh = fh
-        self.decomp = decomp
-        self.metadata = metadata
-
-    def read(self, size=-1):
-        '''Read up to *size* bytes
-
-        This method is currently buggy and may also return *more* than *size*
-        bytes. Callers should be prepared to handle that. This is because some
-        of the used (de)compression modules don't support output limiting.
-        '''
-
-        if size == -1:
-            return self.readall()
-        elif size == 0:
-            return b''
-
-        buf = b''
-        while not buf:
-            buf = self.fh.read(size)
-            if not buf:
-                if not self.decomp.eof:
-                    raise CorruptedObjectError('Premature end of stream.')
-                if self.decomp.unused_data:
-                    raise CorruptedObjectError('Data after end of compressed stream')
-
-                return b''
-
-            try:
-                buf = decompress(self.decomp, buf)
-            except CorruptedObjectError:
-                # Read rest of stream, so that we raise HMAC or MD5 error instead
-                # if problem is on lower layer
-                self.discard_input()
-                raise
-
-        return buf
-
-    def close(self, *a, **kw):
-        self.fh.close(*a, **kw)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
+    buf = compr.flush()
+    if buf:
+        ofh.write(buf)
 
 
-class EncryptFilter(object):
-    '''Encrypt data while writing'''
+def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes, len_: Optional[int] = None):
+    '''Encrypt contents of *ifh* into *ofh*'''
 
-    def __init__(self, fh, key):
-        '''Initialize
+    encryptor = aes_encryptor(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
-        *fh* should be a file-like object.
-        '''
-        super().__init__()
+    while len_ is None or len_ > 0:
+        max_ = BUFSIZE if len_ is None else min(BUFSIZE, len_)
+        buf = ifh.read(max_)
+        if not buf:
+            break
+        if len_:
+            len_ -= len(buf)
 
-        self.fh = fh
-        self.obj_size = 0
-        self.closed = False
-        self.encryptor = aes_encryptor(key)
-        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
+        header = struct.pack(b'<I', len(buf))
+        hmac_.update(header)
+        ofh.write(encryptor.update(header))
 
-    def write(self, data):
-        '''Write *data*
+        hmac_.update(buf)
+        ofh.write(encryptor.update(buf))
 
-        len(data) must be < 2**32.
-
-        Every invocation of `write` generates a packet that contains both the
-        length of the data and the data, so the passed data should have
-        reasonable size (if the data is written in e.g. 4 byte chunks, it is
-        blown up by 100%)
-        '''
-
-        if len(data) == 0:
-            return
-
-        buf = struct.pack(b'<I', len(data)) + data
-        self.hmac.update(buf)
-        buf2 = self.encryptor.update(buf)
-        assert len(buf2) == len(buf)
-        self.fh.write(buf2)
-        self.obj_size += len(buf2)
-
-    def close(self):
-        # There may be errors when calling fh.close(), so we make sure that a
-        # repeated call is forwarded to fh.close(), even if we already cleaned
-        # up.
-        if not self.closed:
-            # Packet length of 0 indicates end of stream, only HMAC follows
-            buf = struct.pack(b'<I', 0)
-            self.hmac.update(buf)
-            buf += self.hmac.digest()
-            buf2 = self.encryptor.update(buf)
-            assert len(buf) == len(buf2)
-            self.fh.write(buf2)
-            self.obj_size += len(buf2)
-            self.closed = True
-
-        self.fh.close()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-    def get_obj_size(self):
-        if not self.closed:
-            raise RuntimeError('Object must be closed first.')
-        return self.obj_size
+    # Packet length of 0 indicates end of stream, only HMAC follows
+    buf = struct.pack(b'<I', 0)
+    hmac_.update(buf)
+    ofh.write(encryptor.update(buf))
+    ofh.write(encryptor.update(hmac_.digest()))
 
 
-class DecryptFilter(InputFilter):
-    '''Decrypt data while reading
+def decompress_fh(ifh: BinaryIO, ofh: BinaryIO, decompressor):
+    '''Decompress contents of *ifh* into *ofh*'''
 
-    Reader has to read the entire stream in order for HMAC
-    checking to work.
-    '''
+    while True:
+        buf = ifh.read(BUFSIZE)
+        if not buf:
+            break
+        buf = decompress_buf(decompressor, buf)
+        if buf:
+            ofh.write(buf)
+
+    if not decompressor.eof:
+        raise CorruptedObjectError('Premature end of stream.')
+    if decompressor.unused_data:
+        raise CorruptedObjectError('Data after end of compressed stream')
+
+
+def decrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes):
+    '''Decrypt contents of *ifh* into *ofh*'''
 
     off_size = struct.calcsize(b'<I')
+    decryptor = aes_decryptor(key)
+    hmac_ = hmac.new(key, digestmod=hashlib.sha256)
 
-    def __init__(self, fh, key, metadata=None):
-        '''Initialize
-
-        *fh* should be a file-like object that may be unbuffered.
-        '''
-        super().__init__()
-
-        self.fh = fh
-        self.remaining = 0 # Remaining length of current packet
-        self.metadata = metadata
-        self.hmac_checked = False
-        self.decryptor = aes_decryptor(key)
-        self.hmac = hmac.new(key, digestmod=hashlib.sha256)
-
-    def _read_and_decrypt(self, size):
-        '''Read and decrypt up to *size* bytes'''
-
-        if not isinstance(size, int) or size <= 0:
-            raise ValueError("Exact *size* required (got %d)" % size)
-
-        buf = self.fh.read(size)
+    while True:
+        buf = ifh.read(off_size)
         if not buf:
             raise CorruptedObjectError('Premature end of stream.')
+        buf = decryptor.update(buf)
+        hmac_.update(buf)
+        assert len(buf) == off_size
+        to_read = struct.unpack(b'<I', buf)[0]
+        if to_read == 0:
+            break
+        while to_read:
+            buf = ifh.read(min(to_read, BUFSIZE))
+            if not buf:
+                raise CorruptedObjectError('Premature end of stream.')
+            to_read -= len(buf)
+            buf = decryptor.update(buf)
+            hmac_.update(buf)
+            ofh.write(buf)
 
-        if not isinstance(buf, bytes):
-            buf = bytes(buf)
+    buf = ifh.read(HMAC_SIZE)
+    buf = decryptor.update(buf)
+    if ifh.read(BUFSIZE):
+        raise CorruptedObjectError('Extraneous data at end of object')
 
-        len_ = len(buf)
-        buf = self.decryptor.update(buf)
-        assert len(buf) == len_
+    if not hmac.compare_digest(buf, hmac_.digest()):
+        raise CorruptedObjectError('HMAC mismatch')
 
-        return buf
 
-    def read(self, size=-1):
-        '''Read up to *size* bytes'''
-
-        if size == -1:
-            return self.readall()
-        elif size == 0:
-            return b''
-
-        # If HMAC has been checked, then we've read the complete file (we don't
-        # want to read b'' from the underlying fh repeatedly)
-        if self.hmac_checked:
-            return b''
-
-        outbuf = b''
-        inbuf = b''
-        while True:
-
-            # If all remaining data is part of the same packet, return it.
-            if inbuf and len(inbuf) <= self.remaining:
-                self.remaining -= len(inbuf)
-                self.hmac.update(inbuf)
-                outbuf += inbuf
-                break
-
-            # Otherwise keep reading until we have something to return
-            # but make sure not to stop in packet header (so that we don't
-            # cache the partially read header from one invocation to the next).
-            to_next = self.remaining + self.off_size
-            if (not inbuf or len(inbuf) < to_next):
-                if not inbuf:
-                    buf = self._read_and_decrypt(size - len(outbuf))
-                    if not buf:
-                        break
-                else:
-                    buf = self._read_and_decrypt(to_next - len(inbuf))
-                    assert buf
-                inbuf += buf
-                continue
-
-            # Copy rest of current packet to output and start reading
-            # from next packet
-            outbuf += inbuf[:self.remaining]
-            self.hmac.update(inbuf[:to_next])
-            paket_size = struct.unpack(b'<I', inbuf[self.remaining:to_next])[0]
-            inbuf = inbuf[to_next:]
-            self.remaining = paket_size
-
-            # End of file, read and check HMAC
-            if paket_size == 0:
-                while len(inbuf) < HMAC_SIZE:
-                    # Don't read exactly the missing amount, we wan't to detect
-                    # if there's extraneous data
-                    buf = self._read_and_decrypt(HMAC_SIZE+1)
-                    assert buf
-                    inbuf += buf
-
-                if len(inbuf) > HMAC_SIZE or self.fh.read(1):
-                    # Read rest of stream, so that we raise MD5 error instead
-                    # if problem is on lower layer
-                    self.discard_input()
-                    raise CorruptedObjectError('Extraneous data at end of object')
-
-                if not hmac.compare_digest(inbuf, self.hmac.digest()):
-                    raise CorruptedObjectError('HMAC mismatch')
-
-                self.hmac_checked = True
-                break
-
-        return outbuf
-
-    def close(self, *a, **kw):
-        self.fh.close(*a, **kw)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self.close()
-        return False
-
-def decompress(decomp, buf):
+def decompress_buf(decomp, buf):
     '''Decompress *buf* using *decomp*
 
     This method encapsulates exception handling for different
@@ -673,8 +407,9 @@ def decompress(decomp, buf):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
     except lzma.LZMAError as exc:
-        if (exc.args[0].lower().startswith('corrupt input data')
-            or exc.args[0].startswith('Input format not supported')):
+        if exc.args[0].lower().startswith('corrupt input data') or exc.args[0].startswith(
+            'Input format not supported'
+        ):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
     except zlib.error as exc:
@@ -682,12 +417,13 @@ def decompress(decomp, buf):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
 
+
 class ObjectNotEncrypted(Exception):
     '''
     Raised by the backend if an object was requested from an encrypted
     backend, but the object was stored without encryption.
 
-    We do not want to simply return the uncrypted object, because the
+    We do not want to simply return the unencrypted object, because the
     caller may rely on the objects integrity being cryptographically
     verified.
     '''

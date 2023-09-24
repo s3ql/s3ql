@@ -7,27 +7,40 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import base64
-from dugong import (HTTPConnection, CaseInsensitiveDict, is_temp_network_error, BodyFollowing,
-                    ConnectionClosed, ConnectionTimedOut)
-from urllib.parse import urlparse
-import urllib
+import binascii
+import hashlib
 import json
+import logging
+import os
 import re
 import ssl
-import binascii
+import urllib
 from ast import literal_eval
 from itertools import count
-import os
-from shutil import copyfileobj
+from typing import Any, BinaryIO, Dict, Optional
+from urllib.parse import urlparse
 
-from ..common import (AbstractBackend, get_ssl_context, retry, checksum_basic_mapping,
-                      CorruptedObjectError, NoSuchObject, DanglingStorageURLError)
-from ...inherit_docstrings import (ABCDocstMeta, copy_ancestor_docstring, prepend_ancestor_docstring)
-from ...logging import logging, QuietError
-from ... import BUFSIZE
+from s3ql.common import copyfh
+from s3ql.http import (
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+    ConnectionTimedOut,
+    HTTPConnection,
+    is_temp_network_error,
+)
+
+from ...logging import QuietError
+from ..common import (
+    AbstractBackend,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    checksum_basic_mapping,
+    get_ssl_context,
+    retry,
+)
 from ..s3c import HTTPError
-from .object_r import ObjectR
-from .object_w import ObjectW
 from .b2_error import B2Error, BadDigestError
 
 log = logging.getLogger(__name__)
@@ -35,19 +48,19 @@ log = logging.getLogger(__name__)
 api_url_prefix = '/b2api/v2/'
 info_header_prefix = 'X-Bz-Info-'
 
-class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
-    '''A backend to store data in Backblaze B2 cloud storage.
-    '''
 
-    known_options = { 'disable-versions', 'retry-on-cap-exceeded',
-                      'test-mode-fail-some-uploads', 'test-mode-expire-some-tokens', 'test-mode-force-cap-exceeded',
-                      'tcp-timeout' }
+class B2Backend(AbstractBackend):
+    '''A backend to store data in Backblaze B2 cloud storage.'''
 
-    available_upload_url_infos = []
+    known_options = {
+        'disable-versions',
+        'retry-on-cap-exceeded',
+        'test-mode',
+        'tcp-timeout',
+    }
 
     def __init__(self, options):
-        '''Initialize backend object
-        '''
+        '''Initialize backend object'''
 
         super().__init__()
 
@@ -65,10 +78,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.disable_versions = 'disable-versions' in self.options
         self.retry_on_cap_exceeded = 'retry-on-cap-exceeded' in self.options
 
-        # Test modes
-        self.test_mode_fail_some_uploads = 'test-mode-fail-some-uploads' in self.options
-        self.test_mode_expire_some_tokens = 'test-mode-expire-some-tokens' in self.options
-        self.test_mode_force_cap_exceeded = 'test-mode-force-cap-exceeded' in self.options
+        self._extra_headers = CaseInsensitiveDict()
+        if 'test-mode' in self.options:
+            self._extra_headers['X-Bz-Test-Mode'] = self.options['test-mode']
 
         (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
         self.bucket_name = bucket_name
@@ -78,9 +90,12 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # are set by _authorize_account
         self.api_url = None
         self.download_url = None
-        self.authorization_token = None
+        self.api_authorization_token = None
         self.api_connection = None
         self.download_connection = None
+        self.upload_connection = None
+        self.upload_token = None
+        self.upload_path = None
 
     def _get_key_with_prefix(self, key):
         return self._b2_escape_backslashes('%s%s' % (self.prefix, key))
@@ -125,6 +140,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.download_connection.disconnect()
             self.download_connection = None
 
+        if self.upload_connection:
+            self.upload_connection.disconnect()
+            self.upload_connection = None
+
     def _reset_connections(self):
         if self.api_connection:
             self.api_connection.reset()
@@ -132,12 +151,17 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if self.download_connection:
             self.download_connection.reset()
 
+        if self.upload_connection:
+            self.upload_connection.reset()
+
     def _get_download_connection(self):
         if self.download_url is None:
             self._authorize_account()
 
         if self.download_connection is None:
-            self.download_connection = HTTPConnection(self.download_url.hostname, 443, ssl_context=self.ssl_context)
+            self.download_connection = HTTPConnection(
+                self.download_url.hostname, 443, ssl_context=self.ssl_context
+            )
             self.download_connection.timeout = self.tcp_timeout
 
         return self.download_connection
@@ -147,7 +171,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self._authorize_account()
 
         if self.api_connection is None:
-            self.api_connection = HTTPConnection(self.api_url.hostname, 443, ssl_context=self.ssl_context)
+            self.api_connection = HTTPConnection(
+                self.api_url.hostname, 443, ssl_context=self.ssl_context
+            )
             self.api_connection.timeout = self.tcp_timeout
 
         return self.api_connection
@@ -166,10 +192,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         authorize_url = api_url_prefix + 'b2_authorize_account'
 
         id_and_key = self.b2_application_key_id + ':' + self.b2_application_key
-        basic_auth_string = 'Basic ' + str(base64.b64encode(bytes(id_and_key, 'UTF-8')), encoding='UTF-8')
+        basic_auth_string = 'Basic ' + str(
+            base64.b64encode(bytes(id_and_key, 'UTF-8')), encoding='UTF-8'
+        )
 
         with HTTPConnection(authorize_host, 443, ssl_context=self.ssl_context) as connection:
-
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
@@ -199,7 +226,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     def _check_key_capabilities(self, allowed_info):
         capabilities = allowed_info.get('capabilities')
-        needed_capabilities = [ 'listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles' ]
+        needed_capabilities = ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles']
         return all(capability in capabilities for capability in needed_capabilities)
 
     def _do_request(self, connection, method, path, headers=None, body=None, download_body=True):
@@ -208,19 +235,13 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('started with %s %s', method, path)
 
         if headers is None:
-            headers = CaseInsensitiveDict()
+            headers = CaseInsensitiveDict(self._extra_headers)
 
         if self.authorization_token is None:
             self._authorize_account()
 
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
-
-        if self.test_mode_expire_some_tokens:
-            headers['X-Bz-Test-Mode'] = 'expire_some_account_authorization_tokens'
-
-        if self.test_mode_force_cap_exceeded:
-            headers['X-Bz-Test-Mode'] = 'force_cap_exceeded'
 
         log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
@@ -230,24 +251,35 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             body_length = os.fstat(body.fileno()).st_size
             connection.send_request(method, path, headers=headers, body=BodyFollowing(body_length))
 
-            copyfileobj(body, connection, BUFSIZE)
+            copyfh(body, connection)
 
         response = connection.read_response()
 
-        if download_body is True or response.status != 200: # Backblaze always returns a json with error information in body
+        if (
+            download_body is True or response.status != 200
+        ):  # Backblaze always returns a json with error information in body
             response_body = connection.readall()
         else:
             response_body = None
 
         content_length = response.headers.get('Content-Length', '0')
-        log.debug('RESPONSE: %s %s %s %s', response.method, response.status, response.reason, content_length)
+        log.debug(
+            'RESPONSE: %s %s %s %s',
+            response.method,
+            response.status,
+            response.reason,
+            content_length,
+        )
 
-        if (response.status == 404 or # File not found
-            (response.status != 200 and method == 'HEAD')): # HEAD responses do not have a body -> we have to raise a HTTPError with the code
+        if response.status == 404 or (  # File not found
+            response.status != 200 and method == 'HEAD'
+        ):  # HEAD responses do not have a body -> we have to raise a HTTPError with the code
             raise HTTPError(response.status, response.reason, response.headers)
 
         if response.status != 200:
-            json_error_response = json.loads(response_body.decode('utf-8')) if response_body else None
+            json_error_response = (
+                json.loads(response_body.decode('utf-8')) if response_body else None
+            )
             code = json_error_response['code'] if json_error_response else None
             message = json_error_response['message'] if json_error_response else response.reason
             b2_error = B2Error(json_error_response['status'], code, message, response.headers)
@@ -259,7 +291,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         api_call_url_path = api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        response, body = self._do_request(self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body)
+        _, body = self._do_request(
+            self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body
+        )
 
         json_response = json.loads(body.decode('utf-8'))
         return json_response
@@ -269,7 +303,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         path = '/file/' + self.bucket_name + '/' + self._b2_url_encode(key_with_prefix)
 
         try:
-            response, body = self._do_request(self._get_download_connection(), method, path, download_body=False)
+            response, _ = self._do_request(
+                self._get_download_connection(), method, path, download_body=False
+            )
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -278,50 +314,10 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return response
 
-    def _do_upload_request(self, headers=None, body=None):
-        upload_url_info = self._get_upload_url_info()
-        headers['Authorization'] = upload_url_info['authorizationToken']
-
-        if self.test_mode_fail_some_uploads:
-            headers['X-Bz-Test-Mode'] = 'fail_some_uploads'
-
-        upload_url_info['isUploading'] = True
-
-        try:
-            response, response_body = self._do_request(upload_url_info['connection'], 'POST', upload_url_info['path'], headers, body)
-        except B2Error as exc:
-            if exc.status == 503:
-                # storage url too busy, change it
-                self._invalidate_upload_url(upload_url_info)
-
-            raise
-
-        except (ConnectionClosed, ConnectionTimedOut):
-            # storage url too busy, change it
-            self._invalidate_upload_url(upload_url_info)
-            raise
-
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # we better get a new upload url
-                self._invalidate_upload_url(upload_url_info)
-            else:
-                upload_url_info['connection'].reset()
-                upload_url_info['isUploading'] = False
-            raise
-
-        upload_url_info['isUploading'] = False
-
-        json_response = json.loads(response_body.decode('utf-8'))
-        return json_response
-
     @retry
     def _get_bucket_id(self):
         if not self.bucket_id:
-            request_data = {
-                'accountId': self._get_account_id(),
-                'bucketName': self.bucket_name
-            }
+            request_data = {'accountId': self._get_account_id(), 'bucketName': self.bucket_name}
             response = self._do_api_call('b2_list_buckets', request_data)
 
             buckets = response['buckets']
@@ -335,16 +331,9 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self.bucket_id
 
     @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
-    @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return False
 
-    @copy_ancestor_docstring
     def is_temp_failure(self, exc):
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We better reset our connections
@@ -353,26 +342,28 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if is_temp_network_error(exc):
             return True
 
-        elif (isinstance(exc, B2Error) and
-              (exc.code == 'bad_auth_token' or
-               exc.code == 'expired_auth_token')):
+        elif isinstance(exc, B2Error) and (
+            exc.code == 'bad_auth_token' or exc.code == 'expired_auth_token'
+        ):
             self._reset_authorization_values()
             return True
 
-        elif (isinstance(exc, B2Error) and
-              (exc.code == 'cap_exceeded' or
-               exc.code == 'test_mode_cap_exceeded') and
-              self.retry_on_cap_exceeded):
+        elif (
+            isinstance(exc, B2Error)
+            and (exc.code == 'cap_exceeded' or exc.code == 'test_mode_cap_exceeded')
+            and self.retry_on_cap_exceeded
+        ):
             return True
 
         elif isinstance(exc, HTTPError) and exc.status == 401:
             self._reset_authorization_values()
             return True
 
-        elif (isinstance(exc, HTTPError) and
-              ((500 <= exc.status <= 599) or # server errors
-               exc.status == 408 or # request timeout
-               exc.status == 429)): # too many requests
+        elif isinstance(exc, HTTPError) and (
+            (500 <= exc.status <= 599)
+            or exc.status == 408  # server errors
+            or exc.status == 429  # request timeout
+        ):  # too many requests
             return True
 
         # Consider all SSL errors as temporary. There are a lot of bug
@@ -386,12 +377,11 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return False
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
 
         try:
-            response =  self._do_download_request('HEAD', key)
+            response = self._do_download_request('HEAD', key)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -401,7 +391,6 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._extract_b2_metadata(response, key)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         log.debug('started with %s', key)
 
@@ -418,9 +407,17 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
+
+        return self._readinto_fh(key, fh, fh.tell())
+
     @retry
-    @copy_ancestor_docstring
-    def open_read(self, key):
+    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
         response = self._do_download_request('GET', key)
 
         try:
@@ -434,35 +431,99 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 self._close_connections()
             raise
 
-        return ObjectR(key, response, self, metadata)
+        connection = self._get_download_connection()
+        sha1 = hashlib.sha1()
 
-    @prepend_ancestor_docstring
-    def open_write(self, key, metadata=None, is_compressed=False):
+        copyfh(connection, fh, update=sha1.update)
+
+        remote_sha1 = response.headers['X-Bz-Content-Sha1'].strip('"')
+
+        if remote_sha1 != sha1.hexdigest():
+            log.warning('SHA1 mismatch for %s: %s vs %s', key, remote_sha1, sha1.hexdigest())
+            raise BadDigestError(400, 'SHA1 header does not agree with calculated value')
+
+        return metadata
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried. Returns the size of the resulting storage object.
         '''
-        The returned object will buffer all data and only start the uploads
-        when its `close` method is called.
-        '''
 
-        log.debug('started with %s', key)
+        off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            len_ = fh.tell()
+        return self._write_fh(key, fh, off, len_, metadata or {})
 
-        headers = CaseInsensitiveDict()
+    @retry
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+        headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
 
         self._add_b2_metadata_to_headers(headers, metadata)
 
-        return ObjectW(key, self, headers)
+        key_with_prefix = self._get_key_with_prefix(key)
+        conn = self._get_upload_conn()
 
-    @copy_ancestor_docstring
+        headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
+        headers['Content-Type'] = 'application/octet-stream'
+        headers['Content-Length'] = len_
+        headers['X-Bz-Content-Sha1'] = 'hex_digits_at_end'
+        headers['Authorization'] = self.upload_token
+
+        fh.seek(off)
+        sha1 = hashlib.sha1()
+        try:
+            # 40 extra characters for hexdigest
+            conn.send_request(
+                'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
+            )
+            copyfh(fh, conn, len_=len_, update=sha1.update)
+            conn.write(sha1.hexdigest().encode())
+
+            response = conn.read_response()
+            response_body = conn.readall()
+
+            if response.status != 200:
+                json_error_response = (
+                    json.loads(response_body.decode('utf-8')) if response_body else None
+                )
+                code = json_error_response['code'] if json_error_response else None
+                message = json_error_response['message'] if json_error_response else response.reason
+                b2_error = B2Error(json_error_response['status'], code, message, response.headers)
+                raise b2_error
+        except B2Error as exc:
+            if exc.status == 503:
+                # storage url too busy, change it
+                self.upload_connection = None
+            raise
+
+        except (ConnectionClosed, ConnectionTimedOut):
+            # storage url too busy, change it
+            self.upload_connection = None
+            raise
+
+        json_response = json.loads(response_body.decode('utf-8'))
+        return json_response
+
     def delete(self, key, force=False):
         log.debug('started with %s', key)
 
         if self.disable_versions:
             file_id, file_name = self._get_file_id_and_name(key)
-            file_ids = [{
-                'fileName': file_name,
-                'fileId': file_id
-            }]
+            file_ids = [{'fileName': file_name, 'fileId': file_id}]
         else:
             file_ids = self._list_file_versions(key)
 
@@ -473,7 +534,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     def _delete_file_ids(self, file_ids, force=False, is_retry=False):
-        for (i, file_id) in enumerate(file_ids):
+        for i, file_id in enumerate(file_ids):
             try:
                 self._delete_file_id(file_id['fileName'], file_id['fileId'], force or is_retry)
             except:
@@ -483,10 +544,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         del file_ids[:]
 
     def _delete_file_id(self, file_name, file_id, force=False):
-        request_dict = {
-            'fileName': file_name,
-            'fileId': file_id
-        }
+        request_dict = {'fileName': file_name, 'fileId': file_id}
         try:
             self._do_api_call('b2_delete_file_version', request_dict)
         except B2Error as exc:
@@ -506,13 +564,15 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         versions = []
         while keys_remaining and next_filename is not None:
-            next_filename, next_file_id, versions_list = self._list_file_versions_page(next_filename, next_file_id)
+            next_filename, next_file_id, versions_list = self._list_file_versions_page(
+                next_filename, next_file_id
+            )
 
             key_with_prefix = self._get_key_with_prefix(key)
 
             for version in versions_list:
                 if version['fileName'] == key_with_prefix:
-                    versions.append({ 'fileName': version['fileName'], 'fileId': version['fileId']})
+                    versions.append({'fileName': version['fileName'], 'fileId': version['fileId']})
                 else:
                     keys_remaining = False
                     break
@@ -524,7 +584,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
-            'bucketId': self._get_bucket_id()
+            'bucketId': self._get_bucket_id(),
         }
 
         if next_filename is not None:
@@ -534,11 +594,13 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             request_dict['startFileId'] = next_file_id
 
         response = self._do_api_call('b2_list_file_versions', request_dict)
-        file_versions_list = [ { 'fileName': file_version['fileName'], 'fileId': file_version['fileId'] } for file_version in response['files'] ]
+        file_versions_list = [
+            {'fileName': file_version['fileName'], 'fileId': file_version['fileId']}
+            for file_version in response['files']
+        ]
 
         return response['nextFileName'], response['nextFileId'], file_versions_list
 
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         next_filename = self._get_key_with_prefix(prefix)
 
@@ -547,7 +609,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
             for file_ in filelist:
                 # remove prefix before return
-                r = file_[len(self.prefix):]
+                r = file_[len(self.prefix) :]
                 decoded_r = self._b2_url_decode(r, decode_plus=False)
                 yield decoded_r
 
@@ -557,14 +619,14 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
             'bucketId': self._get_bucket_id(),
-            'prefix': self._get_key_with_prefix(prefix)
+            'prefix': self._get_key_with_prefix(prefix),
         }
 
         if next_filename is not None:
             request_dict['startFileName'] = next_filename
 
         response = self._do_api_call('b2_list_file_names', request_dict)
-        filelist = [ file_['fileName'] for file_ in response['files'] ]
+        filelist = [file_['fileName'] for file_ in response['files']]
 
         return response['nextFileName'], filelist
 
@@ -576,91 +638,23 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         file_name = self._b2_escape_backslashes(file_name)
         return file_id, file_name
 
-    @retry
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-
-        source_file_id, source_file_name = self._get_file_id_and_name(src)
-
-        request_dict = {
-            'sourceFileId': source_file_id,
-            'fileName': self._get_key_with_prefix(dest)
-        }
-
-        if metadata is None:
-            request_dict['metadataDirective'] = 'COPY'
-        else:
-            request_dict['metadataDirective'] = 'REPLACE'
-            request_dict['contentType'] = 'application/octet-stream'
-
-            fileInfo = self._create_metadata_dict(metadata)
-            request_dict['fileInfo'] = fileInfo
-
-        response = self._do_api_call('b2_copy_file', request_dict)
-
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        # Backblaze has no API call to change existing metadata of an object,
-        # we have to copy it, but it is done remotely
-        self.copy(key, key, metadata)
-
-    @copy_ancestor_docstring
     def close(self):
         self._reset_connections()
 
-    def _get_upload_url_info(self):
-
-        def find(f, seq):
-            for item in seq:
-                if f(item):
-                    return item
-
-        upload_url_info = find(lambda info: info['isUploading'] == False, self.available_upload_url_infos)
-
-        if upload_url_info is None:
-            upload_url_info = self._request_upload_url_info()
-            self.available_upload_url_infos.append(upload_url_info)
-
-        return upload_url_info
-
     @retry
-    def _request_upload_url_info(self):
-        request_data = {
-            'bucketId': self._get_bucket_id()
-        }
-        response = self._do_api_call('b2_get_upload_url', request_data)
+    def _get_upload_conn(self):
+        if not self.upload_connection:
+            request_data = {'bucketId': self._get_bucket_id()}
+            response = self._do_api_call('b2_get_upload_url', request_data)
+            upload_url = urlparse(response['uploadUrl'])
+            self.upload_token = response['authorizationToken']
+            self.upload_path = upload_url.path
 
-        new_upload_url = urlparse(response['uploadUrl'])
-        new_authorization_token = response['authorizationToken']
-
-        upload_connection = HTTPConnection(new_upload_url.hostname, 443, ssl_context=self.ssl_context)
-        upload_connection.timeout = self.tcp_timeout
-
-        return {
-            'hostname': new_upload_url.hostname,
-            'connection': upload_connection,
-            'path': new_upload_url.path,
-            'authorizationToken': new_authorization_token,
-            'isUploading': False
-        }
-
-    def _invalidate_upload_url(self, upload_url_info):
-        '''Removes a no longer working upload url from the available
-        upload urls.
-        '''
-
-        log.debug('invalidating upload url: %s %s', upload_url_info['hostname'], upload_url_info['path'])
-
-        if upload_url_info['connection'] is not None:
-            upload_url_info['connection'].disconnect()
-
-        try:
-            self.available_upload_url_infos.remove(upload_url_info)
-        except ValueError:
-            pass
-
-        log.debug('upload urls left: %d', len(self.available_upload_url_infos))
+            self.upload_connection = HTTPConnection(
+                upload_url.hostname, 443, ssl_context=self.ssl_context
+            )
+            self.upload_connection.timeout = self.tcp_timeout
+        return self.upload_connection
 
     @staticmethod
     def _b2_url_encode(s):
@@ -710,14 +704,13 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 raise ValueError('dict keys must be str, not %s' % type(key))
 
             value = metadata[key]
-            if (not isinstance(value, (str, bytes, int, float, complex, bool))
-                and value is not None):
+            if not isinstance(value, (str, bytes, int, float, complex, bool)) and value is not None:
                 raise ValueError('value for key %s (%s) is not elementary' % (key, value))
 
             if isinstance(value, (bytes, bytearray)):
                 value = base64.b64encode(value)
 
-            buffer += ('%s: %s,' % (repr(key), repr(value)))
+            buffer += '%s: %s,' % (repr(key), repr(value))
 
         if len(buffer) < chunksize:
             metadata_dict['meta-%03d' % info_header_count] = buffer
@@ -765,7 +758,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 headers[k] = self._b2_url_decode(v)
 
         format_ = headers.get('%smeta-format' % info_header_prefix, 'raw')
-        if format_ != 'raw2': # Current metadata format
+        if format_ != 'raw2':  # Current metadata format
             raise CorruptedObjectError('invalid metadata format: %s' % format_)
 
         parts = []
@@ -779,7 +772,7 @@ class B2Backend(AbstractBackend, metaclass=ABCDocstMeta):
         meta = literal_eval('{ %s }' % buffer)
 
         # Decode bytes values
-        for (k, v) in meta.items():
+        for k, v in meta.items():
             if not isinstance(v, bytes):
                 continue
             try:

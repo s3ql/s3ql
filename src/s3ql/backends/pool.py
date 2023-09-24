@@ -6,11 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging # Ensure use of custom logger class
+import logging
 import threading
 from contextlib import contextmanager
 
 log = logging.getLogger(__name__)
+
 
 class BackendPool:
     '''A pool of backends
@@ -73,4 +74,3 @@ class BackendPool:
             if close:
                 conn.close()
             self.push_conn(conn)
-

@@ -6,38 +6,47 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
-from . import swift
-from dugong import HTTPConnection, CaseInsensitiveDict
-from .common import AuthorizationError, retry, DanglingStorageURLError
-from .s3c import HTTPError
-from ..inherit_docstrings import copy_ancestor_docstring
-from urllib.parse import urlsplit
 import json
+import logging
 import re
 import urllib.parse
+from urllib.parse import urlsplit
+
+from s3ql.http import CaseInsensitiveDict, HTTPConnection
+
+from ..logging import QuietError
+from . import swift
+from .common import AuthorizationError, DanglingStorageURLError, retry
+from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
 
-class Backend(swift.Backend):
 
+class Backend(swift.Backend):
     # Add the options for the v3 keystore swift.
-    known_options = swift.Backend.known_options | {'domain', 'project-domain', 'project-domain-is-name', 'domain-is-name', 'tenant-is-name', 'identity-url'}
+    known_options = swift.Backend.known_options | {
+        'domain',
+        'project-domain',
+        'project-domain-is-name',
+        'domain-is-name',
+        'tenant-is-name',
+        'identity-url',
+    }
 
     def __init__(self, options):
         self.region = None
         super().__init__(options)
 
-    @copy_ancestor_docstring
     def _parse_storage_url(self, storage_url, ssl_context):
-
-        hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
-                       r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port
-                       r'/([a-zA-Z0-9._-]+):' # Region
-                       r'([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       storage_url)
+        hit = re.match(
+            r'^[a-zA-Z0-9]+://'  # Backend
+            r'([^/:]+)'  # Hostname
+            r'(?::([0-9]+))?'  # Port
+            r'/([a-zA-Z0-9._-]+):'  # Region
+            r'([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            storage_url,
+        )
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 
@@ -74,7 +83,7 @@ class Backend(swift.Backend):
         headers['Accept'] = 'application/json; charset="utf-8"'
 
         if ':' in self.login:
-            (tenant,user) = self.login.split(':')
+            (tenant, user) = self.login.split(':')
         else:
             tenant = None
             user = self.login
@@ -103,21 +112,19 @@ class Backend(swift.Backend):
                         'password': {
                             'user': {
                                 'name': user,
-                                'domain': {
-                                    ('name' if domain_is_name else 'id'): domain
-                                },
-                                'password': self.password
+                                'domain': {('name' if domain_is_name else 'id'): domain},
+                                'password': self.password,
                             }
-                        }
+                        },
                     },
                     'scope': {
                         'project': {
                             ('name' if tenant_is_name else 'id'): tenant,
                             'domain': {
                                 ('name' if project_domain_is_name else 'id'): project_domain
-                            }
+                            },
                         }
-                    }
+                    },
                 }
             }
 
@@ -128,22 +135,23 @@ class Backend(swift.Backend):
 
         else:
             # If a domain is not specified, assume v2
-            auth_body = { 'auth':
-                          { 'passwordCredentials':
-                                { 'username': user,
-                                  'password': self.password } }}
+            auth_body = {
+                'auth': {'passwordCredentials': {'username': user, 'password': self.password}}
+            }
 
             auth_url_path = '/v2.0/tokens'
 
             if tenant:
                 auth_body['auth']['tenantName'] = tenant
 
-        with HTTPConnection(self.hostname, port=self.port, proxy=self.proxy,
-                            ssl_context=ssl_context) as conn:
+        with HTTPConnection(
+            self.hostname, port=self.port, proxy=self.proxy, ssl_context=ssl_context
+        ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
-            conn.send_request('POST', auth_url_path, headers=headers,
-                              body=json.dumps(auth_body).encode('utf-8'))
+            conn.send_request(
+                'POST', auth_url_path, headers=headers, body=json.dumps(auth_body).encode('utf-8')
+            )
             resp = conn.read_response()
 
             if resp.status == 401:
@@ -193,16 +201,18 @@ class Backend(swift.Backend):
 
                 self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn = HTTPConnection(o.hostname, o.port,  proxy=self.proxy,
-                                      ssl_context=ssl_context)
+                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
         if len(avail_regions) < 10:
-            raise DanglingStorageURLError(self.container_name,
+            raise DanglingStorageURLError(
+                self.container_name,
                 'No accessible object storage service found in region %s'
-                ' (available regions: %s)' % (self.region, ', '.join(avail_regions)))
+                ' (available regions: %s)' % (self.region, ', '.join(avail_regions)),
+            )
         else:
-            raise DanglingStorageURLError(self.container_name,
-                'No accessible object storage service found in region %s'
-                % self.region)
+            raise DanglingStorageURLError(
+                self.container_name,
+                'No accessible object storage service found in region %s' % self.region,
+            )

@@ -4,7 +4,7 @@
    Everything went well.
 
 :1:
-   An unexpected error occured. This may indicate a bug in the
+   An unexpected error occurred. This may indicate a bug in the
    program.
 
 :2:

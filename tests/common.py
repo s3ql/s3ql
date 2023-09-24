@@ -9,18 +9,20 @@ This work can be distributed under the terms of the GNU GPLv3.
 This module contains common functions used by multiple unit tests.
 '''
 
-import time
-import os
-import subprocess
-import stat
-import random
 import configparser
-import pytest
 import functools
+import os
+import random
+import stat
+import subprocess
+import time
+
+import pytest
+
 
 def get_clock_granularity():
     resolution = float('inf')
-    for i in range(50):
+    for _ in range(50):
         stamp1 = time.time()
         stamp2 = stamp1
         while stamp1 == stamp2:
@@ -28,7 +30,10 @@ def get_clock_granularity():
         resolution = min(resolution, stamp2 - stamp1)
         time.sleep(0.01)
     return resolution
+
+
 CLOCK_GRANULARITY = get_clock_granularity()
+
 
 # When testing, we want to make sure that we don't sleep for too short a time
 # (cause it may cause spurious test failures), and that the sleep interval
@@ -50,9 +55,11 @@ def safe_sleep(secs, _sleep_real=time.sleep):
         _sleep_real(max(end - now, CLOCK_GRANULARITY))
         now = time.time()
 
+
 @pytest.fixture(autouse=True, scope='session')
 def install_safe_sleep():
     time.sleep = safe_sleep
+
 
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
@@ -76,16 +83,19 @@ def retry(timeout, fn, *a, **kw):
 
     raise RetryTimeoutError()
 
+
 class RetryTimeoutError(Exception):
     '''Raised by `retry()` when a timeout is reached.'''
 
     pass
 
+
 def skip_if_no_fusermount():
     '''Raise SkipTest if fusermount is not available'''
 
-    with subprocess.Popen(['which', 'fusermount'], stdout=subprocess.PIPE,
-                          universal_newlines=True) as which:
+    with subprocess.Popen(
+        ['which', 'fusermount'], stdout=subprocess.PIPE, universal_newlines=True
+    ) as which:
         fusermount_path = which.communicate()[0].strip()
 
     if not fusermount_path or which.returncode != 0:
@@ -108,16 +118,20 @@ def skip_if_no_fusermount():
     else:
         os.close(fd)
 
+
 def skip_without_rsync():
     try:
         with open('/dev/null', 'wb') as null:
-            subprocess.call(['rsync', '--version'], stdout=null,
-                            stderr=subprocess.STDOUT,)
+            subprocess.call(
+                ['rsync', '--version'],
+                stdout=null,
+                stderr=subprocess.STDOUT,
+            )
     except FileNotFoundError:
         pytest.skip('rsync not installed')
 
-def populate_dir(path, entries=1000, size=20*1024*1024,
-                 pooldir='/usr/bin', seed=None):
+
+def populate_dir(path, entries=1000, size=20 * 1024 * 1024, pooldir='/usr/bin', seed=None):
     '''Populate directory with random data
 
     *entries* specifies the total number of directory entries that are created
@@ -125,7 +139,7 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
     files in *pooldir* are used as a source of directory names and file
     contents.
 
-    *seed* is used to initalize the random number generator and can be used to
+    *seed* is used to initialize the random number generator and can be used to
     make the created structure reproducible (provided that the contents of
     *pooldir* don't change).
     '''
@@ -153,14 +167,13 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
     hardlink_cnt = int(scale * hardlink_cnt)
 
     # Sizes, make sure there is at least one big file
-    file_sizes = [ random.randint(0, 100) for _ in range(file_cnt-1) ]
+    file_sizes = [random.randint(0, 100) for _ in range(file_cnt - 1)]
     scale = 0.5 * size / sum(file_sizes)
-    file_sizes = [ int(scale * x) for x in file_sizes ]
+    file_sizes = [int(scale * x) for x in file_sizes]
     file_sizes.append(int(0.5 * size))
 
     # Special characters for use in filenames
-    special_chars = [ chr(x) for x in range(128)
-                      if x not in (0, ord('/')) ]
+    special_chars = [chr(x) for x in range(128) if x not in (0, ord('/'))]
 
     def random_name(path):
         '''Get random, non-existing file name underneath *path*
@@ -173,9 +186,10 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
             # Special characters
             len_ = random.randrange(4)
             if len_ > 0:
-                pos = random.choice((-1,0,1)) # Prefix, Middle, Suffix
-                s = ''.join(special_chars[random.randrange(len(special_chars))]
-                            for _ in range(len_))
+                pos = random.choice((-1, 0, 1))  # Prefix, Middle, Suffix
+                s = ''.join(
+                    special_chars[random.randrange(len(special_chars))] for _ in range(len_)
+                )
                 if pos == -1:
                     name = s + name
                 elif pos == 1:
@@ -188,17 +202,15 @@ def populate_dir(path, entries=1000, size=20*1024*1024,
                 break
         return fullname
 
-
     #
     # Step 1: create directory tree
     #
-    dirs = [ path ]
+    dirs = [path]
     for _ in range(subdir_cnt):
         idx = random.randrange(len(dirs))
         name = random_name(dirs[idx])
         os.mkdir(name)
         dirs.append(name)
-
 
     #
     # Step 2: populate the tree with files
@@ -282,28 +294,29 @@ class NoTestSection(Exception):
     def __init__(self, reason):
         self.reason = reason
 
+
 def get_remote_test_info(name):
-        authfile = os.path.expanduser('~/.s3ql/authinfo2')
-        if not os.path.exists(authfile):
-            raise NoTestSection('No authentication file found.')
+    authfile = os.path.expanduser('~/.s3ql/authinfo2')
+    if not os.path.exists(authfile):
+        raise NoTestSection('No authentication file found.')
 
-        mode = os.stat(authfile).st_mode
-        if mode & (stat.S_IRGRP | stat.S_IROTH):
-            raise NoTestSection("Authentication file has insecure permissions")
+    mode = os.stat(authfile).st_mode
+    if mode & (stat.S_IRGRP | stat.S_IROTH):
+        raise NoTestSection("Authentication file has insecure permissions")
 
-        config = configparser.ConfigParser()
-        config.read(authfile)
+    config = configparser.ConfigParser()
+    config.read(authfile)
 
-        try:
-            fs_name = config.get(name, 'test-fs')
-            backend_login = config.get(name, 'backend-login')
-            backend_password = config.get(name, 'backend-password')
-        except (configparser.NoOptionError, configparser.NoSectionError):
-            raise NoTestSection("Authentication file does not have %s section" % name)
+    try:
+        fs_name = config.get(name, 'test-fs')
+        backend_login = config.get(name, 'backend-login')
+        backend_password = config.get(name, 'backend-password')
+    except (configparser.NoOptionError, configparser.NoSectionError):
+        raise NoTestSection("Authentication file does not have %s section" % name)
 
-        # Append prefix to make sure that we're starting with an empty bucket
-        if fs_name[-1] != '/':
-            fs_name += '/'
-        fs_name += 's3ql_test_%d/' % time.time()
+    # Append prefix to make sure that we're starting with an empty bucket
+    if fs_name[-1] != '/':
+        fs_name += '/'
+    fs_name += 's3ql_test_%d/' % time.time()
 
-        return (backend_login, backend_password, fs_name)
+    return (backend_login, backend_password, fs_name)

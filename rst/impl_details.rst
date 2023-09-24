@@ -16,8 +16,8 @@ Like most unix filesystems, S3QL has a concept of inodes.
 
 The contents of directory inodes (aka the names and inodes of the
 files and sub directories contained in a directory) are stored
-directly in an SQLite_ database. This database
-is stored in a special storage object that is downloaded when the file
+directly in an SQLite_ database. This database is split into a number
+of storage objects that are downloaded when the file
 system is mounted and uploaded periodically in the background and when
 the file system is unmounted. This has two implications:
 
@@ -80,31 +80,6 @@ removed from the cache only when the maximum cache size is reached.
 
 When the file system is unmounted, all modified blocks are written to
 the backend and the cache is cleaned.
-
-Eventual Consistency Handling
-=============================
-
-S3QL has to take into account that with some storage providers,
-changes in objects do not propagate immediately. For example, when an
-Amazon S3 object is uploaded and immediately downloaded again, the
-downloaded data might not yet reflect the changes done in the upload
-(see also
-http://developer.amazonwebservices.com/connect/message.jspa?messageID=38538)
-
-For the data blocks this is not a problem because a data blocks always
-get a new object ID when they are updated.
-
-For the metadata however, S3QL has to make sure that it always
-downloads the most recent copy of the database when mounting the file
-system.
-
-To that end, metadata versions are numbered, and the most recent
-version number is stored as part of the object id of a very small
-"marker" object. When S3QL has downloaded the metadata it checks the
-version number against the marker object and, if the two do not agree,
-waits for the most recent metadata to become available. Once the
-current metadata is available, the version number is increased and the
-marker object updated.
 
 
 Encryption

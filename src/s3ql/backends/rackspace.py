@@ -6,24 +6,26 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
-from . import swiftks
-from ..inherit_docstrings import copy_ancestor_docstring
+import logging
 import re
 
+from ..logging import QuietError
+from . import swiftks
+
 log = logging.getLogger(__name__)
+
 
 class Backend(swiftks.Backend):
     """A backend to store data in Rackspace CloudFiles"""
 
-    @copy_ancestor_docstring
     def _parse_storage_url(self, storage_url, ssl_context):
-
-        hit = re.match(r'^rackspace://' # Backend
-                       r'([^/:]+)' # Region
-                       r'/([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       storage_url)
+        hit = re.match(
+            r'^rackspace://'  # Backend
+            r'([^/:]+)'  # Region
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            storage_url,
+        )
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 

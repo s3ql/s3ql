@@ -20,14 +20,6 @@ recommendation for compression algorithm and number of upload threads
 to achieve maximum performance.
 
 
-clone_fs.py
-===========
-
-This program physically clones an S3QL file system from one backend
-into another, without recompressing or reencrypting.  It can be used to
-migrate S3 buckets to a different storage region or storage class
-(standard or reduced redundancy).
-
 .. _pcp:
 
 pcp.py

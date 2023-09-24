@@ -2,19 +2,6 @@
   NOTE: We cannot use sophisticated ReST syntax here because this
   file is rendered by GitHub.
 
-========================
-This Project is Orphaned
-========================
-
-This project is no longer maintained or developed. Github issue tracking and pull requests have
-therefore been disabled. The mailing list (see below) is still available for use.
-
-If you would like to take over this project, you are welcome to do so. Please fork it and
-develop the fork for a while. Once there has been 6 months of reasonable activity, please
-contact Nikolaus@rath.org and I'll be happy to give you ownership of this repository or
-replace with a pointer to the fork.
-
-
 ======
  S3QL
 ======
@@ -24,11 +11,10 @@ services like `Google Storage`_, `Amazon S3`_, or OpenStack_. S3QL
 effectively provides a virtual drive of dynamic, infinite capacity that
 can be accessed from any computer with internet access.
 
-S3QL is a standard conforming, full featured UNIX file system that is
-conceptually indistinguishable from any local file system.
-Furthermore, S3QL has additional features like compression,
-encryption, data de-duplication, immutable trees and snapshotting
-which make it especially suitable for online backup and archival.
+S3QL is a full featured UNIX file system that is conceptually indistinguishable from a
+local file system like ext4.  Furthermore, S3QL has additional features like compression
+encryption, data de-duplication, immutable trees and snapshotting which make it especially
+suitable for online backup and archival.
 
 S3QL is designed to favor simplicity and elegance over performance and
 feature-creep. Care has been taken to make the source code as
@@ -69,14 +55,14 @@ Features
   can be used to ensure that backups can not be modified after they
   have been made.
 
-* **Copy-on-Write/Snapshotting.** S3QL can replicate entire directory
+* **Copy-on-write snapshots.** S3QL can replicate entire directory
   trees without using any additional storage space. Only if one of the
   copies is modified, the part of the data that has been modified will
   take up additional storage space. This can be used to create
   intelligent snapshots that preserve the state of a directory at
   different points in time using a minimum amount of space.
 
-* **High Performance independent of network latency.** All operations
+* **Performance independent of network latency.** All operations
   that do not write or read file contents (like creating directories
   or moving, renaming, and changing permissions of files and
   directories) are very fast because they are carried out without any
@@ -159,4 +145,4 @@ The S3QL source code is available on GitHub_.
 .. _`S3QL Wiki`: https://github.com/s3ql/s3ql/wiki
 .. _`S3QL Mailing List`: https://groups.google.com/g/s3ql
 .. _`GitHub Issue Tracker`: https://github.com/s3ql/s3ql/issues
-.. _GitHub: https://github.com/s3ql/main
+.. _GitHub: https://github.com/s3ql/s3ql

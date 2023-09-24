@@ -6,40 +6,57 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError, LOG_ONCE # Ensure use of custom logger class
-from .. import BUFSIZE
-from .common import (AbstractBackend, NoSuchObject, retry, AuthorizationError,
-                     DanglingStorageURLError, get_proxy, get_ssl_context)
-from .s3c import HTTPError, ObjectR, ObjectW, md5sum_b64, BadDigestError
-from . import s3c
-from ..inherit_docstrings import (copy_ancestor_docstring, prepend_ancestor_docstring,
-                                  ABCDocstMeta)
-from dugong import (HTTPConnection, BodyFollowing, is_temp_network_error, CaseInsensitiveDict,
-                    ConnectionClosed)
-from urllib.parse import urlsplit
+import hashlib
 import json
-import shutil
-import re
+import logging
 import os
-import urllib.parse
+import re
 import ssl
-from distutils.version import LooseVersion
+import urllib.parse
+from typing import Any, BinaryIO, Dict, Optional
+from urllib.parse import urlsplit
+
+from s3ql.http import (
+    BodyFollowing,
+    CaseInsensitiveDict,
+    ConnectionClosed,
+    HTTPConnection,
+    is_temp_network_error,
+)
+from packaging.version import Version
+
+from s3ql.common import copyfh
+
+from ..logging import LOG_ONCE, QuietError
+from . import s3c
+from .common import (
+    AbstractBackend,
+    AuthorizationError,
+    DanglingStorageURLError,
+    NoSuchObject,
+    get_proxy,
+    get_ssl_context,
+    retry,
+)
+from .s3c import BadDigestError, HTTPError, md5sum_b64
 
 log = logging.getLogger(__name__)
 
 #: Suffix to use when creating temporary objects
 TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
-class Backend(AbstractBackend, metaclass=ABCDocstMeta):
-    """A backend to store data in OpenStack Swift
 
-    The backend guarantees get after create consistency, i.e. a newly created
-    object will be immediately retrievable.
-    """
+class Backend(AbstractBackend):
+    """A backend to store data in OpenStack Swift"""
 
     hdr_prefix = 'X-Object-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout',
-                     'disable-expect100', 'no-feature-detection'}
+    known_options = {
+        'no-ssl',
+        'ssl-ca-path',
+        'tcp-timeout',
+        'disable-expect100',
+        'no-feature-detection',
+    }
 
     _add_meta_headers = s3c.Backend._add_meta_headers
     _extractmeta = s3c.Backend._extractmeta
@@ -72,17 +89,12 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def __str__(self):
         return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
 
-    @property
-    @copy_ancestor_docstring
-    def has_native_rename(self):
-        return False
-
     @retry
     def _container_exists(self):
         '''Make sure that the container exists'''
 
         try:
-            self._do_request('GET', '/', query_string={'limit': 1 })
+            self._do_request('GET', '/', query_string={'limit': 1})
             self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
@@ -92,12 +104,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
     def _parse_storage_url(self, storage_url, ssl_context):
         '''Init instance variables from storage url'''
 
-        hit = re.match(r'^[a-zA-Z0-9]+://' # Backend
-                       r'([^/:]+)' # Hostname
-                       r'(?::([0-9]+))?' # Port
-                       r'/([^/]+)' # Bucketname
-                       r'(?:/(.*))?$', # Prefix
-                       storage_url)
+        hit = re.match(
+            r'^[a-zA-Z0-9]+://'  # Backend
+            r'([^/:]+)'  # Hostname
+            r'(?::([0-9]+))?'  # Port
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            storage_url,
+        )
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 
@@ -116,8 +130,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.container_name = containername
         self.prefix = prefix
 
-    @copy_ancestor_docstring
-    def is_temp_failure(self, exc): #IGNORE:W0613
+    def is_temp_failure(self, exc):  # IGNORE:W0613
         if isinstance(exc, AuthenticationExpired):
             return True
 
@@ -126,11 +139,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
         # modifications. We also retry on 429 (Too Many Requests).
-        elif (isinstance(exc, HTTPError) and
-              ((500 <= exc.status <= 599
-                and exc.status not in (501,505,508,510,511,523))
-               or exc.status in (408,429)
-               or 'client disconnected' in exc.msg.lower())):
+        elif isinstance(exc, HTTPError) and (
+            (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
+            or exc.status in (408, 429)
+            or 'client disconnected' in exc.msg.lower()
+        ):
             return True
 
         elif is_temp_network_error(exc):
@@ -139,9 +152,10 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         # Temporary workaround for
         # https://bitbucket.org/nikratio/s3ql/issues/87 and
         # https://bitbucket.org/nikratio/s3ql/issues/252
-        elif (isinstance(exc, ssl.SSLError) and
-              (str(exc).startswith('[SSL: BAD_WRITE_RETRY]') or
-               str(exc).startswith('[SSL: BAD_LENGTH]'))):
+        elif isinstance(exc, ssl.SSLError) and (
+            str(exc).startswith('[SSL: BAD_WRITE_RETRY]')
+            or str(exc).startswith('[SSL: BAD_LENGTH]')
+        ):
             return True
 
         return False
@@ -160,8 +174,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         headers['X-Auth-User'] = self.login
         headers['X-Auth-Key'] = self.password
 
-        with HTTPConnection(self.hostname, self.port, proxy=self.proxy,
-                              ssl_context=ssl_context) as conn:
+        with HTTPConnection(
+            self.hostname, self.port, proxy=self.proxy, ssl_context=ssl_context
+        ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
@@ -181,7 +196,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     raise HTTPError(resp.status, resp.reason, resp.headers)
 
                 # Pylint can't infer SplitResult Types
-                #pylint: disable=E1103
+                # pylint: disable=E1103
                 self.auth_token = resp.headers['X-Auth-Token']
                 o = urlsplit(resp.headers['X-Storage-Url'])
                 self.auth_prefix = urllib.parse.unquote(o.path)
@@ -201,22 +216,30 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
                 self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy,
-                                      ssl_context=ssl_context)
+                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
                 return conn
 
             raise RuntimeError('No valid authentication path found')
 
-    def _do_request(self, method, path, subres=None, query_string=None,
-                    headers=None, body=None):
+    def _do_request(
+        self,
+        method,
+        path,
+        subres=None,
+        query_string=None,
+        headers=None,
+        body=None,
+        body_len: Optional[int] = None,
+    ):
         '''Send request, read and return response object
 
         This method modifies the *headers* dictionary.
         '''
 
-        log.debug('started with %r, %r, %r, %r, %r, %r',
-                  method, path, subres, query_string, headers, body)
+        log.debug(
+            'started with %r, %r, %r, %r, %r, %r', method, path, subres, query_string, headers, body
+        )
 
         if headers is None:
             headers = CaseInsensitiveDict()
@@ -226,7 +249,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         if self.conn is None:
             log.debug('no active connection, calling _get_conn()')
-            self.conn =  self._get_conn()
+            self.conn = self._get_conn()
 
         # Construct full path
         path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
@@ -241,7 +264,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         headers['X-Auth-Token'] = self.auth_token
         try:
-            resp = self._do_request_inner(method, path, body=body, headers=headers)
+            resp = self._do_request_inner(
+                method, path, body=body, headers=headers, body_len=body_len
+            )
         except Exception as exc:
             if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
                 # We probably can't use the connection anymore
@@ -267,7 +292,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     # Including this code directly in _do_request would be very messy since
     # we can't `return` the response early, thus the separate method
-    def _do_request_inner(self, method, path, body, headers):
+    def _do_request_inner(self, method, path, body, headers, body_len: Optional[int] = None):
         '''The guts of the _do_request method'''
 
         log.debug('started with %s %s', method, path)
@@ -277,9 +302,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             self.conn.send_request(method, path, body=body, headers=headers)
             return self.conn.read_response()
 
-        body_len = os.fstat(body.fileno()).st_size
-        self.conn.send_request(method, path, expect100=use_expect_100c,
-                               headers=headers, body=BodyFollowing(body_len))
+        self.conn.send_request(
+            method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
+        )
 
         if use_expect_100c:
             log.debug('waiting for 100-continue')
@@ -288,30 +313,47 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 return resp
 
         log.debug('writing body data')
+        md5 = hashlib.md5()
         try:
-            shutil.copyfileobj(body, self.conn, BUFSIZE)
+            copyfh(body, self.conn, len_=body_len, update=md5.update)
         except ConnectionClosed:
             log.debug('interrupted write, server closed connection')
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             try:
                 resp = self.conn.read_response()
-            except ConnectionClosed: # No server response available
+            except ConnectionClosed:  # No server response available
                 log.debug('no response available in  buffer')
                 pass
             else:
-                if resp.status >= 400: # error response
+                if resp.status >= 400:  # error response
                     return resp
-                log.warning('Server broke connection during upload, but signaled '
-                            '%d %s', resp.status, resp.reason)
+                log.warning(
+                    'Server broke connection during upload, but signaled %d %s',
+                    resp.status,
+                    resp.reason,
+                )
 
             # Re-raise original error
             raise
 
-        return self.conn.read_response()
+        resp = self.conn.read_response()
+
+        # On success, check MD5. Not sure if this is returned every time we send a request body, but
+        # it seems to work. If not, we have to somehow pass in the information when this is expected
+        # (i.e, when storing an object)
+        if resp.status >= 200 and resp.status <= 299:
+            etag = resp.headers['ETag'].strip('"')
+
+            if etag != md5.hexdigest():
+                raise BadDigestError(
+                    'BadDigest',
+                    f'MD5 mismatch when sending {method} {path} (received: {etag}, sent: {md5.hexdigest()})',
+                )
+
+        return resp
 
     @retry
-    @copy_ancestor_docstring
     def lookup(self, key):
         log.debug('started with %s', key)
         if key.endswith(TEMP_SUFFIX):
@@ -329,7 +371,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         return self._extractmeta(resp, key)
 
     @retry
-    @copy_ancestor_docstring
     def get_size(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
@@ -349,9 +390,17 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
+    def readinto_fh(self, key: str, fh: BinaryIO):
+        '''Transfer data stored under *key* into *fh*, return metadata.
+
+        The data will be inserted at the current offset. If a temporary error (as defined by
+        `is_temp_failure`) occurs, the operation is retried.
+        '''
+
+        return self._readinto_fh(key, fh, fh.tell())
+
     @retry
-    @copy_ancestor_docstring
-    def open_read(self, key):
+    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         try:
@@ -360,41 +409,79 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             if exc.status == 404:
                 raise NoSuchObject(key)
             raise
+        etag = resp.headers['ETag'].strip('"')
 
         try:
             meta = self._extractmeta(resp, key)
         except BadDigestError:
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
-            if resp.length is not None and resp.length < 64*1024:
+            if resp.length is not None and resp.length < 64 * 1024:
                 self.conn.discard()
             else:
                 self.conn.disconnect()
             raise
 
-        return ObjectR(key, resp, self, meta)
+        md5 = hashlib.md5()
+        fh.seek(off)
+        copyfh(self.conn, fh, update=md5.update)
 
-    @prepend_ancestor_docstring
-    def open_write(self, key, metadata=None, is_compressed=False):
-        """
-        The returned object will buffer all data and only start the upload
-        when its `close` method is called.
-        """
-        log.debug('started with %s', key)
+        if etag != md5.hexdigest():
+            log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
+            raise BadDigestError('BadDigest', 'ETag header does not agree with calculated MD5')
+
+        return meta
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
+        '''Upload *len_* bytes from *fh* under *key*.
+
+        The data will be read at the current offset. If *len_* is None, reads until the
+        end of the file.
+
+        If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
+        retried. Returns the size of the resulting storage object.
+        '''
 
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
-        headers = CaseInsensitiveDict()
-        if metadata is None:
-            metadata = dict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-
-        return ObjectW(key, self, headers)
+        off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            len_ = fh.tell()
+        return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    @copy_ancestor_docstring
-    def delete(self, key, force=False, is_retry=False):
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+        headers = CaseInsensitiveDict()
+        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
+
+        headers['Content-Type'] = 'application/octet-stream'
+        fh.seek(off)
+        try:
+            resp = self._do_request(
+                'PUT',
+                '/%s%s' % (self.prefix, key),
+                headers=headers,
+                body=fh,
+                body_len=len_,
+            )
+        except BadDigestError:
+            # Object was corrupted in transit, make sure to delete it
+            self.delete(key)
+            raise
+
+        self._assert_empty_response(resp)
+        return len_
+
+    @retry
+    def delete(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
@@ -402,15 +489,13 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
             self._assert_empty_response(resp)
         except HTTPError as exc:
-            # Server may have deleted the object even though we did not
-            # receive the response.
-            if exc.status == 404 and not (force or is_retry):
-                raise NoSuchObject(key)
-            elif exc.status != 404:
+            if exc.status == 404:
+                pass
+            else:
                 raise
 
     @retry
-    def _delete_multi(self, keys, force=False):
+    def _delete_multi(self, keys):
         """Doing bulk delete of multiple objects at a time.
 
         This is a feature of the configurable middleware "Bulk" so it can only
@@ -461,15 +546,14 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         """
 
         body = []
-        esc_prefix = "/%s/%s" % (urllib.parse.quote(self.container_name),
-                                 urllib.parse.quote(self.prefix))
+        esc_prefix = "/%s/%s" % (
+            urllib.parse.quote(self.container_name),
+            urllib.parse.quote(self.prefix),
+        )
         for key in keys:
             body.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
         body = '\n'.join(body).encode('utf-8')
-        headers = {
-            'content-type': 'text/plain; charset=utf-8',
-            'accept': 'application/json'
-        }
+        headers = {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
 
         resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
 
@@ -477,11 +561,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if resp.status != 200:
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
-                       resp.headers['content-type'])
+        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type'])
         if not hit:
-            log.error('Unexpected server response. Expected json, got:\n%s',
-                      self._dump_response(resp))
+            log.error(
+                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+            )
             raise RuntimeError('Unexpected server reply')
 
         # there might be an arbitrary amount of whitespace before the
@@ -492,16 +576,18 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         log.debug('Response %s', resp_dict)
 
         try:
-            resp_status_code, resp_status_text = _split_response_status(resp_dict['Response Status'])
+            resp_status_code, resp_status_text = _split_response_status(
+                resp_dict['Response Status']
+            )
         except ValueError:
             raise RuntimeError('Unexpected server reply')
 
         if resp_status_code == 200:
-            # No errors occured, everything has been deleted
+            # No errors occurred, everything has been deleted
             del keys[:]
             return
 
-        # Some errors occured, so we need to determine what has
+        # Some errors occurred, so we need to determine what has
         # been deleted and what hasn't
         failed_keys = []
         offset = len(esc_prefix)
@@ -564,111 +650,22 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         raise HTTPError(error_code, error_msg, {})
 
     @property
-    @copy_ancestor_docstring
     def has_delete_multi(self):
         return self.features.has_bulk_delete
 
-    @copy_ancestor_docstring
-    def delete_multi(self, keys, force=False):
+    def delete_multi(self, keys):
         log.debug('started with %s', keys)
 
         if self.features.has_bulk_delete:
             while len(keys) > 0:
-                tmp = keys[:self.features.max_deletes]
+                tmp = keys[: self.features.max_deletes]
                 try:
-                    self._delete_multi(tmp, force=force)
+                    self._delete_multi(tmp)
                 finally:
-                    keys[:self.features.max_deletes] = tmp
+                    keys[: self.features.max_deletes] = tmp
         else:
-            super().delete_multi(keys, force=force)
+            super().delete_multi(keys)
 
-    # We cannot wrap the entire _copy_via_put_post() method into a retry()
-    # decorator, because _copy_via_put_post() issues multiple requests.
-    # If the server happens to regularly close the connection after a request
-    # (even though it was processed correctly), we'd never make any progress
-    # if we always restart from the first request.
-    # We experimented with adding a retry(fn, args, kwargs) function to wrap
-    # individual calls, but this doesn't really improve the code because we
-    # typically also have to wrap e.g. a discard() or assert_empty() call, so we
-    # end up with having to create an additional function anyway. Having
-    # anonymous blocks in Python would be very nice here.
-    @retry
-    def _copy_helper(self, method, path, headers):
-        self._do_request(method, path, headers=headers)
-        self.conn.discard()
-
-    def _copy_via_put_post(self, src, dest, metadata=None):
-        """Fallback copy method for older Swift implementations."""
-        headers = CaseInsensitiveDict()
-        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, src)
-
-        if metadata is not None:
-            # We can't do a direct copy, because during copy we can only update the
-            # metadata, but not replace it. Therefore, we have to make a full copy
-            # followed by a separate request to replace the metadata. To avoid an
-            # inconsistent intermediate state, we use a temporary object.
-            final_dest = dest
-            dest = final_dest + TEMP_SUFFIX
-            headers['X-Delete-After'] = '600'
-
-        try:
-            self._copy_helper('PUT', '/%s%s' % (self.prefix, dest), headers)
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise NoSuchObject(src)
-            raise
-
-        if metadata is None:
-            return
-
-        # Update metadata
-        headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-        self._copy_helper('POST', '/%s%s' % (self.prefix, dest), headers)
-
-        # Rename object
-        headers = CaseInsensitiveDict()
-        headers['X-Copy-From'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
-        self._copy_helper('PUT', '/%s%s' % (self.prefix, final_dest), headers)
-
-    @retry
-    def _copy_via_copy(self, src, dest, metadata=None):
-        """Copy for more modern Swift implementations that know the
-        X-Fresh-Metadata option and the native COPY method."""
-        headers = CaseInsensitiveDict()
-        headers['Destination'] = '/%s/%s%s' % (self.container_name, self.prefix, dest)
-        if metadata is not None:
-            self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-            headers['X-Fresh-Metadata'] = 'true'
-        try:
-            resp = self._do_request('COPY', '/%s%s' % (self.prefix, src), headers=headers)
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise NoSuchObject(src)
-            raise
-        self._assert_empty_response(resp)
-
-    @copy_ancestor_docstring
-    def copy(self, src, dest, metadata=None):
-        log.debug('started with %s, %s', src, dest)
-        if dest.endswith(TEMP_SUFFIX) or src.endswith(TEMP_SUFFIX):
-            raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-
-        if self.features.has_copy:
-            self._copy_via_copy(src, dest, metadata=metadata)
-        else:
-            self._copy_via_put_post(src, dest, metadata=metadata)
-
-    @retry
-    @copy_ancestor_docstring
-    def update_meta(self, key, metadata):
-        log.debug('started with %s', key)
-        headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
-        self._do_request('POST', '/%s%s' % (self.prefix, key), headers=headers)
-        self.conn.discard()
-
-    @copy_ancestor_docstring
     def list(self, prefix=''):
         prefix = self.prefix + prefix
         strip = len(self.prefix)
@@ -682,11 +679,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
     @retry
     def _list_page(self, prefix, page_token=None, batch_size=1000):
-
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
-        query_string = { 'prefix': prefix, 'limit': str(batch_size),
-                         'format': 'json' }
+        query_string = {'prefix': prefix, 'limit': str(batch_size), 'format': 'json'}
         if page_token:
             query_string['marker'] = page_token
 
@@ -700,11 +695,11 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         if resp.status == 204:
             return
 
-        hit = re.match('application/json; charset="?(.+?)"?$',
-                       resp.headers['content-type'])
+        hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
         if not hit:
-            log.error('Unexpected server response. Expected json, got:\n%s',
-                      self._dump_response(resp))
+            log.error(
+                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+            )
             raise RuntimeError('Unexpected server reply')
 
         body = self.conn.readall()
@@ -724,8 +719,6 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         return (names, page_token)
 
-
-    @copy_ancestor_docstring
     def close(self):
         self.conn.disconnect()
 
@@ -745,8 +738,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
 
         detected_features = Features()
 
-        with HTTPConnection(hostname, port, proxy=self.proxy,
-                            ssl_context=ssl_context) as conn:
+        with HTTPConnection(hostname, port, proxy=self.proxy, ssl_context=ssl_context) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             log.debug('GET /info')
@@ -757,16 +749,20 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
             # may not be accessible (misconfiguration) or may not
             # exist (old Swift version).
             if resp.status not in (200, 401, 403, 404):
-                log.error("Wrong server response.\n%s",
-                          self._dump_response(resp, body=conn.read(2048)))
+                log.error(
+                    "Wrong server response.\n%s", self._dump_response(resp, body=conn.read(2048))
+                )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
             if resp.status == 200:
-                hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$',
-                resp.headers['content-type'])
+                hit = re.match(
+                    r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type']
+                )
                 if not hit:
-                    log.error("Wrong server response. Expected json. Got: \n%s",
-                              self._dump_response(resp, body=conn.read(2048)))
+                    log.error(
+                        "Wrong server response. Expected json. Got: \n%s",
+                        self._dump_response(resp, body=conn.read(2048)),
+                    )
                     raise RuntimeError('Unexpected server reply')
 
                 info = json.loads(conn.readall().decode(hit.group(2) or 'utf-8'))
@@ -775,8 +771,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 log.debug('%s:%s/info returns %s', hostname, port, info)
 
                 swift_version_string = swift_info.get('version', None)
-                if swift_version_string and \
-                    LooseVersion(swift_version_string) >= LooseVersion('2.8'):
+                if swift_version_string and Version(swift_version_string) >= Version('2.8'):
                     detected_features.has_copy = True
 
                 # Default metadata value length constrain is 256 bytes
@@ -789,8 +784,9 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                 if info.get('bulk_delete', False):
                     detected_features.has_bulk_delete = True
                     bulk_delete = info['bulk_delete']
-                    assert bulk_delete.get('max_failed_deletes', 1000) <= \
-                           bulk_delete.get('max_deletes_per_request', 10000)
+                    assert bulk_delete.get('max_failed_deletes', 1000) <= bulk_delete.get(
+                        'max_deletes_per_request', 10000
+                    )
                     assert bulk_delete.get('max_failed_deletes', 1000) > 0
                     # The block cache removal queue has a capacity of 1000.
                     # We do not need bigger values than that.
@@ -800,15 +796,23 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
                     # If we would set the value higher, _delete_multi() would maybe
                     # delete some entries from the *keys* list that did not get
                     # deleted and would miss them in a retry.
-                    detected_features.max_deletes = min(1000,
-                        int(bulk_delete.get('max_failed_deletes', 1000)))
+                    detected_features.max_deletes = min(
+                        1000, int(bulk_delete.get('max_failed_deletes', 1000))
+                    )
 
-
-                log.info('Detected Swift features for %s:%s: %s',
-                         hostname, port, detected_features, extra=LOG_ONCE)
+                log.info(
+                    'Detected Swift features for %s:%s: %s',
+                    hostname,
+                    port,
+                    detected_features,
+                    extra=LOG_ONCE,
+                )
             else:
-                log.debug('%s:%s/info not found or not accessible. Skip feature detection.',
-                          hostname, port)
+                log.debug(
+                    '%s:%s/info not found or not accessible. Skip feature detection.',
+                    hostname,
+                    port,
+                )
 
         self.features = detected_features
 
@@ -821,6 +825,7 @@ class Backend(AbstractBackend, metaclass=ABCDocstMeta):
         self.conn = None
         raise AuthenticationExpired(reason)
 
+
 def _split_response_status(line):
     '''Splits a HTTP response line into status code (integer)
     and status text.
@@ -828,12 +833,12 @@ def _split_response_status(line):
     Returns 2-tuple (int, string)
 
     Raises ValueError when line is not parsable'''
-    hit = re.match('^([0-9]{3})\s+(.*)$', line)
+    hit = re.match(r'^([0-9]{3})\s+(.*)$', line)
     if not hit:
-        log.error('Expected valid Response Status, got: %s',
-                  line)
+        log.error('Expected valid Response Status, got: %s', line)
         raise ValueError('Expected valid Response Status, got: %s' % line)
     return (int(hit.group(1)), hit.group(2))
+
 
 class AuthenticationExpired(Exception):
     '''Raised if the provided Authentication Token has expired'''
@@ -844,6 +849,7 @@ class AuthenticationExpired(Exception):
 
     def __str__(self):
         return 'Auth token expired. Server said: %s' % self.msg
+
 
 class Features:
     """Set of configurable features for Swift servers.
@@ -856,8 +862,7 @@ class Features:
 
     __slots__ = ['has_copy', 'has_bulk_delete', 'max_deletes', 'max_meta_len']
 
-    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000,
-                 max_meta_len=255):
+    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000, max_meta_len=255):
         self.has_copy = has_copy
         self.has_bulk_delete = has_bulk_delete
         self.max_deletes = max_deletes

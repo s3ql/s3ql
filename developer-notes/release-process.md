@@ -1,20 +1,23 @@
 # Steps for Releasing a New Version
 
+* `set TAG s3ql-A.B.C`
 * Bump version in `src/s3ql/__init__.py`
-* Add release date to `Changes.txt`
-* Update authors: `git log --all --pretty="format:%an <%aE>" | sort -u >> AUTHORS`
+* Add release date to `ChangeLog.rst`
+* When creating non-bugfix release:
+  * Create signing key for the next release: `P=s3ql-<A.B+1> signify-openbsd -G -n -p signify/$P.pub -s
+  signify/$P.sec`
+  * Expire old release signing keys (keep one around just in case)
+* Update authors: `git log --all --pretty="format:%an <%aE>" | grep -v '<none@none>$' | sort -u >> AUTHORS`
+* `git commit --all -m "Released $TAG"`
+* `git tag $TAG`
 * `./make_release.sh`
 * Test tarball:
   * `./setup.py build_ext --inplace`
-  * `./build_docs.sh'
   * `python3 -m pytest tests/`
-* Generate signature: `gpg -sb --armor XXXX.tar.bz2`
-* `git commit --all -m "Released XXX"`
-* `git tag -s release-x.y -m "Tagged release"`
+* `git checkout master`
 * `git push && git push --tags`, create release on Github
 * `./setup.py upload_docs`
 * Write announcement to mailing list
-  * Get contributors: `git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | sort -u`
 
 ## Email template
 

@@ -1,0 +1,9 @@
+[default.extend-identifiers]
+# rsync options
+"aHAX" = "aHAX"
+"anciHAX" = "anciHAX"
+# https://docs.python.org/3/library/os.html#os.O_WRONLY
+"O_WRONLY" = "O_WRONLY"
+# From faq.rst, in "mount.s3ql_crit.log"
+"crit" = "crit"
+

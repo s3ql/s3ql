@@ -8,16 +8,22 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import s3ql.ctrl
+import os
 import sys
+import time
+
 import t4_fuse
 
-class TestCtrl(t4_fuse.TestFuse):
+import s3ql.ctrl
 
+
+class TestCtrl(t4_fuse.TestFuse):
     def test(self):
         self.mkfs()
         self.mount()
@@ -25,8 +31,22 @@ class TestCtrl(t4_fuse.TestFuse):
         self.tst_ctrl_drop()
         self.tst_ctrl_log()
         self.tst_ctrl_cachesize()
+        self.tst_backup_metadata()
         self.umount()
         self.fsck()
+
+    def tst_backup_metadata(self):
+        cnt1 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+
+        s3ql.ctrl.main(['backup-metadata', self.mnt_dir])
+        time.sleep(1)
+        cnt2 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+        assert cnt2 == cnt1 + 1
+
+        s3ql.ctrl.main(['backup-metadata', self.mnt_dir])
+        time.sleep(1)
+        cnt3 = len([x for x in os.listdir(self.backend_dir) if x.startswith('s3ql_params')])
+        assert cnt3 == cnt2 + 1
 
     def tst_ctrl_flush(self):
         try:
@@ -45,7 +65,7 @@ class TestCtrl(t4_fuse.TestFuse):
     def tst_ctrl_log(self):
         try:
             s3ql.ctrl.main(['log', self.mnt_dir, 'warn'])
-            s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql', 'dugong'])
+            s3ql.ctrl.main(['log', self.mnt_dir, 'debug', 's3ql'])
             s3ql.ctrl.main(['log', self.mnt_dir, 'info'])
         except:
             sys.excepthook(*sys.exc_info())

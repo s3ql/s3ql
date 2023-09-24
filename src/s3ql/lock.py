@@ -6,34 +6,45 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from .logging import logging, setup_logging, QuietError
-from .common import assert_fs_owner
-from .parse_args import ArgumentParser
-import pyfuse3
+import logging
 import os
 import sys
 import textwrap
 
+import pyfuse3
+
+from .common import assert_fs_owner
+from .logging import QuietError, setup_logging, setup_warnings
+from .parse_args import ArgumentParser
+
 log = logging.getLogger(__name__)
+
 
 def parse_args(args):
     '''Parse command line'''
 
     parser = ArgumentParser(
-        description=textwrap.dedent('''\
+        description=textwrap.dedent(
+            '''\
         Makes the given directory tree(s) immutable. No changes of any sort can
         be performed on the tree after that. Immutable entries can only be
         deleted with s3qlrm.
-        '''))
+        '''
+        )
+    )
 
     parser.add_log()
     parser.add_debug()
     parser.add_quiet()
     parser.add_version()
 
-    parser.add_argument('path', metavar='<path>', nargs='+',
-                        help='Directories to make immutable.',
-                         type=(lambda x: x.rstrip('/')))
+    parser.add_argument(
+        'path',
+        metavar='<path>',
+        nargs='+',
+        help='Directories to make immutable.',
+        type=(lambda x: x.rstrip('/')),
+    )
 
     return parser.parse_args(args)
 
@@ -44,6 +55,7 @@ def main(args=None):
     if args is None:
         args = sys.argv[1:]
 
+    setup_warnings()
     options = parse_args(args)
     setup_logging(options)
 
@@ -53,6 +65,7 @@ def main(args=None):
         ctrlfile = assert_fs_owner(name)
         fstat = os.stat(name)
         pyfuse3.setxattr(ctrlfile, 'lock', ('%d' % fstat.st_ino).encode())
+
 
 if __name__ == '__main__':
     main(sys.argv[1:])

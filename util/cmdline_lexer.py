@@ -6,10 +6,11 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from pygments.token import Comment, Name, Generic, Literal
 from pygments.lexer import RegexLexer
+from pygments.token import Comment, Generic, Literal, Name
 
-__all__ = [ 'CommandLineLexer' ]
+__all__ = ['CommandLineLexer']
+
 
 class CommandLineLexer(RegexLexer):
     """
@@ -26,6 +27,5 @@ class CommandLineLexer(RegexLexer):
             (r'[^[<]+', Literal),
             (r'\[[^[\]]+\]', Generic.Emph),
             (r'<[^>]+>', Name.Variable),
-            ],
-
+        ],
     }

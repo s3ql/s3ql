@@ -16,8 +16,8 @@ RUN apt-get update \
  && ln -sf /usr/bin/pip3 /usr/bin/pip && ln -sf /usr/bin/python3 /usr/bin/python \
  && pip install "setuptools >= 40.3.0"
 
-ADD tests/travis-install.sh /travis-install.sh
-RUN /travis-install.sh
+ADD tests/ci-prepare-latest.sh /ci-prepare-latest.sh
+RUN /ci-prepare-latest.sh ubuntu-20.04
 
 ADD . /build
 WORKDIR /build

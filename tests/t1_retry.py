@@ -8,16 +8,22 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 if __name__ == '__main__':
-    import pytest
     import sys
+
+    import pytest
+
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-from s3ql.backends.common import retry
-from pytest_checklogs import assert_logs
 import logging
+
+from pytest_checklogs import assert_logs
+
+from s3ql.backends.common import retry
+
 
 class TemporaryProblem(Exception):
     pass
+
 
 class NthAttempt:
     def __init__(self, succeed_on=3):
@@ -43,17 +49,19 @@ class NthAttempt:
         self.count += 1
         raise TemporaryProblem()
 
+
 def test_retry():
     inst = NthAttempt(3)
 
     assert inst.do_stuff()
 
+
 def test_is_retry():
     inst = NthAttempt(3)
     assert inst.test_is_retry()
 
+
 def test_logging():
     inst = NthAttempt(6)
-    with assert_logs(r'^Encountered %s \(%s\), retrying ',
-                      count=2, level=logging.WARNING):
+    with assert_logs(r'^Encountered %s \(%s\), retrying ', count=2, level=logging.WARNING):
         inst.do_stuff()

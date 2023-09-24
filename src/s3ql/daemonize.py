@@ -27,11 +27,13 @@ a shell or some other process)". In this case the user will have to live with
 that.
 '''
 
-from .logging import logging # Ensure use of custom logger class
+
+import logging
 import os
 import sys
 
 log = logging.getLogger(__name__)
+
 
 def daemonize(workdir='/'):
     '''Daemonize the process'''
@@ -56,7 +58,7 @@ def detach_process_context():
     '''
 
     # Protected member
-    #pylint: disable=W0212
+    # pylint: disable=W0212
 
     pid = os.fork()
     if pid > 0:

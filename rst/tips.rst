@@ -35,11 +35,8 @@ If you decide to do so, you should make sure to
 * Use :ref:`s3qllock <s3qllock>` to ensure that backups are immutable
   after they have been made.
 
-* Call :ref:`s3qlctrl upload-meta <s3qlctrl>` right after a every
-  backup to make sure that the newest metadata is stored safely (if
-  you do backups often enough, this may also allow you to set the
-  :cmdopt:`--metadata-upload-interval` option of :program:`mount.s3ql`
-  to zero).
+* Call :ref:`s3qlctrl backup-metadata <s3qlctrl>` right after a every
+  backup to make sure that the newest metadata is stored safely.
 
 .. _copy_performance:
 

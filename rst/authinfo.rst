@@ -14,14 +14,14 @@ be specified in the ``~/.s3ql/authinfo2`` file, or a file specified by the
 
 The authinfo file consists of sections, led by a ``[section]``
 header and followed by ``name: value`` entries. The section headers
-themselves are not used by S3QL but have to be unique within the file.
+themselves are not used by S3QL (with the exception of the special ``[<backend>-test]``
+sections used when running tests) but have to be unique within the file.
 
 In each section, the following entries can be defined:
 
 :storage-url:
   Specifies the storage url to which this section applies. If a
-  storage url starts with the value of this entry, the section is
-  considered applicable.
+  storage url starts with the string specified here, the section applies.
 
 :backend-login:
   Specifies the username to use for authentication with the backend.

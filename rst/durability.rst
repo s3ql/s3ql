@@ -27,151 +27,31 @@ To avoid losing your data, obey the following rules:
    when using S3QL, the effective durability of the file system data
    will be reduced because of S3QL's data de-duplication feature.
 
-#. Determine your storage service's consistency window. The
-   consistency window that is important for S3QL is the smaller of the
-   times for which:
+#. Make sure that your storage provider provides "immediate consistency" when reading, writing, and
+   listing storage objects. Some providers (including, in the past, Amazon S3) only support
+   *eventual consistency* which is *insufficient for S3QL* and can lead to complete
+   data-loss. (Eventual consistency enables higher availability, but means that changes
+   to an object may not be immediately visible to readers).
 
-   - a newly created object may not yet be included in the list of
-     stored objects
+#. Do not attempt to mount the same file system on different computers (or on
+   the same computer but with different :cmdopt:`--cachedir` directories)
+   at the same time.
 
-   - an attempt to read a newly created object may fail with the
-     storage service reporting that the object does not exist
-
-   If *one* of the above times is zero, we say that as far as S3QL is
-   concerned the storage service has *immediate* consistency.
-
-   If your storage provider claims that *neither* of the above can
-   ever happen, while at the same time promising high durability, you
-   should choose a respectable provider instead.
-
-#. When mounting the same file system on different computers (or on
-   the same computer but with different :cmdopt:`--cachedir` directories),
-   the time that passes between the first and second of invocation of
-   :program:`mount.s3ql` must be at least as long as your storage
-   service's consistency window. If your storage service offers
-   immediate consistency, you do not need to wait at all.
-
-#. Before running :program:`fsck.s3ql` or :program:`s3qladm`, the file system
-   must have been left untouched for the length of the consistency
-   window. If your storage service offers immediate consistency, you
-   do not need to wait at all.
-
-The rest of this section explains the above rules and the reasons for
-them in more detail. It also contains a list of the consistency
-windows for a number of larger storage providers.
-
-Consistency Window List
-=======================
-
-The following is a list of the consistency windows (as far as S3QL is
-concerned) for a number of storage providers. This list doesn't come
-with any guarantees and may be outdated. If your storage provider is
-not included, or if you need more reliable information, check with
-your storage provider.
-
-=======================================   ===================
-Storage Provider                          Consistency Window
-=======================================   ===================
-Amazon S3                                 Immediate
-Google Storage                            Immediate
-=======================================   ===================
-
-
-
-Data Consistency
-================
-
-In contrast to the typical hard disk, most storage providers do not
-guarantee *immediate consistency* of written data. This means that:
-
-* after an object has been stored, requests to read this object may
-  still fail or return the prior contents for a little while.
-
-* after an object has been deleted, attempts to read it may still
-  return the (old) data for some time, and it may still remain in the
-  list of stored objects for some time.
-
-* after a new object has been created, it may still not be included
-  when retrieving the list of stored objects for some time.
-
-Of course, none of this is acceptable for a file system, and S3QL
-generally handles any of the above situations internally so that it
-always provides a fully consistent file system to the user. However,
-there are some situations where an S3QL user nevertheless needs to be
-aware of the peculiarities of his chosen storage service.
-
-Suppose that you mount the file system, store some new data, delete
-some old data and unmount it. If you then mount the file system again
-right away on another computer, there is no guarantee that S3QL will
-see any of the changes that the first S3QL process has made. At least
-in theory it is therefore possible that on the second mount, S3QL does
-not see any of the changes that you have done and presents you an "old
-version" of the file system without them. Even worse, if you notice
-the problem and unmount the file system, S3QL will upload the old
-status (which S3QL necessarily has to consider as current) and thereby
-permanently override the newer version (even though this change may
-not become immediately visible either). S3QL uses several techniques
-to reduce the likelihood of this to happen (see :ref:`impl_details`
-for more information on this), but without support from the storage
-service, the possibility cannot be eliminated completely.
-
-The same problem of course also applies when checking the file system.
-If the storage service provides S3QL with only partially updated data,
-S3QL has no way to find out if this a real consistency problem that
-needs to be fixed or if it is only a temporary problem that will
-resolve itself automatically (because there are still changes that
-have not become visible yet).
-
-This is where the so called *consistency window* comes in. The
-consistency window is the maximum time (after writing or deleting the
-object) for which any of the above "outdated responses" may be
-received. If the consistency window is zero, i.e. all changes are
-immediately effective, the storage service is said to have *immediate
-consistency*. If the window is infinite, i.e. there is no upper bound
-on the time it may take for changes to become effect, the storage
-service is said to be *eventually consistent*. Note that often there
-are different consistency windows for the different operations. For
-example, Google Storage offers immediate consistency when reading
-data, but only eventual consistency for the list of stored objects.
-
-To prevent the problem of S3QL working with an outdated copy of the
-file system data, it is therefore sufficient to simply wait for the
-consistency window to pass before mounting the file system again (or
-running a file system check). The length of the consistency window
-changes from storage service to storage service, and if your service
-is not included in the list below, you should check the web page or
-ask the technical support of your storage provider. The window that is
-important for S3QL is the smaller of the times for which
-
-- a newly created object may not yet be included in the list of
-  stored objects
-
-- an attempt to read a newly created object may fail with the
-  storage service reporting that the object does not exist
-
-
-Unfortunately, many storage providers are hesitant to guarantee
-anything but eventual consistency, i.e. the length of the consistency
-window is potentially infinite. In that case you simply have to pick a
-length that you consider "safe enough". For example, even though
-Amazon is only guaranteeing eventual consistency, the ordinary
-consistency window for data stored in S3 is just a few seconds, and
-only in exceptional circumstances (i.e., core network outages) it may
-rise up to hours (`source
-<http://forums.aws.amazon.com/message.jspa?messageID=38471#38471>`_).
-
+#. Do not attempt to mount (or fsck) a file system on a different computer (or on
+   the same computer but with a different :cmdopt:`--cachedir` directory)
+   when it was not cleanly unmounted.
 
 .. _backend_reliability:
 
 Data Durability
 ===============
 
-The durability of a storage service a measure of the average
+The durability of a storage service is measure of the
 probability of a storage object to become corrupted over time. The
 lower the chance of data loss, the higher the durability. Storage
 services like Amazon S3 claim to achieve a durability of up to
 99.999999999% over a year, i.e. if you store 100000000 objects for 100
-years, you can expect that at the end of that time one object will be
+years, you can expect that at the end of that time at most one object will be
 corrupted or lost.
 
 S3QL is designed to reduce redundancy and store data in the smallest
@@ -183,8 +63,7 @@ When doing this, there are two factors that should be kept in mind.
 Firstly, even though S3QL is not able to compensate for storage
 service failures, it is able to detect them: when trying to access
 data that has been lost or corrupted by the storage service, an IO
-error will be returned and the mount point will become inaccessible to
-ensure that the problem is noticed.
+error will be returned.
 
 Secondly, the consequences of a data loss by the storage service can
 be significantly more severe than you may expect because of S3QL's
@@ -194,7 +73,7 @@ well. Consider the following scenario:
 
 #. You store an important file in the S3QL file system.
 #. The storage service loses the data blocks of this file. As long as you
-   do not access the file or run :program:`fsck.s3ql`, S3QL is not
+   do not access the file or run :program:`s3ql_verify`, S3QL is not
    aware that the data has been lost by the storage service.
 #. You save an additional copy of the important file in a different
    location on the same S3QL file system.
@@ -219,20 +98,14 @@ missing or broken when the object actually needs to be retrieved. In
 this case, :program:`fsck.s3ql` will not learn anything by just
 querying the list of objects.
 
-This effect can be mitigated to some degree by using the
-:program:`s3ql_verify` command in additon to
-:program:`fsck.s3ql`. :program:`s3ql_verify` asks the storage service
-to look up every stored object and may therefore take much longer than
-running :program:`fsck.s3ql`, but can also offer a much stronger
-assurance that no data has been lost by the storage service. To
-"recover" from damaged storage objects in the backend, the damaged
-objects found by :program:`s3ql_verify` have to be explicitly deleted
-(so that a successive :program:`fsck.s3ql` is able detect them as
-missing, correct the file system metadata, and move any affected files
-to :file:`lost+found`). This procedure is currently not automated, so
-it is generally a good idea to choose a storage service where the
-expected data durability is high enough so that the possibility of a
-lost object (and thus the need to run any full checks) can be
-neglected over long periods of time.
-
-
+The problem be further mitigated by using the :program:`s3ql_verify` command in addition
+to :program:`fsck.s3ql`. :program:`s3ql_verify` asks the storage service to look up every
+stored object and may therefore take much longer than running :program:`fsck.s3ql`, but
+can also offer a much stronger assurance that no data has been lost by the storage
+service. To "recover" from damaged storage objects in the backend, the damaged objects
+found by :program:`s3ql_verify` have to be explicitly deleted (so that a successive
+:program:`fsck.s3ql` is able detect them as missing, correct the file system metadata, and
+move any affected files to :file:`lost+found`). This procedure is currently not automated,
+so it is generally a good idea to choose a storage service where the expected data
+durability is high enough so that the possibility of a lost object (and thus the need to
+run any full checks) can be neglected over long periods of time.

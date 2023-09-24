@@ -27,7 +27,7 @@ Checking and repairing internal file system errors
 
 :program:`fsck.s3ql` checks that the internal file system structure is
 consistent and attempts to correct any problems it finds. If an S3QL
-file system has not been unmounted correcly for any reason, you need
+file system has not been unmounted correctly for any reason, you need
 to run :program:`fsck.s3ql` before you can mount the file system
 again.
 
@@ -37,7 +37,7 @@ The :program:`fsck.s3ql` command has the following syntax::
 
 This command accepts the following options:
 
-.. pipeinclude:: python ../bin/fsck.s3ql --help
+.. pipeinclude:: python3 ../bin/fsck.s3ql --help
    :start-after: show this help message and exit
 
 
@@ -81,6 +81,5 @@ The :program:`s3ql_verify` command has the following syntax::
 
 This command accepts the following options:
 
-.. pipeinclude:: python ../bin/s3ql_verify --help
+.. pipeinclude:: python3 ../bin/s3ql_verify --help
    :start-after: show this help message and exit
-
