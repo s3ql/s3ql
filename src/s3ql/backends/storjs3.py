@@ -6,11 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ..logging import logging, QuietError # Ensure use of custom logger class
-from . import s3c
-from ..inherit_docstrings import copy_ancestor_docstring
+import logging
 import re
 import base64
+
+from ..logging import QuietError
+from . import s3c
 
 log = logging.getLogger(__name__)
 
