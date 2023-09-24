@@ -10,6 +10,7 @@ import logging
 import re
 import base64
 
+from typing import Any, BinaryIO, Dict, Optional
 from ..logging import QuietError
 from . import s3c
 
@@ -110,9 +111,9 @@ class Backend(s3c.Backend):
                     continue
                 yield el_t
 
-    def delete(self, key, force=False):
+    def delete(self, key):
         key_t = self._translate_s3_key_to_storj(key)
-        return super().delete(key_t, force)
+        return super().delete(key_t)
 
     def lookup(self, key):
         key_t = self._translate_s3_key_to_storj(key)
@@ -122,21 +123,19 @@ class Backend(s3c.Backend):
         key_t = self._translate_s3_key_to_storj(key)
         return super().get_size(key_t)
 
-    def open_read(self, key):
+    def readinto_fh(self, key: str, fh: BinaryIO):
         key_t = self._translate_s3_key_to_storj(key)
-        return super().open_read(key_t)
+        return super().readinto_fh(key_t, fh)
 
-    def open_write(self, key, metadata=None, is_compressed=False, extra_headers=None):
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryIO,
+        metadata: Optional[Dict[str, Any]] = None,
+        len_: Optional[int] = None,
+    ):
         key_t = self._translate_s3_key_to_storj(key)
-        return super().open_write(key_t, metadata, is_compressed, extra_headers)
+        return super().write_fh(key_t, fh, metadata, len_)
 
-    def copy(self, src, dest, metadata=None, extra_headers=None):
-        src_t = self._translate_s3_key_to_storj(src)
-        dest_t = self._translate_s3_key_to_storj(dest)
-        return super().copy(src_t, dest_t, metadata, extra_headers)
-
-#not needed, will call copy from THIS class
-#def update_meta(self, key, metadata):
-
-#not needed
-#def close(self):
+    def __str__(self):
+        return 'storjs3://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
