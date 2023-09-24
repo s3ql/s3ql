@@ -25,11 +25,14 @@ PFX_DATA = "s3ql_data_"
 PFX_DATA_TRANSLATED = "s3ql_data/"
 PFX_OTHER_TRANSLATED = "s3ql_other/"
 
+
 def STR_ENCODE(key):
     return base64.urlsafe_b64encode(key.encode()).decode()
 
+
 def STR_DECODE(b64key):
     return base64.urlsafe_b64decode(b64key.encode()).decode()
+
 
 class Backend(s3c.Backend):
     """A backend for Storj S3 gateway-st/mt
@@ -47,7 +50,7 @@ class Backend(s3c.Backend):
         # try to convert binary string key to string if needed
         if not isinstance(key, str):
             log.info('key is not a string: %s', key)
-            key='%s' % key
+            key = '%s' % key
         # check whether key is already in storj format, needed if backend methods called again from backend reference from inner code
         # NOTE: not sure if it still needed after removal of ObjectR and ObjectW classes
         match = OBJ_DATA_TRANSLATED_RE.match(key)
@@ -67,7 +70,6 @@ class Backend(s3c.Backend):
         result = PFX_OTHER_TRANSLATED + STR_ENCODE(key)
         log.debug('translated s3 key %s: %s', key, result)
         return result
-
 
     def _translate_other_key_to_s3(self, key):
         '''convert object key from storj form to normal s3 form'''
@@ -91,7 +93,7 @@ class Backend(s3c.Backend):
         # try to convert binary string key to string if needed
         if not isinstance(prefix, str):
             log.info('filter prefix is not a string: %s', prefix)
-            prefix='%s' % prefix
+            prefix = '%s' % prefix
         log.debug('list requested for prefix: %s', prefix)
         # list s3ql_data segments for any partial s3ql_data_ or empty searches
         if PFX_DATA.startswith(prefix):
