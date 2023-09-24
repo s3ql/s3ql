@@ -44,12 +44,12 @@ class Backend(s3c.Backend):
 
     def _translate_s3_key_to_storj(self, key):
         '''convert object key to the form suitable for use with storj s3 bucket'''
-        #try to convert binary string key to string if needed
+        # try to convert binary string key to string if needed
         if not isinstance(key, str):
             log.info('key is not a string: %s', key)
             key='%s' % key
-        #check wether key is already in storj format, needed if backend methods called again from backend reference from inner code
-        #NOTE: not sure if it still needed after removal of ObjectR and ObjectW classes
+        # check whether key is already in storj format, needed if backend methods called again from backend reference from inner code
+        # NOTE: not sure if it still needed after removal of ObjectR and ObjectW classes
         match = OBJ_DATA_TRANSLATED_RE.match(key)
         if match is not None:
             log.debug('skipping already translated data key: %s', key)
@@ -58,12 +58,12 @@ class Backend(s3c.Backend):
         if match is not None:
             log.debug('skipping already translated key: %s', key)
             return key
-        #match s3ql_data keys
+        # match s3ql_data keys
         match = OBJ_DATA_RE.match(key)
         if match is not None:
             return PFX_DATA_TRANSLATED + match.group(2)
-        #for all other cases:
-        #base64-encode key to remove forward slashes and any possible match with "s3ql_data" regex and place it into s3ql_other prefix
+        # for all other cases:
+        # base64-encode key to remove forward slashes and any possible match with "s3ql_data" regex and place it into s3ql_other prefix
         result = PFX_OTHER_TRANSLATED + STR_ENCODE(key)
         log.debug('translated s3 key %s: %s', key, result)
         return result
@@ -83,28 +83,28 @@ class Backend(s3c.Backend):
         match = OBJ_DATA_TRANSLATED_RE.match(key)
         if match is not None:
             result = PFX_DATA + match.group(3)
-            #log.debug('translated storj key %s: %s', key, result)
+            # log.debug('translated storj key %s: %s', key, result)
             return result
         raise RuntimeError(f'Failed to translate data key to s3 form: {key}')
 
     def list(self, prefix=''):
-        #try to convert binary string key to string if needed
+        # try to convert binary string key to string if needed
         if not isinstance(prefix, str):
             log.info('filter prefix is not a string: %s', prefix)
             prefix='%s' % prefix
         log.debug('list requested for prefix: %s', prefix)
-        #list s3ql_data segments for any partial s3ql_data_ or empty searches
+        # list s3ql_data segments for any partial s3ql_data_ or empty searches
         if PFX_DATA.startswith(prefix):
             log.debug('running list for %s sub-prefix', PFX_DATA_TRANSLATED)
             inner_list = super().list(PFX_DATA_TRANSLATED)
             for el in inner_list:
                 yield self._translate_data_key_to_s3(el)
-        #iterate over s3ql_other store, if search prefix not exactly "s3ql_data_"
+        # iterate over s3ql_other store, if search prefix not exactly "s3ql_data_"
         if prefix != PFX_DATA:
-            #get inner list generator for s3ql_other/ prefix
+            # get inner list generator for s3ql_other/ prefix
             log.debug('running list for %s sub-prefix with manual filtering', PFX_OTHER_TRANSLATED)
             inner_list = super().list(PFX_OTHER_TRANSLATED)
-            #translate keys for s3 form and filter against requested prefix manually
+            # translate keys for s3 form and filter against requested prefix manually
             for el in inner_list:
                 el_t = self._translate_other_key_to_s3(el)
                 if not el_t.startswith(prefix):
