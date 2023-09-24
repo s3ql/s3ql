@@ -6,11 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from . import gs, local, rackspace, s3, s3c, swift, swiftks
+from . import gs, local, rackspace, s3, s3c, swift, swiftks, storjs3
 from .b2.b2_backend import B2Backend
 
 #: Mapping from storage URL prefixes to backend classes
 prefix_map = {
+    'storjs3': storjs3.Backend,
     's3': s3.Backend,
     'local': local.Backend,
     'gs': gs.Backend,
