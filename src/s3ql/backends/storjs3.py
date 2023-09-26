@@ -141,3 +141,11 @@ class Backend(s3c.Backend):
 
     def __str__(self):
         return 'storjs3://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
+
+    def is_temp_failure(self, exc):
+        result = super().is_temp_failure(exc)
+        # disconnect from STORJ backend on any error, in order to always create new connection right before next request,
+        # normal s3c behavior will leave dormant connection, that semm to be closed by STORJ while waiting for 120 seconds retry interval
+        # causing next request also fail, so this problem will repeat itself indefinitely
+        self.conn.disconnect()
+        return result
