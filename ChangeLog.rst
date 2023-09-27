@@ -1,3 +1,8 @@
+S3QL 5.1.2 (2023-09-26)
+=======================
+
+* Various small bugfixes, b2 backend should be working again.
+
 S3QL 5.1.1 (2023-08-06)
 =======================
 
