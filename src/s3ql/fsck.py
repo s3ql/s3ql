@@ -1430,7 +1430,7 @@ def verify_metadata_snapshots(backend, count: int = 5, include_most_recent: bool
         params = FsAttributes(**d)
         assert params.seq_no == seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
-        log.info('Checking backup %010x (from %s))...', seq_no, date)
+        log.info('Checking backup %010x (from %s)...', seq_no, date)
         with NamedTemporaryFile() as fh:
             conn = download_metadata(backend, fh.name, params)
             res = conn.get_list('PRAGMA integrity_check(20)')
