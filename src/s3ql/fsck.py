@@ -1321,7 +1321,9 @@ def main(args=None):
         # Don't download the same metadata again in verify_metadata_snapshots
         check_current_metadata = False
     else:
-        check_current_metadata = True
+        # If the filesystem was not unmounted cleanly, do not bother to check the
+        # current remote metadata (it's most likely inconsistent).
+        check_current_metadata = not param.is_mounted
 
     log.info('Checking DB integrity...')
     try:
@@ -1430,6 +1432,11 @@ def verify_metadata_snapshots(backend, count: int = 5, include_most_recent: bool
         params = FsAttributes(**d)
         assert params.seq_no == seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
+        if params.is_mounted:
+            log.info(
+                'Skipping check of backup %010x (from %s): not unmounted cleanly.', seq_no, date
+            )
+            continue
         log.info('Checking backup %010x (from %s)...', seq_no, date)
         with NamedTemporaryFile() as fh:
             conn = download_metadata(backend, fh.name, params)
