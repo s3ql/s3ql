@@ -54,6 +54,7 @@ class B2Backend(AbstractBackend):
 
     known_options = {
         'disable-versions',
+        'download-host-overwrite',
         'retry-on-cap-exceeded',
         'test-mode',
         'tcp-timeout',
@@ -90,6 +91,7 @@ class B2Backend(AbstractBackend):
         # are set by _authorize_account
         self.api_url = None
         self.download_url = None
+        self.download_host_overwrite = self.options.get('download-host-overwrite', None)
         self.api_authorization_token = None
         self.api_connection = None
         self.download_connection = None
@@ -159,9 +161,10 @@ class B2Backend(AbstractBackend):
             self._authorize_account()
 
         if self.download_connection is None:
-            self.download_connection = HTTPConnection(
-                self.download_url.hostname, 443, ssl_context=self.ssl_context
-            )
+            hostname = self.download_url.hostname
+            if self.download_host_overwrite is not None:
+                hostname = self.download_host_overwrite
+            self.download_connection = HTTPConnection(hostname, 443, ssl_context=self.ssl_context)
             self.download_connection.timeout = self.tcp_timeout
 
         return self.download_connection

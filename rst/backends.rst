@@ -434,7 +434,7 @@ are the following:
    controls if operations should be retried as cap counters are reset every day.
    Otherwise the exception would abort the program.
 
-.. option:: test_mode=<value>
+.. option:: test-mode=<value>
 
    This option puts the backblaze B2 server into test mode by adding a special header to the
    requests. Use this option only to test the failure resiliency of the backend implementation as it
@@ -453,6 +453,16 @@ are the following:
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established (default: 20 seconds).
+
+.. option:: download-host-overwrite=<hostname>
+
+   If you specify this option all downloads will be routed thru this server (with HTTPS on port 443).
+   You can use this e.g. to download data thru a Cloudflare worker and benefit from the free bandwidth
+   agreement between B2 and Cloudflare (Bandwidth Alliance).
+
+   See
+   https://www.backblaze.com/docs/cloud-storage-deliver-private-backblaze-b2-content-through-cloudflare-cdn
+   for more information on how to set up the necessary Cloudflare worker.
 
 .. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 

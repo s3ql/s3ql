@@ -4,6 +4,9 @@ Unreleased Changes
 * fsck.s3ql no longer attempts to verify unclean metadata backups, which
   in the past led to spurious warnings and crashes.
 
+* The Backblaze B2 backend has a new option `download-host-overwrite` to optionally
+  route all download requests through a proxy.
+
 
 S3QL 5.1.2 (2023-09-26)
 =======================
