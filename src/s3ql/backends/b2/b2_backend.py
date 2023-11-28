@@ -527,10 +527,8 @@ class B2Backend(AbstractBackend):
         else:
             file_ids = self._list_file_versions(key)
 
-        if not file_ids:
-            raise NoSuchObject(key)
-
-        self._delete_file_ids(file_ids, force)
+        if file_ids:
+            self._delete_file_ids(file_ids, force)
 
     @retry
     def _delete_file_ids(self, file_ids, force=False, is_retry=False):
