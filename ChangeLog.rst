@@ -1,9 +1,10 @@
-Unreleased Changes
-==================
+S3QL 5.1.3 (2023-12-08)
+=======================
 
 * fsck.s3ql no longer attempts to verify unclean metadata backups, which
   in the past led to spurious warnings and crashes.
 
+* Fixed a crash in the b2 backend.
 
 S3QL 5.1.2 (2023-09-26)
 =======================
