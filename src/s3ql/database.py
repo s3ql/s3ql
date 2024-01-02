@@ -615,6 +615,7 @@ def upload_metadata(
     params: FsAttributes,
     incremental: bool = True,
     update_params: bool = True,
+    flush_old_seq_no: bool = False,
 ) -> None:
     '''Upload metadata to backend
 
@@ -622,6 +623,8 @@ def upload_metadata(
 
     If *update_params* is false, do not calculate checksum and update *params* with current database
     size and checksum.
+
+    If *flush_old_seq_no* is true, remove previous metadata block from previous versions.
     '''
 
     blocksize = db.blocksize
@@ -663,6 +666,33 @@ def upload_metadata(
 
         if not update_params:
             return
+
+        if flush_old_seq_no:
+            # clean up old metadata block to prevent them being picked by download_metadata
+            # in case the newest blocksize object would have gone missing
+            block_list = get_block_objects(backend)
+            total = len(block_list)
+            processed = 0
+
+            for blockno, candidates in block_list.items():
+                processed += 1
+                log.info(
+                    'Cleaning %d versions of %d/%d metadata blocks (%d%%)',
+                    len(candidates),
+                    processed,
+                    total,
+                    processed * 100 / total,
+                    extra={
+                        'rate_limit': 1,
+                        'update_console': True,
+                        'is_last': processed == total,
+                    },
+                )
+                for seq_no in candidates:
+                    if seq_no == params.seq_no:
+                        continue
+                    obj = METADATA_OBJ_NAME % (blockno, seq_no)
+                    backend.delete(obj)
 
         log.info('Calculating metadata checksum...')
         params.db_size = db_size

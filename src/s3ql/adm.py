@@ -88,6 +88,12 @@ def parse_args(args):
         "Backend object size may be smaller than this due to compression. "
         "Default: %(default)d KiB.",
     )
+    sparser.add_argument(
+        "--force",
+        action="store_true",
+        default=False,
+        help="Force filesystem upgrade even if already at the latest version.",
+    )
 
     parser.add_storage_url()
     parser.add_debug()
@@ -334,7 +340,7 @@ def upgrade(backend, options):
         print(get_old_rev_msg(local_params['revision'] + 1, 's3qladm'))
         raise QuietError()
 
-    elif local_params['revision'] >= CURRENT_FS_REV:
+    elif local_params['revision'] >= CURRENT_FS_REV and not options.force:
         print('File system already at most-recent revision')
         return
 
@@ -365,7 +371,7 @@ def upgrade(backend, options):
     log.info('Upgrading from revision %d to %d...', local_params['revision'], CURRENT_FS_REV)
 
     new_params = {k.replace('-', '_'): v for k, v in local_params.items()}
-    new_params['data_block_size'] = new_params['max_obj_size']
+    new_params['data_block_size'] = new_params.get('data_block_size') or new_params['max_obj_size']
     new_params['metadata_block_size'] = options.metadata_block_size * 1024
     new_params['revision'] = CURRENT_FS_REV
     # remove all deprecated attributes
@@ -380,7 +386,13 @@ def upgrade(backend, options):
     params.last_modified = time.time()
     params.seq_no += 1
 
-    upload_metadata(backend, db, params, incremental=False)
+    upload_metadata(
+        backend,
+        db,
+        params,
+        incremental=False,
+        flush_old_seq_no=remote_params['metadata_block_size'] != new_params['metadata_block_size'],
+    )
     write_params(options.cachepath, params)
     upload_params(backend, params)
 
