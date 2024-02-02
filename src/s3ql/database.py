@@ -162,6 +162,13 @@ class Connection:
             'PRAGMA recursize_triggers = on',
             'PRAGMA temp_store = FILE',
             'PRAGMA legacy_file_format = off',
+
+            # Read performance decreases linearly with increasing WAL size, so we do not
+            # want the WAL to grow too much. However, every checkpointing operation requires
+            # fsync(), so we can speed up writes by having them as rarely as possible.
+            # The default value of 1000 pages (i.e, 4 MB) seems a little low, so increase
+            # to 32 MB. See https://github.com/s3ql/s3ql/issues/324 for discussion.
+            'PRAGMA wal_autocheckpoint = 8192',
         ):
             cur.execute(s)
 
