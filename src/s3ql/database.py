@@ -162,7 +162,6 @@ class Connection:
             'PRAGMA recursize_triggers = on',
             'PRAGMA temp_store = FILE',
             'PRAGMA legacy_file_format = off',
-
             # Read performance decreases linearly with increasing WAL size, so we do not
             # want the WAL to grow too much. However, every checkpointing operation requires
             # fsync(), so we can speed up writes by having them as rarely as possible.
