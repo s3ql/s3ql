@@ -3,6 +3,9 @@ UNRELEASED
 
 * S3QL now needs Python 3.8+. Python 3.7 is end of life as of 2023-06-27.
 
+* S3QL does not depend on packaging anymore. It was an undocumented dependency for
+  a simple version compare of the Swift backend. This compare is not necessary anymore.
+
 S3QL 5.1.3 (2023-12-08)
 =======================
 
