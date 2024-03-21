@@ -34,16 +34,15 @@ class Backend(s3c.Backend):
     This classes uses AWS Signature V4 for authorization.
     """
 
-    known_options = (s3c.Backend.known_options | {'sig-region'})
+    known_options = s3c.Backend.known_options | {'sig-region'}
 
     def __init__(self, options):
-        self.sig_region = options.backend_options.get('sig-region','us-east-1')
+        self.sig_region = options.backend_options.get('sig-region', 'us-east-1')
         self.signing_key = None
         super().__init__(options)
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
-
 
     def _authorize_request(self, method, path, headers, subres, query_string):
         '''Add authorization information to *headers*'''
@@ -59,7 +58,7 @@ class Backend(s3c.Backend):
 
         # add non-standard port to host header, needed for correct signature
         if self.port != 443:
-            headers['host'] = f"{self.hostname}:{self.port}"
+            headers['host'] = '%s:%s' % (self.hostname, self.port)
 
         headers['x-amz-date'] = ymdhms
         headers['x-amz-content-sha256'] = 'UNSIGNED-PAYLOAD'
