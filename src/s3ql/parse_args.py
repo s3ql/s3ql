@@ -374,7 +374,7 @@ def storage_url_type(s):
     # slash (even when using a prefix), but we can't do that now because it
     # would make file systems created without trailing slash inaccessible.
     if re.match(r'^(s3|gs)://[^/]+$', s) or re.match(
-        r'^(s3c|swift(ks)?|rackspace)://[^/]+/[^/]+$', s
+        r'^(s3c|s3c4|swift(ks)?|rackspace)://[^/]+/[^/]+$', s
     ):
         s += '/'
 
