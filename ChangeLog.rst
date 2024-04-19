@@ -1,4 +1,4 @@
-UNRELEASED
+S3QL 5.2.0 (2024-04-19)
 =======================
 
 * S3QL now needs Python 3.8+. Python 3.7 is end of life as of 2023-06-27.
