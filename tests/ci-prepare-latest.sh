@@ -4,41 +4,41 @@ set -e
 
 os="$(lsb_release --short --id)-$(lsb_release --short --release)"
 
-sudo apt install -y \
+sudo -- apt-get install -y \
      libsqlite3-dev \
      meson \
      ninja-build \
-     psmisc \
-     python3-dev \
-     python3-pip
+     psmisc
 
 
 # Install latest libfuse3
-wget https://github.com/libfuse/libfuse/archive/master.zip
-unzip master.zip
-cd libfuse-master
-mkdir build
-cd build
-meson ..
-ninja
-sudo -H ninja install
+(
+    wget https://github.com/libfuse/libfuse/archive/master.zip
+    unzip master.zip
+    cd libfuse-master
+    mkdir build
+    cd build
+    meson ..
+    ninja
+    sudo -H -- ninja install
+)
 test -e /usr/local/lib/pkgconfig || sudo mkdir /usr/local/lib/pkgconfig
-sudo mv /usr/local/lib/*/pkgconfig/* /usr/local/lib/pkgconfig/
+sudo -- mv /usr/local/lib/*/pkgconfig/* /usr/local/lib/pkgconfig/
 ls -d1 /usr/local/lib/*-linux-gnu | sudo tee /etc/ld.so.conf.d/usrlocal.conf
-sudo ldconfig
+sudo -- ldconfig
 
 
 # Upgrading cryptography results in an AttributeError in OpenSSL/crypto.py. My
 # guess is that this is due to a non-declared version dependency on OpenSSL.
 if [ "${os}" = "Ubuntu-20.04" ]; then
-    sudo apt install -y \
+    sudo -- apt-get install -y \
          python3-cryptography
 else
-    sudo python3 -m pip install --upgrade --upgrade-strategy eager \
+    sudo -- python3 -m pip install --upgrade --upgrade-strategy eager \
          cryptography
 fi
 
-sudo python3 -m pip install --upgrade --upgrade-strategy eager \
+sudo -- python3 -m pip install --upgrade --upgrade-strategy eager \
      apsw \
      attrs \
      cython \
