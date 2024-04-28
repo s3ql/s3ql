@@ -19,10 +19,20 @@ jobs:
         os:
           - ubuntu-20.04
           - ubuntu-latest
-        deps: [ dist, latest ]
+        python_version:
+          - '3.8'
+          - '3.9'
+          - '3.10'
+          - '3.11'
+          - '3.12'
+        deps:
+          - dist
+          - latest
     steps:
       - uses: actions/checkout@v3
-      - run: 'sudo apt-get update'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python_version }}
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
       - run: python3 setup.py build_cython
       - run: python3 setup.py build_ext --inplace
