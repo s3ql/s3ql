@@ -35,6 +35,8 @@ jobs:
         with:
           python-version: ${{ matrix.python_version }}
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
+      - run: |
+          python -c 'help("modules")'
       - run: python setup.py build_cython
       - run: python setup.py build_ext --inplace
       - run: python -m pytest -r s tests/
