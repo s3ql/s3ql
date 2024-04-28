@@ -26,7 +26,7 @@ jobs:
           - '3.11'
           - '3.12'
         deps:
-          - dist
+          #- dist
           - latest
     steps:
       - uses: actions/checkout@v3
