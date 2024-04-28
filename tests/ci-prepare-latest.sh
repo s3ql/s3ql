@@ -34,11 +34,11 @@ if [ "${os}" = "Ubuntu-20.04" ]; then
     sudo -- apt-get install -y \
          python3-cryptography
 else
-    sudo -- python3 -m pip install --upgrade --upgrade-strategy eager \
+    sudo -- pip install --upgrade --upgrade-strategy eager \
          cryptography
 fi
 
-sudo -- python3 -m pip install --upgrade --upgrade-strategy eager \
+sudo -- pip install --upgrade --upgrade-strategy eager \
      apsw \
      attrs \
      cython \
@@ -55,4 +55,4 @@ sudo -- python3 -m pip install --upgrade --upgrade-strategy eager \
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
 
 echo "Installed PIP versions:"
-python3 -m pip freeze
+pip freeze
