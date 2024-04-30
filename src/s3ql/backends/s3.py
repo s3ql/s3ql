@@ -6,12 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import hashlib
-import hmac
 import logging
 import re
-import time
-import urllib.parse
 from xml.sax.saxutils import escape as xml_escape
 
 from ..logging import QuietError
