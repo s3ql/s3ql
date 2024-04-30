@@ -75,28 +75,86 @@ signing key). Each S3QL release contains the signing key for the release after i
 S3QL for the first time).
 
 After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z`
-directory. Then run::
+directory. Then you have three options:
 
-  python3 setup.py build_ext --inplace
+* Run the S3QL commands directly from the `bin/` directory .
 
-to build S3QL and ::
+* Install S3QL into `~/.local`
 
-  python3 -m pytest tests/
+* You can install S3QL system-wide for all users.
 
-to run a self-test. If this fails, ask for help on the `mailing list
+Running S3QL commands directly
+------------------------------
+
+Create a virtual environment in the S3QL source directory::
+
+  python3 -m venv venv/
+
+and install S3QL dependencies with::
+
+  venv/bin/pip install \
+    apsw cryptography defusedxml trio pyfuse3 pytest \\
+    requests google-auth google-auth-oauthlib pytest_trio
+
+Then build and test S3QL with::
+
+  venv/bin/python3 setup.py build_ext --inplace
+  venv/bin/python3 -m pytest tests/
+
+If this fails, ask for help on the `mailing list
 <http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
 <https://github.com/s3ql/s3ql/issues>`_.
 
-Now you have three options:
+You can now run the S3QL commands in `bin` by calling e.g. `venv/bin/python3
+bin/mkfs.s3ql` or `venv/bin/python3 bin/mount.s3ql`. When using bash, you can
+also `source venv/bin/activate` (which activates the virtual environment for
+this shell) and then call the commands directly (with e.g. `bin/mkfs.s3ql`).
 
-* You can run the S3QL commands from the `bin/` directory.
+Installing S3QL for the current user
+------------------------------------
 
-* You can install S3QL system-wide for all users. To do that, you
-  have to run `sudo python3 setup.py install`.
+Create a virtual environment with::
 
-* You can install S3QL into `~/.local` by executing `python3
-  setup.py install --user`. In this case you should make sure that
-  `~/.local/bin` is in your `$PATH` environment variable.
+  python3 -m venv ~/.local/lib/s3ql-venv/
+
+and install S3QL dependencies with::
+
+  ~/.local/lib/s3ql-venv/bin/pip install \
+    apsw cryptography defusedxml trio pyfuse3 pytest \\
+    requests google-auth google-auth-oauthlib pytest_trio
+
+Then build and test S3QL with::
+
+  ~/.local/lib/s3ql-venv/bin/python3 setup.py build_ext --inplace
+  ~/.local/lib/s3ql-venv/bin/python3 -m pytest tests/
+
+If this fails, ask for help on the `mailing list
+<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
+<https://github.com/s3ql/s3ql/issues>`_. Otherwise, install S3QL with::
+
+  ~/.local/lib/s3ql-venv/bin/python3 setup.py install --user
+
+Make sure that `~/.local/bin` is in your `$PATH`.
+
+
+Installing S3QL for all users
+-----------------------------
+
+As much as possible, use your system's package manager to install S3QL
+dependencies. If something is not available, install it with::
+
+  sudo python3 -m pip install <package>
+
+Then build and test S3QL with::
+
+  python3 setup.py build_ext --inplace
+  python3 -m pytest tests/
+
+If this fails, ask for help on the `mailing list
+<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
+<https://github.com/s3ql/s3ql/issues>`_. Otherwise, install S3QL with::
+
+  sudo python3 setup.py install
 
 
 Development Version
@@ -110,11 +168,7 @@ Git repository, a bit more effort is required. You'll also need:
 * Version 1.2b1 or newer of the Sphinx_ document processor.
 
 With these additional dependencies installed, S3QL can be build and
-tested with ::
-
-  python3 setup.py build_cython
-  python3 setup.py build_ext --inplace
-  python3 -m pytest tests
+tested as explained above under "Running S3QL commands directly".
 
 Note that when building from the Git repository, building and testing is done with several
 additional checks. This may cause compilation and/or tests to fail even though there are
@@ -128,9 +182,6 @@ The HTML and PDF documentation can be generated with ::
   ./build_docs.sh
   (cd doc/pdf && make)
 
-and S3QL can be installed as usual with ::
-
-  python3 setup.py install [--user]
 
 
 Running tests requiring remote servers

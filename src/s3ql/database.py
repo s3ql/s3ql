@@ -61,7 +61,19 @@ def sqlite3_log(errcode, message):
         log.warning(f'sqlite3: {message} ({errstr})')
 
 
-apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+try:
+    apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+except apsw.MisuseError:
+    import sys
+
+    print(
+        "Unable to set SQLITE3 log handler. Are you perhaps running S3QL from a launcher that ",
+        "itself uses SQLite and initializes it before loading S3QL (like pytest-coverage)? ",
+        "If so, upgrading to SQLite 3.42.0 should fix this issue",
+        file=sys.stderr,
+        sep="\n",
+    )
+    raise
 
 
 @dataclasses.dataclass
