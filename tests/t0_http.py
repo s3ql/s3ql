@@ -289,7 +289,6 @@ def test_connect_proxy(http_server, monkeypatch, test_port):
 
     # We don't *actually* want to establish SSL, that'd be
     # to complex for our mock server
-    monkeypatch.setattr('ssl.match_hostname', lambda x, y: True)
     conn = HTTPConnection(
         test_host,
         test_port,
