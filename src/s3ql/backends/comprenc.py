@@ -6,7 +6,6 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ast import Bytes
 import bz2
 import hashlib
 import hmac
@@ -32,7 +31,7 @@ HMAC_SIZE = 32
 crypto_backend = crypto_backends.default_backend()
 
 
-def sha256(s: Bytes) -> Bytes:
+def sha256(s: bytes) -> bytes:
     return hashlib.sha256(s).digest()
 
 
