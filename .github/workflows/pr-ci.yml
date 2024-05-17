@@ -15,19 +15,26 @@ jobs:
   build:
     runs-on: '${{ matrix.os }}'
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-20.04
-          - ubuntu-latest
+          - ubuntu-22.04
+          - ubuntu-24.04
         deps: [ dist, latest ]
+        exclude:
+          # gets error 'Fatal Python error: Cannot recover from stack overflow.' in tests
+          - os: ubuntu-20.04
+            deps: latest
     steps:
       - uses: actions/checkout@v3
       - run: 'sudo apt-get update'
+      - run: python3 -m venv venv --system-site-packages
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
-      - run: python3 setup.py build_cython
-      - run: python3 setup.py build_ext --inplace
-      - run: python3 -m pytest -r s tests/
-      - run: ./build_docs.sh
+      - run: venv/bin/python setup.py build_cython
+      - run: venv/bin/python setup.py build_ext --inplace
+      - run: venv/bin/python -m pytest -r s tests/
+      - run: '. venv/bin/activate && ./build_docs.sh'
   check-style:
     runs-on: ubuntu-latest
     steps:
