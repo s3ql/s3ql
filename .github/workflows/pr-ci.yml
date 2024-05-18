@@ -27,7 +27,7 @@ jobs:
           - os: ubuntu-20.04
             deps: latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: 'sudo apt-get update'
       - run: python3 -m venv venv --system-site-packages
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
@@ -39,6 +39,6 @@ jobs:
   check-style:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: sudo python3 -m pip install "black == 23.3.0"
       - run: black --line-length=100 --skip-string-normalization --check --diff --color --required-version 23.3.0 .
