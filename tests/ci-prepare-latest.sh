@@ -54,7 +54,6 @@ $PIP install "${PIP_ARGS[@]}" \
      pytest \
      pytest_trio \
      requests \
-     sphinx \
      trio
 
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"

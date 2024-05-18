@@ -34,6 +34,7 @@ jobs:
       - run: venv/bin/python setup.py build_cython
       - run: venv/bin/python setup.py build_ext --inplace
       - run: venv/bin/python -m pytest -r s tests/
+      - run: venv/bin/pip install sphinx
       - run: '. venv/bin/activate && ./build_docs.sh'
   check-style:
     runs-on: ubuntu-latest

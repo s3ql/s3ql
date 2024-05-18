@@ -24,7 +24,6 @@ sudo apt install -y \
      python3-pip \
      python3-pytest \
      python3-requests \
-     python3-sphinx \
      python3-trio
 
 # The python3-attr that is shipped with Ubuntu 20.04 is incompatible
