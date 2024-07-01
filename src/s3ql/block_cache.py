@@ -191,6 +191,7 @@ class BlockCache:
         # Will be initialized once threads are available
         self.to_upload = None
         self.to_remove = None
+        self.trio_token = None
 
         if os.path.exists(self.path):
             self.load_cache()
@@ -286,18 +287,21 @@ class BlockCache:
             t.join()
 
         assert len(self.in_transit) == 0
-        try:
-            while self.to_remove.get_nowait() is QuitSentinel:
+        # in an error condition destroy() may be called before init()
+        if self.to_remove is not None:
+            try:
+                while self.to_remove.get_nowait() is QuitSentinel:
+                    pass
+            except QueueEmpty:
                 pass
-        except QueueEmpty:
-            pass
-        else:
-            log.error('Could not complete object removals, no removal threads left alive')
+            else:
+                log.error('Could not complete object removals, no removal threads left alive')
 
         self.to_upload = None
         self.to_remove = None
-        self.upload_threads = None
-        self.removal_threads = None
+        self.trio_token = None
+        self.upload_threads = []
+        self.removal_threads = []
 
         if not keep_cache:
             os.rmdir(self.path)
