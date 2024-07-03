@@ -86,8 +86,11 @@ class CacheEntry:
     def flush(self):
         self.fh.flush()
 
-    def seek(self, off):
-        if self.pos != off:
+    def seek(self, off, whence=None):
+        if whence is not None:
+            self.fh.seek(off, whence)
+            self.pos = self.fh.tell()
+        elif self.pos != off:
             self.fh.seek(off)
             self.pos = off
 

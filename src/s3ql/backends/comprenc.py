@@ -274,8 +274,9 @@ class ComprencBackend(AbstractBackend):
             encrypt_fh(fh, buf, data_key, len_=len_)
             buf.seek(0)
             fh = buf
+            len_ = None
 
-        return self.backend.write_fh(key, fh, meta_raw)
+        return self.backend.write_fh(key, fh, meta_raw, len_=len_)
 
     def contains(self, key):
         return self.backend.contains(key)
