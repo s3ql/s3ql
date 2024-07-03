@@ -1,3 +1,11 @@
+Unreleased Changes
+==================
+
+* Fixed a crash with `TypeError: CacheEntry.seek() takes 2 positional arguments
+  but 3 were given` when using neither encryption nor compression.
+
+* Fixed a crash with `s3ql.http.StateError: No pending requests`.
+
 S3QL 5.2.0 (2024-04-19)
 =======================
 
