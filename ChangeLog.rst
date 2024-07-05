@@ -1,5 +1,5 @@
-Unreleased Changes
-==================
+S3QL 3.2.1 (2024-07-05)
+======================
 
 * Fixed a crash with `TypeError: CacheEntry.seek() takes 2 positional arguments
   but 3 were given` when using neither encryption nor compression.
