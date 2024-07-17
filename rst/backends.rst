@@ -92,8 +92,8 @@ Amazon S3
 
 .. program:: s3_backend
 
-`Amazon S3 <http://aws.amazon.com/s3>`_ is the online storage service offered by `Amazon
-Web Services (AWS) <http://aws.amazon.com/>`_.  Buckets need to be created with the `AWS
+`Amazon S3 <https://aws.amazon.com/s3/>`_ is the online storage service offered by `Amazon
+Web Services (AWS) <https://aws.amazon.com/>`_.  Buckets need to be created with the `AWS
 Management Console <https://console.aws.amazon.com/s3/home>`_. For best performance, it is
 recommend to create the bucket in the geographically closest storage region.
 
@@ -294,9 +294,19 @@ The OpenStack backend accepts the following backend options:
    If your provider does not use hostname:port/v3/auth/tokens but instead has another identity URL, you can use this option.
    It allows to replace /v3/auth/tokens with another path like for example /identity/v3/auth/tokens
 
-.. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
-.. _OpenStack: http://www.openstack.org/
-.. _Swift: http://openstack.org/projects/storage/
+.. option:: ovh-quirks
+
+   OVH Cloud's OpenStack Swift offering is deployed behind a load balancer that does not fully comply with the HTTP 1.1
+   specification. This backend option will enable S3QL to recover from protocol errors that would otherwise result in
+   filesystem crashes.
+   The Swift backend will work with OVH Cloud's the OpenStack Swift container even when you do not provide this backend
+   option. But you should expect occasional filesystem crashes. To our knowledge other OpenStack Swift provider do
+   not need this option. Please be aware: Enabling this option might hide bugs in S3QL's OpenStack Swift client
+   implementation since we ignore some errors that otherwise would indicate bugs in S3QL.
+
+.. __: https://datatracker.ietf.org/doc/html/rfc2616#section-8.2.3
+.. _OpenStack: https://www.openstack.org/
+.. _Swift: https://docs.openstack.org/swift/latest/
 
 
 
@@ -323,7 +333,7 @@ topmost menu bar).
 The Rackspace backend accepts the same backend options as the
 :ref:`OpenStack backend <openstack_backend>`.
 
-.. _Rackspace: http://www.rackspace.com/
+.. _Rackspace: https://www.rackspace.com/
 
 
 S3 compatible
@@ -378,7 +388,7 @@ The S3 compatible backend accepts the following backend options:
    performance as object data will be transmitted to the server more
    than once in some circumstances.
 
-.. __: http://tools.ietf.org/html/rfc2616#section-8.2.3
+.. __: https://datatracker.ietf.org/doc/html/rfc2616#section-8.2.3
 
 .. option:: dumb-copy
 
@@ -400,7 +410,7 @@ The S3 compatible backend accepts the following backend options:
    part of the storage URL and must be specified separately.
    Defaults to `us-east-1`.
 
-.. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
+.. _`S3 COPY API`: https://docs.aws.amazon.com/AmazonS3/latest/API/API_CopyObject.html
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html
 
 
@@ -496,4 +506,4 @@ storage url `local:///home/john/s3ql`.
 
 The local backend does not accept any backend options.
 
-.. _sshfs: http://fuse.sourceforge.net/sshfs.html
+.. _sshfs: https://github.com/libfuse/sshfs

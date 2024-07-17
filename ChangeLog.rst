@@ -1,3 +1,9 @@
+UNRELEASED
+======================
+
+* Introduced new option `ovh-quirks` for Swift backend that prevents S3QL from crashing because of
+  OVH Cloud's non-spec-compliant load balancers.
+
 S3QL 3.2.1 (2024-07-05)
 ======================
 

@@ -21,6 +21,8 @@ from s3ql.http import (
     CaseInsensitiveDict,
     ConnectionClosed,
     HTTPConnection,
+    UnsupportedResponse,
+    StateError,
     is_temp_network_error,
 )
 
@@ -55,6 +57,7 @@ class Backend(AbstractBackend):
         'tcp-timeout',
         'disable-expect100',
         'no-feature-detection',
+        'ovh-quirks',
     }
 
     _add_meta_headers = s3c.Backend._add_meta_headers
@@ -157,6 +160,36 @@ class Backend(AbstractBackend):
         ):
             return True
 
+        # OVH Cloud's load balancer will send unsolicited 408 Request Timeout responses when a connection is opened
+        # but the connection gets not used immediately – or when a connection gets stale after some requests.
+        # HTTP 1.1 specification compliant servers just terminate the TCP connection in this case
+        # without an unsolicited response.
+        # We do not expect (and thus read()) this response until we next want to use the connection. This results
+        # in a 'Previous response not read completely' StateError.
+        # Unfortunately we cannot distinguish between S3QL bugs and HTTP server bugs in this case.
+        # This workaround will hide S3QL client bugs where we forget to read all of an HTTP response.
+        elif (
+            self.options.get('ovh-quirks', False)
+            and isinstance(exc, StateError)
+            and 'Previous response not read completely' in str(exc)
+        ):
+            self.conn.disconnect()
+            log.error('[ovh-quirks] Server sent unsolicited response (protocol error).')
+            return True
+
+        # Another OVH Cloud load balancer quirk. Some HTTP errors (503) are send without proper content length
+        # information. We cannot use the connection anymore since we do not know when the current response ends and the
+        # next begins.
+        # This is an HTTP 1.1 specification violation. We will loudly complain but retry nonetheless.
+        elif (
+            self.options.get('ovh-quirks', False)
+            and isinstance(exc, UnsupportedResponse)
+            and ('No content-length and no chunked encoding' in str(exc))
+        ):
+            self.conn.disconnect()
+            log.error('[ovh-quirks] Server sent response without content length (protocol error).')
+            return True
+
         return False
 
     def _get_conn(self):
@@ -207,8 +240,8 @@ class Backend(AbstractBackend):
                     # fall through to scheme used for authentication
                     pass
 
-                # mock server can only handle one connection at a time
-                # so we explicitly disconnect this connection before
+                # Mock server can only handle one connection at a time.
+                # We explicitly disconnect this connection before
                 # opening the feature detection connection
                 # (mock server handles both - storage and authentication)
                 conn.disconnect()

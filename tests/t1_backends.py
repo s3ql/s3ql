@@ -36,7 +36,7 @@ from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
-from s3ql.http import ConnectionClosed
+from s3ql.http import ConnectionClosed, UnsupportedResponse
 
 log = logging.getLogger(__name__)
 empty_set = set()
@@ -1041,3 +1041,41 @@ def test_conn_abort(backend, monkeypatch):
 
     enable_temp_fail(backend)
     assert backend[key] == data
+
+
+@pytest.mark.with_backend('swift/raw', require_mock_server=True)
+@pytest.mark.parametrize("quirks", (False, True))
+def test_ovh_quirk_no_content_length(backend, monkeypatch, quirks):
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch request handler
+    handler_class = mock_server.BasicSwiftRequestHandler
+
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
+        count[0] += 1
+        if count[0] >= 3:
+            return real_DELETE(self)
+        content = "I'm a proxy, and I messed up!".encode('utf-8')
+        self.send_response(502, "Bad Gateway")
+        self.send_header("Content-Type", 'text/plain; charset="utf-8"')
+        # missing content length on purpose
+        # self.send_header("Content-Length", str(len(content)))
+        self.end_headers()
+        if self.command != 'HEAD':
+            self.wfile.write(content)
+
+    monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
+
+    enable_temp_fail(backend)
+
+    if quirks:
+        backend.options['ovh-quirks'] = True
+        with assert_logs(
+            r'Server sent response without content length', level=logging.ERROR, count=2
+        ):
+            backend.delete(key)
+    else:
+        with pytest.raises(UnsupportedResponse, match=r'No content-length and no chunked encoding'):
+            backend.delete(key)
