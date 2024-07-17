@@ -36,7 +36,7 @@ from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
 from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
-from s3ql.http import ConnectionClosed, UnsupportedResponse
+from s3ql.http import ConnectionClosed, UnsupportedResponse, StateError, HTTPConnection
 
 log = logging.getLogger(__name__)
 empty_set = set()
@@ -1044,8 +1044,8 @@ def test_conn_abort(backend, monkeypatch):
 
 
 @pytest.mark.with_backend('swift/raw', require_mock_server=True)
-@pytest.mark.parametrize("quirks", (False, True))
-def test_ovh_quirk_no_content_length(backend, monkeypatch, quirks):
+@pytest.mark.parametrize("quirk", (False, True))
+def test_ovh_quirk_no_content_length(backend, monkeypatch, quirk):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     backend[key] = value
@@ -1070,7 +1070,7 @@ def test_ovh_quirk_no_content_length(backend, monkeypatch, quirks):
 
     enable_temp_fail(backend)
 
-    if quirks:
+    if quirk:
         backend.options['ovh-quirks'] = True
         with assert_logs(
             r'Server sent response without content length', level=logging.ERROR, count=2
@@ -1079,3 +1079,32 @@ def test_ovh_quirk_no_content_length(backend, monkeypatch, quirks):
     else:
         with pytest.raises(UnsupportedResponse, match=r'No content-length and no chunked encoding'):
             backend.delete(key)
+
+
+@pytest.mark.with_backend('swift/raw', require_mock_server=True)
+@pytest.mark.parametrize("quirk", (False, True))
+def test_ovh_quirk_unsolicited_response(backend, monkeypatch, quirk):
+    enable_temp_fail(backend)
+
+    value = b'hello there, let us see whats going on'
+    key = 'quote'
+    backend[key] = value
+
+    # Monkeypatch read_response
+    def _setup_read(
+        self, method, status, header, real_setup_read=HTTPConnection._setup_read, count=[0]
+    ):
+        count[0] += 1
+        if count[0] <= 2:
+            raise StateError('Previous response not read completely')
+        return real_setup_read(self, method, status, header)
+
+    monkeypatch.setattr(HTTPConnection, '_setup_read', _setup_read)
+
+    if quirk:
+        backend.options['ovh-quirks'] = True
+        with assert_logs(r'Server sent unsolicited response', level=logging.ERROR, count=2):
+            backend.fetch(key)
+    else:
+        with pytest.raises(StateError, match=r'Previous response not read completely'):
+            backend.fetch(key)
