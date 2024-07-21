@@ -866,12 +866,19 @@ class HTTPConnection:
 
         if will_close:
             log.debug('no content-length, will read until EOF')
-            self._in_remaining = READ_UNTIL_EOF
-            return None
-
-        log.debug('no content length and no chunked encoding, will raise on read')
-        self._encoding = UnsupportedResponse('No content-length and no chunked encoding')
-        self._in_remaining = RESPONSE_BODY_ERROR
+        else:
+            log.warning(
+                '%s:%d sent response with missing content-length header. This is not HTTP/1.1 '
+                'specification compliant but we will ignore this error. Response headers: %s',
+                self.hostname,
+                self.port,
+                header,
+                extra={'rate_limit': 60},
+            )
+            # correct the connection header for library users (HTTPConnection does not need it)
+            del header['Connection']
+            header['Connection'] = 'close'
+        self._in_remaining = READ_UNTIL_EOF
         return None
 
     async def _co_read_status(self):
@@ -883,7 +890,7 @@ class HTTPConnection:
         try:
             line = await self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
         except _ChunkTooLong:
-            raise InvalidResponse('server send ridicously long status line')
+            raise InvalidResponse('server send ridiculously long status line')
 
         try:
             version, status, reason = line.split(None, 2)
@@ -927,7 +934,7 @@ class HTTPConnection:
         try:
             hstring = await self._co_readstr_until(b'\r\n\r\n', MAX_HEADER_SIZE)
         except _ChunkTooLong:
-            raise InvalidResponse('server sent ridicously long header')
+            raise InvalidResponse('server sent ridiculously long header')
 
         log.debug('done (%d characters)', len(hstring))
         return hstring
@@ -1507,8 +1514,8 @@ class CaseInsensitiveDict(MutableMapping):
 
     All keys are expected to be strings. The structure remembers the case of the
     last key to be set, and :meth:`!iter`, :meth:`!keys` and :meth:`!items` will
-    contain case-sensitive keys. However, querying and contains testing is case
-    insensitive::
+    contain case-sensitive keys. However, querying and contains testing is
+    case-insensitive::
 
         cid = CaseInsensitiveDict()
         cid['Accept'] = 'application/json'
