@@ -341,6 +341,14 @@ can be an arbitrary prefix that will be prepended to all object names
 used by S3QL. This allows you to store several S3QL file systems in
 the same bucket.
 
+`s3c://` authenticates API requests using AWS V2 signatures, which are
+deprecated by AWS but still accepted by many S3 compatible services.
+
+`s3c4://` denotes a variant of this backend that works the same
+but uses AWS V4 signatures for request authentication instead: ::
+
+   s3c4://<hostname>:<port>/<bucketname>/<prefix>
+
 The S3 compatible backend accepts the following backend options:
 
 .. option:: no-ssl
@@ -384,6 +392,13 @@ The S3 compatible backend accepts the following backend options:
    completely and successfully carried out. Using this option may be
    necessary if your storage server does not return a valid response
    body for a successful copy operation.
+
+.. option:: sig-region=<region>
+
+   For `s3c4://` variant only: Region to use for calculating V4
+   request signatures. Contrary to S3, the region is not a defined 
+   part of the storage URL and must be specified separately.
+   Defaults to `us-east-1`.
 
 .. _`S3 COPY API`: http://docs.aws.amazon.com/AmazonS3/latest/API/RESTObjectCOPY.html
 .. __: https://doc.s3.amazonaws.com/proposals/copy.html

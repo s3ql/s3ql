@@ -61,7 +61,19 @@ def sqlite3_log(errcode, message):
         log.warning(f'sqlite3: {message} ({errstr})')
 
 
-apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+try:
+    apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+except apsw.MisuseError:
+    import sys
+
+    print(
+        "Unable to set SQLITE3 log handler. Are you perhaps running S3QL from a launcher that ",
+        "itself uses SQLite and initializes it before loading S3QL (like pytest-coverage)? ",
+        "If so, upgrading to SQLite 3.42.0 should fix this issue",
+        file=sys.stderr,
+        sep="\n",
+    )
+    raise
 
 
 @dataclasses.dataclass
@@ -162,6 +174,12 @@ class Connection:
             'PRAGMA recursize_triggers = on',
             'PRAGMA temp_store = FILE',
             'PRAGMA legacy_file_format = off',
+            # Read performance decreases linearly with increasing WAL size, so we do not
+            # want the WAL to grow too much. However, every checkpointing operation requires
+            # fsync(), so we can speed up writes by having them as rarely as possible.
+            # The default value of 1000 pages (i.e, 4 MB) seems a little low, so increase
+            # to 32 MB. See https://github.com/s3ql/s3ql/issues/324 for discussion.
+            'PRAGMA wal_autocheckpoint = 8192',
         ):
             cur.execute(s)
 

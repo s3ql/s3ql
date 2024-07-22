@@ -6,7 +6,6 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from ast import Bytes
 import bz2
 import hashlib
 import hmac
@@ -32,7 +31,7 @@ HMAC_SIZE = 32
 crypto_backend = crypto_backends.default_backend()
 
 
-def sha256(s: Bytes) -> Bytes:
+def sha256(s: bytes) -> bytes:
     return hashlib.sha256(s).digest()
 
 
@@ -275,8 +274,9 @@ class ComprencBackend(AbstractBackend):
             encrypt_fh(fh, buf, data_key, len_=len_)
             buf.seek(0)
             fh = buf
+            len_ = None
 
-        return self.backend.write_fh(key, fh, meta_raw)
+        return self.backend.write_fh(key, fh, meta_raw, len_=len_)
 
     def contains(self, key):
         return self.backend.contains(key)

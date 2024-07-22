@@ -17,3 +17,4 @@ __pycache__/
 /.history
 /.vscode/launch.json
 /.idea/
+/venv/

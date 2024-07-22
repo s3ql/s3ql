@@ -292,6 +292,16 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             self.wfile.write(content)
 
 
+class S3C4RequestHandler(S3CRequestHandler):
+    '''Request Handler for s3c4 backend
+
+    Currently identical to S3CRequestHandler since mock request handlers
+    do not check request signatures.
+    '''
+
+    pass
+
+
 class BasicSwiftRequestHandler(S3CRequestHandler):
     '''A request handler implementing a subset of the OpenStack Swift Interface
 
@@ -569,6 +579,7 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
 #: corresponding storage urls
 handler_list = [
     (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
+    (S3C4RequestHandler, 's3c4://%(host)s:%(port)d/s3ql_test'),
     # Special syntax only for testing against mock server
     (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
     (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),

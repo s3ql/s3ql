@@ -515,8 +515,7 @@ class B2Backend(AbstractBackend):
             self.upload_connection = None
             raise
 
-        json_response = json.loads(response_body.decode('utf-8'))
-        return json_response
+        return len_
 
     def delete(self, key, force=False):
         log.debug('started with %s', key)

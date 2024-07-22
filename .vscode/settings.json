@@ -36,7 +36,7 @@
     },
     "[python]": {
         "editor.codeActionsOnSave": {
-            "source.organizeImports": true
+            "source.organizeImports": "explicit"
         },
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
@@ -45,5 +45,10 @@
         "s3ql.old/"
     ],
     "python.linting.mypyEnabled": false,
-    "black-formatter.importStrategy": "useBundled"
+    "black-formatter.importStrategy": "fromEnvironment",
+    "black-formatter.args": [
+        "--line-length=100",
+        "--skip-string-normalization",
+        "--required-version=23.3.0"
+    ]
 }
