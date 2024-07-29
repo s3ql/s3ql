@@ -1,4 +1,10 @@
-S3QL 3.2.1 (2024-07-05)
+UNRELEASED
+======================
+
+* Make S3QL's HTTP client library more forgiving when HTTP servers do not behave according to HTTP/1.1 specification.
+  This will make filesystems with OVHcloud's OpenStack Swift implementation more robust.
+
+S3QL 5.2.1 (2024-07-05)
 ======================
 
 * Fixed a crash with `TypeError: CacheEntry.seek() takes 2 positional arguments
