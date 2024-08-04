@@ -1,8 +1,12 @@
 UNRELEASED
 ======================
 
-* Make S3QL's HTTP client library more forgiving when HTTP servers do not behave according to HTTP/1.1 specification.
-  This will make filesystems with OVHcloud's OpenStack Swift implementation more robust.
+* Make S3QL's HTTP client library more forgiving when HTTP servers do not behave
+  according to HTTP/1.1 specification. This will make filesystems with
+  OVHcloud's OpenStack Swift implementation more robust.
+
+* Fix a bug where, on a temporary network error, S3QL would immediately retry
+  once and crash if not successful.
 
 S3QL 5.2.1 (2024-07-05)
 ======================

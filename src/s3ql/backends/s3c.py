@@ -146,9 +146,10 @@ class Backend(AbstractBackend):
 
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We probably can't use the connection anymore, so use this
-            # opportunity to reset it
-            self.conn.reset()
+            # We probably can't use the connection anymore, so disconnect (can't use reset, since
+            # this would immediately attempt to reconnect, circumventing retry logic)
+            self.conn.disconnect()
+            return True
 
         if isinstance(
             exc,
@@ -165,9 +166,6 @@ class Backend(AbstractBackend):
         ):
             return True
 
-        elif is_temp_network_error(exc):
-            return True
-
         # In doubt, we retry on 5xx (Server error). However, there are some
         # codes where retry is definitely not desired. For 4xx (client error) we
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
@@ -177,14 +175,6 @@ class Backend(AbstractBackend):
             (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
             or exc.status in (408, 429)
         ):
-            return True
-
-        # Consider all SSL errors as temporary. There are a lot of bug
-        # reports from people where various SSL errors cause a crash
-        # but are actually just temporary. On the other hand, we have
-        # no information if this ever revealed a problem where retrying
-        # was not the right choice.
-        elif isinstance(exc, ssl.SSLError):
             return True
 
         return False
