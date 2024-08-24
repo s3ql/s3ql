@@ -212,7 +212,7 @@ class Operations(pyfuse3.Operations):
             'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
             (id_, off - 3),
         ) as res:
-            for (next_, name, cid_) in res:
+            for next_, name, cid_ in res:
                 if not pyfuse3.readdir_reply(
                     token, name, self.inodes[cid_].entry_attributes(), next_ + 3
                 ):
@@ -373,7 +373,7 @@ class Operations(pyfuse3.Operations):
                     'AND name_id > ? ORDER BY name_id',
                     (id_p, off),
                 ) as res:
-                    for (name_id, id_) in res:
+                    for name_id, id_ in res:
                         self.inodes[id_].locked = True
 
                         if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
@@ -428,7 +428,7 @@ class Operations(pyfuse3.Operations):
                 )
                 reinserted = False
 
-                for (name, _, id_) in query_chunk:
+                for name, _, id_ in query_chunk:
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         # First delete subdirectories
                         if not reinserted:
@@ -437,8 +437,10 @@ class Operations(pyfuse3.Operations):
                         queue.append(id_)
                     else:
                         if is_open:
-                            # Ideally, we should specify deleted=id_ here. See below for why we don't.
-                            pyfuse3.invalidate_entry_async(id_p, name, ignore_enoent=True)
+                            # This may fail with ENOTEMPTY in rare circumstances. See below for details.
+                            pyfuse3.invalidate_entry_async(
+                                id_p, name, deleted=id_, ignore_enoent=True
+                            )
                         await self._remove(id_p, name, id_, force=True)
                     processed += 1
 
@@ -455,13 +457,14 @@ class Operations(pyfuse3.Operations):
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
-            # Ideally, we should specify deleted=id0 here so that inotify watchers are informed.
-            # However, this fails if the FORGET requests for entries underneath a directory have not
-            # yet been processed. So perhaps we should also defer the physical removal (update of
-            # the DB tables) until this has happened? In either case, this is tricky because there
-            # is no easy way to check when all the FORGET requires have arrived since we no longer
-            # know what used to be in the directory.
-            pyfuse3.invalidate_entry_async(id_p0, name0, ignore_enoent=True)
+            # This may fail with ENOTEMPTY if the control file has been looked up underneath this
+            # path (same for the invalidate_entry_call_async above). In normal operation this should
+            # be rare, since the control file is not included in readdir() output and only S3QL
+            # tools know about its existence. We could preemtively run invalidate_entry_async() for
+            # the control file whenever we run it for a directory, but that would still leave a
+            # window in which the file could be looked up again and would also impose a performance
+            # penalty for something that is exceedingly rare. Tracked in https://github.com/s3ql/s3ql/issues/319.
+            pyfuse3.invalidate_entry_async(id_p0, name0, deleted=id0, ignore_enoent=True)
         await self._remove(id_p0, name0, id0, force=True)
 
         await self.forget([(id0, 1)])
@@ -514,8 +517,7 @@ class Operations(pyfuse3.Operations):
                     'AND name_id > ? ORDER BY name_id',
                     (src_id, off),
                 ) as res:
-                    for (name_id, id_) in res:
-
+                    for name_id, id_ in res:
                         # Make sure that all blocks are in the database
                         if id_ in self.open_inodes:
                             await self.cache.start_flush(id_)
@@ -803,7 +805,6 @@ class Operations(pyfuse3.Operations):
         inode_p_new.ctime_ns = now_ns
 
     def _replace(self, id_p_old, name_old, id_p_new, name_new, id_old, id_new):
-
         now_ns = time_ns()
 
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
@@ -1281,7 +1282,7 @@ class Operations(pyfuse3.Operations):
     async def forget(self, forget_list):
         log.debug('started with %s', forget_list)
 
-        for (id_, nlookup) in forget_list:
+        for id_, nlookup in forget_list:
             self.open_inodes[id_] -= nlookup
 
             if self.open_inodes[id_] == 0:

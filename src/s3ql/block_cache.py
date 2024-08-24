@@ -86,8 +86,11 @@ class CacheEntry:
     def flush(self):
         self.fh.flush()
 
-    def seek(self, off):
-        if self.pos != off:
+    def seek(self, off, whence=None):
+        if whence is not None:
+            self.fh.seek(off, whence)
+            self.pos = self.fh.tell()
+        elif self.pos != off:
             self.fh.seek(off)
             self.pos = off
 
@@ -191,6 +194,7 @@ class BlockCache:
         # Will be initialized once threads are available
         self.to_upload = None
         self.to_remove = None
+        self.trio_token = None
 
         if os.path.exists(self.path):
             self.load_cache()
@@ -286,18 +290,21 @@ class BlockCache:
             t.join()
 
         assert len(self.in_transit) == 0
-        try:
-            while self.to_remove.get_nowait() is QuitSentinel:
+        # in an error condition destroy() may be called before init()
+        if self.to_remove is not None:
+            try:
+                while self.to_remove.get_nowait() is QuitSentinel:
+                    pass
+            except QueueEmpty:
                 pass
-        except QueueEmpty:
-            pass
-        else:
-            log.error('Could not complete object removals, no removal threads left alive')
+            else:
+                log.error('Could not complete object removals, no removal threads left alive')
 
         self.to_upload = None
         self.to_remove = None
-        self.upload_threads = None
-        self.removal_threads = None
+        self.trio_token = None
+        self.upload_threads = []
+        self.removal_threads = []
 
         if not keep_cache:
             os.rmdir(self.path)

@@ -258,7 +258,6 @@ class ArgumentParser(argparse.ArgumentParser):
         return super().add_subparsers(**kw)
 
     def _read_authinfo(self, path, storage_url):
-
         ini_config = configparser.ConfigParser()
         if os.path.isfile(path):
             mode = os.stat(path).st_mode
@@ -272,13 +271,12 @@ class ArgumentParser(argparse.ArgumentParser):
             if not pattern or not storage_url.startswith(pattern):
                 continue
 
-            for (key, val) in ini_config[section].items():
+            for key, val in ini_config[section].items():
                 if key != 'storage-url':
                     merged[key] = val
         return merged
 
     def parse_args(self, *args, **kwargs):
-
         try:
             options = super().parse_args(*args, **kwargs)
         except ArgumentError as exc:
@@ -377,7 +375,7 @@ def storage_url_type(s):
     # slash (even when using a prefix), but we can't do that now because it
     # would make file systems created without trailing slash inaccessible.
     if re.match(r'^(s3|gs)://[^/]+$', s) or re.match(
-        r'^(s3c|swift(ks)?|rackspace)://[^/]+/[^/]+$', s
+        r'^(s3c|s3c4|swift(ks)?|rackspace)://[^/]+/[^/]+$', s
     ):
         s += '/'
 

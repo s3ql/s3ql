@@ -197,7 +197,6 @@ class B2Backend(AbstractBackend):
         )
 
         with HTTPConnection(authorize_host, 443, ssl_context=self.ssl_context) as connection:
-
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
@@ -469,14 +468,13 @@ class B2Backend(AbstractBackend):
 
     @retry
     def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
-
         headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
 
         self._add_b2_metadata_to_headers(headers, metadata)
 
-        key_with_prefix = self.backend._get_key_with_prefix(self.key)
+        key_with_prefix = self._get_key_with_prefix(key)
         conn = self._get_upload_conn()
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
@@ -493,7 +491,7 @@ class B2Backend(AbstractBackend):
                 'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
             )
             copyfh(fh, conn, len_=len_, update=sha1.update)
-            conn.write(sha1.hexdigest())
+            conn.write(sha1.hexdigest().encode())
 
             response = conn.read_response()
             response_body = conn.readall()
@@ -517,26 +515,28 @@ class B2Backend(AbstractBackend):
             self.upload_connection = None
             raise
 
-        json_response = json.loads(response_body.decode('utf-8'))
-        return json_response
+        return len_
 
+    # note that delete() ignores missing file errors, the same as s3c::delete()
     def delete(self, key, force=False):
         log.debug('started with %s', key)
+        try:
+            if self.disable_versions:
+                file_id, file_name = self._get_file_id_and_name(key)
+                file_ids = [{'fileName': file_name, 'fileId': file_id}]
+            else:
+                file_ids = self._list_file_versions(key)
 
-        if self.disable_versions:
-            file_id, file_name = self._get_file_id_and_name(key)
-            file_ids = [{'fileName': file_name, 'fileId': file_id}]
-        else:
-            file_ids = self._list_file_versions(key)
-
-        if not file_ids:
-            raise NoSuchObject(key)
-
-        self._delete_file_ids(file_ids, force)
+            if file_ids:
+                self._delete_file_ids(file_ids, force)
+        # also catch and ignore NoSuchObject errors,
+        # from _get_file_id_and_name() --> _do_download_request()
+        except NoSuchObject:
+            pass
 
     @retry
     def _delete_file_ids(self, file_ids, force=False, is_retry=False):
-        for (i, file_id) in enumerate(file_ids):
+        for i, file_id in enumerate(file_ids):
             try:
                 self._delete_file_id(file_id['fileName'], file_id['fileId'], force or is_retry)
             except:
@@ -774,7 +774,7 @@ class B2Backend(AbstractBackend):
         meta = literal_eval('{ %s }' % buffer)
 
         # Decode bytes values
-        for (k, v) in meta.items():
+        for k, v in meta.items():
             if not isinstance(v, bytes):
                 continue
             try:

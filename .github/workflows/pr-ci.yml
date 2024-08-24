@@ -15,22 +15,30 @@ jobs:
   build:
     runs-on: '${{ matrix.os }}'
     strategy:
+      fail-fast: false
       matrix:
         os:
           - ubuntu-20.04
-          - ubuntu-latest
+          - ubuntu-22.04
+          - ubuntu-24.04
         deps: [ dist, latest ]
+        exclude:
+          # gets error 'Fatal Python error: Cannot recover from stack overflow.' in tests
+          - os: ubuntu-20.04
+            deps: latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
       - run: 'sudo apt-get update'
+      - run: python3 -m venv venv --system-site-packages
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
-      - run: python3 setup.py build_cython
-      - run: python3 setup.py build_ext --inplace
-      - run: python3 -m pytest -r s tests/
-      - run: ./build_docs.sh
+      - run: venv/bin/python setup.py build_cython
+      - run: venv/bin/python setup.py build_ext --inplace
+      - run: venv/bin/python -m pytest -r s tests/
+      - run: venv/bin/pip install sphinx
+      - run: '. venv/bin/activate && ./build_docs.sh'
   check-style:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - run: sudo python3 -m pip install "black == 22.3.0"
-      - run: black --line-length=100 --skip-string-normalization --check --diff --color --required-version 22.3.0 .
+      - uses: actions/checkout@v4
+      - run: sudo python3 -m pip install "black == 23.3.0"
+      - run: black --line-length=100 --skip-string-normalization --check --diff --color --required-version 23.3.0 .

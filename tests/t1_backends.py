@@ -92,7 +92,7 @@ def _get_backend_info():
         info.append(bi)
 
     # Backends talking to local mock servers
-    for (request_handler, storage_url) in mock_server.handler_list:
+    for request_handler, storage_url in mock_server.handler_list:
         name = re.match(r'^([a-zA-Z0-9]+)://', storage_url).group(1)
         bi = Namespace()
         bi.name = 'mock-' + name
@@ -314,7 +314,7 @@ def test_readinto_write_fh(backend: AbstractBackend):
     assert backend.lookup(key) == metadata
 
 
-@pytest.mark.with_backend('*/{raw,aes+zlib}')
+@pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
 def test_write_fh_partial(backend: AbstractBackend):
     key = newname()
     metadata = {'jimmy': 'jups@42'}
@@ -328,6 +328,22 @@ def test_write_fh_partial(backend: AbstractBackend):
     backend.readinto_fh(key, buf2)
 
     assert buf2.getvalue() == data[10 : 10 + 20]
+
+
+@pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
+def test_write_fh_off(backend: AbstractBackend):
+    key = newname()
+    metadata = {'jimmy': 'jups@42'}
+    data = (''.join(str(x) for x in range(100))).encode()
+    buf = BytesIO(data)
+
+    buf.seek(10)
+    assert backend.write_fh(key, buf, metadata) > 0
+
+    buf2 = BytesIO()
+    backend.readinto_fh(key, buf2)
+
+    assert buf2.getvalue() == data[10:]
 
 
 @pytest.mark.with_backend('swift/raw')
@@ -599,7 +615,7 @@ def test_corrupted_get(backend, monkeypatch):
         assert backend[key] == value
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_corrupted_meta(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
@@ -625,7 +641,7 @@ def test_corrupted_meta(backend, monkeypatch):
         assert backend[key] == value
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_corrupted_put(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
@@ -651,7 +667,7 @@ def test_corrupted_put(backend, monkeypatch):
     assert backend[key] == value
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_get_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
@@ -674,7 +690,7 @@ def test_get_s3error(backend, monkeypatch):
     assert backend[key] == value
 
 
-@pytest.mark.with_backend('s3c/{raw,aes+zlib}', require_mock_server=True)
+@pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_head_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'

@@ -23,7 +23,6 @@ from s3ql.http import (
     HTTPConnection,
     is_temp_network_error,
 )
-from packaging.version import Version
 
 from s3ql.common import copyfh
 
@@ -454,12 +453,11 @@ class Backend(AbstractBackend):
         off = fh.tell()
         if len_ is None:
             fh.seek(0, os.SEEK_END)
-            len_ = fh.tell()
+            len_ = fh.tell() - off
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
     def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
-
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 
@@ -680,7 +678,6 @@ class Backend(AbstractBackend):
 
     @retry
     def _list_page(self, prefix, page_token=None, batch_size=1000):
-
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
         query_string = {'prefix': prefix, 'limit': str(batch_size), 'format': 'json'}
@@ -772,10 +769,6 @@ class Backend(AbstractBackend):
 
                 log.debug('%s:%s/info returns %s', hostname, port, info)
 
-                swift_version_string = swift_info.get('version', None)
-                if swift_version_string and Version(swift_version_string) >= Version('2.8'):
-                    detected_features.has_copy = True
-
                 # Default metadata value length constrain is 256 bytes
                 # but the provider could configure another value.
                 # We only decrease the chunk size since 255 is a big enough chunk size.
@@ -795,7 +788,7 @@ class Backend(AbstractBackend):
                     # We use max_failed_deletes instead of max_deletes_per_request
                     # because then we can be sure even when all our delete requests
                     # get rejected we get a complete error list back from the server.
-                    # If we would set the value higher, _delete_multi() would maybe
+                    # If we set the value higher, _delete_multi() would maybe
                     # delete some entries from the *keys* list that did not get
                     # deleted and would miss them in a retry.
                     detected_features.max_deletes = min(
@@ -862,18 +855,15 @@ class Features:
 
     This is a value object."""
 
-    __slots__ = ['has_copy', 'has_bulk_delete', 'max_deletes', 'max_meta_len']
+    __slots__ = ['has_bulk_delete', 'max_deletes', 'max_meta_len']
 
-    def __init__(self, has_copy=False, has_bulk_delete=False, max_deletes=1000, max_meta_len=255):
-        self.has_copy = has_copy
+    def __init__(self, has_bulk_delete=False, max_deletes=1000, max_meta_len=255):
         self.has_bulk_delete = has_bulk_delete
         self.max_deletes = max_deletes
         self.max_meta_len = max_meta_len
 
     def __str__(self):
         features = []
-        if self.has_copy:
-            features.append('copy via COPY')
         if self.has_bulk_delete:
             features.append('Bulk delete %d keys at a time' % self.max_deletes)
         features.append('maximum meta value length is %d bytes' % self.max_meta_len)

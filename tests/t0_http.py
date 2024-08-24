@@ -6,6 +6,7 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 
 This work can be distributed under the terms of the GNU GPLv3.
 '''
+import logging
 
 if __name__ == '__main__':
     import sys
@@ -28,10 +29,11 @@ import time
 from base64 import b64encode
 from http.server import BaseHTTPRequestHandler
 from io import TextIOWrapper
+from socket import socket
 
 import pytest
-import trio
 from pytest import raises as assert_raises
+from pytest_checklogs import assert_logs
 
 import s3ql.http
 from s3ql.http import (
@@ -44,7 +46,7 @@ from s3ql.http import (
     HostnameNotResolvable,
     HTTPConnection,
     StateError,
-    UnsupportedResponse,
+    InvalidResponse,
     _Buffer,
 )
 
@@ -162,7 +164,6 @@ def random_fh(request):
 
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
 def test_connect_ssl():
-
     ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
     ssl_context.verify_mode = ssl.CERT_REQUIRED
@@ -291,7 +292,6 @@ def test_connect_proxy(http_server, monkeypatch, test_port):
 
     # We don't *actually* want to establish SSL, that'd be
     # to complex for our mock server
-    monkeypatch.setattr('ssl.match_hostname', lambda x, y: True)
     conn = HTTPConnection(
         test_host,
         test_port,
@@ -324,7 +324,7 @@ def get_chunked_GET_handler(path, chunks, delay=None):
         self.send_header("Content-Type", 'application/octet-stream')
         self.send_header("Transfer-Encoding", 'chunked')
         self.end_headers()
-        for (i, chunk_size) in enumerate(chunks):
+        for i, chunk_size in enumerate(chunks):
             if i % 3 == 0 and delay:
                 time.sleep(delay * 1e-3)
             self.wfile.write(('%x\r\n' % chunk_size).encode('us-ascii'))
@@ -378,13 +378,11 @@ async def test_blocking_send(conn, random_fh, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    for count in itertools.count():
-        with trio.move_on_after(1) as ctx:
+    with pytest.raises(ConnectionTimedOut):
+        for count in itertools.count():
             await conn.co_send_request('GET', path, body=random_fh.read(in_len))
-        if ctx.cancelled_caught:
-            break
-        elif count > 1000000:
-            pytest.fail("no blocking even after %d requests!?" % count)
+            if count > 1000000:
+                pytest.fail("no blocking even after %d requests!?" % count)
 
     # Read responses
     for _ in range(count):
@@ -547,6 +545,33 @@ def test_conn_close_1(conn, monkeypatch):
         conn.read_response()
 
 
+def test_conn_close_2(conn, monkeypatch):
+    data_size = 500
+    conn._rbuf = _Buffer(int(4 / 5 * data_size))
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", 'application/octet-stream')
+        self.end_headers()
+        self.wfile.write(DUMMY_DATA[:data_size])
+        self.rfile.close()
+        self.wfile.close()
+
+    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
+
+    conn.send_request('GET', '/whatever')
+    with assert_logs(
+        r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
+    ):
+        resp = conn.read_response()
+    assert resp.status == 200
+    assert conn.readall() == DUMMY_DATA[:data_size]
+
+    with pytest.raises(ConnectionClosed):
+        conn.send_request('GET', '/whatever')
+        conn.read_response()
+
+
 def test_conn_close_3(conn, monkeypatch):
     # Server keeps reading
     data_size = 500
@@ -567,8 +592,9 @@ def test_conn_close_3(conn, monkeypatch):
     assert resp.status == 200
     assert conn.readall() == DUMMY_DATA[:data_size]
 
-    conn.send_request('GET', '/whatever')
-    assert_raises(ConnectionClosed, conn.read_response)
+    with pytest.raises(ConnectionClosed):
+        conn.send_request('GET', '/whatever')
+        conn.read_response()
 
 
 def test_conn_close_4(conn, monkeypatch):
@@ -697,6 +723,7 @@ def test_read_raw(conn, monkeypatch):
         assert self.path == path
         self.send_response(200)
         self.send_header("Content-Type", 'application/octet-stream')
+        self.send_header("Content-Length", 'bogus')
         self.end_headers()
         self.wfile.write(b'body data')
         self.wfile.close()
@@ -705,10 +732,40 @@ def test_read_raw(conn, monkeypatch):
     conn.send_request('GET', path)
     resp = conn.read_response()
     assert resp.status == 200
-    with pytest.raises(UnsupportedResponse):
+    with pytest.raises(InvalidResponse):
         conn.readall()
     assert conn.read_raw(512) == b'body data'
     assert conn.read_raw(512) == b''
+
+
+def test_missing_content_length(conn, monkeypatch):
+    """
+    This tests the fallback when the content-length header is missing
+    and that the connection behaves like a connection: close header was there.
+    The test test_conn_close_2 above in contrast focuses on the special case when
+    the content-length header is missing AND the server actively closes the connection.
+    """
+    path = '/ooops'
+
+    def do_GET(self):
+        assert self.path == path
+        self.send_response(200)
+        self.send_header("Content-Type", 'application/octet-stream')
+        self.send_header("Connection ", 'keep-alive')
+        self.end_headers()
+        self.wfile.write(b'body data')
+        self.wfile.close()
+
+    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
+    conn.send_request('GET', path)
+    with assert_logs(
+        r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
+    ):
+        resp = conn.read_response()
+    assert resp.status == 200
+    assert resp.headers['Connection'] == 'close'
+    assert resp.headers['Content-Length'] is None
+    assert conn.readall() == b'body data'
 
 
 def test_abort_read(conn, monkeypatch):
@@ -810,7 +867,6 @@ def test_put_separate(conn):
 
 
 def test_100cont(conn, monkeypatch):
-
     path = '/check_this_out'
 
     def handle_expect_100(self):
@@ -1072,11 +1128,49 @@ def test_send_timeout(conn, monkeypatch, random_fh):
             conn.write(random_fh.read(min(len_, 16 * 1024)))
 
 
+@pytest.mark.no_ssl
+def test_request_timeout(conn, monkeypatch):
+    body = b"""<html><body><h1>408 Request Time-out</h1>
+Your browser didn't send a complete request in time.
+</body></html>"""
+
+    def recv_into(self, buffer, nbytes=0, flags=0, count=[0]):
+        count[0] += 1
+        if count[0] == 1:
+            r = (
+                b"HTTP/1.0 408 Request Time-out\r\nCache-Control: no-cache\r\n"
+                + b"Connection: close\r\nContent-Type: text/html\r\n\r\n%s" % body
+            )
+            buffer[0 : len(r)] = r
+            return len(r)
+        return 0
+
+    monkeypatch.setattr(socket, 'recv_into', recv_into)
+
+    conn.send_request('GET', '/send_10_bytes')
+    response = conn.read_response()
+    assert response.status == 408
+    assert conn.readall() == body
+    assert not conn.response_pending()
+
+
+@pytest.mark.skipif(no_internet_access, reason='no internet access available')
+def test_request_timeout_two():
+    conn = HTTPConnection('www.ovhcloud.com', 80)
+    conn.connect()
+    try:
+        time.sleep(12)  # timeout is 10 seconds
+        conn.send_request('GET', '/')
+        response = conn.read_response()
+        assert response.status == 408
+    finally:
+        conn.disconnect()
+
+
 DUMMY_DATA = ','.join(str(x) for x in range(10000)).encode()
 
 
 class MockRequestHandler(BaseHTTPRequestHandler):
-
     server_version = "MockHTTP"
     protocol_version = 'HTTP/1.1'
 

@@ -2,6 +2,13 @@
 
 set -e
 
+PIP="sudo python3 -m pip"
+PIP_ARGS=("--upgrade" "--upgrade-strategy" "eager")
+if [ -f venv/bin/activate ]; then
+  . venv/bin/activate
+  PIP="pip"
+fi
+
 os="$(lsb_release --short --id)-$(lsb_release --short --release)"
 
 sudo apt install -y \
@@ -31,14 +38,12 @@ sudo ldconfig
 # Upgrading cryptography results in an AttributeError in OpenSSL/crypto.py. My
 # guess is that this is due to a non-declared version dependency on OpenSSL.
 if [ "${os}" = "Ubuntu-20.04" ]; then
-    sudo apt install -y \
-         python3-cryptography
+    sudo apt install -y python3-cryptography
 else
-    sudo python3 -m pip install --upgrade --upgrade-strategy eager \
-         cryptography
+    $PIP install "${PIP_ARGS[@]}" cryptography
 fi
 
-sudo python3 -m pip install --upgrade --upgrade-strategy eager \
+$PIP install "${PIP_ARGS[@]}" \
      apsw \
      attrs \
      cython \
@@ -49,10 +54,9 @@ sudo python3 -m pip install --upgrade --upgrade-strategy eager \
      pytest \
      pytest_trio \
      requests \
-     sphinx \
      trio
 
 echo "Current libsqlite3-dev version: $(dpkg-query --show --showformat='${Version}' libsqlite3-dev)"
 
 echo "Installed PIP versions:"
-python3 -m pip freeze
+$PIP freeze

@@ -88,12 +88,11 @@ RETRY_TIMEOUT = 60 * 60 * 24
 def retry(method, _tracker=RateTracker(60)):
     '''Wrap *method* for retrying on some exceptions
 
-    If *method* raises an exception for which the instance's
-    `is_temp_failure(exc)` method is true, the *method* is called again at
-    increasing intervals. If this persists for more than `RETRY_TIMEOUT`
-    seconds, the most-recently caught exception is re-raised. If the
-    method defines a keyword parameter *is_retry*, then this parameter
-    will be set to True whenever the function is retried.
+    If *method* raises an exception for which the instance's `is_temp_failure(exc)` method is true,
+    the *method* is called again at increasing intervals. If this persists for more than
+    `RETRY_TIMEOUT` seconds, the most-recently caught exception is re-raised within a TimeoutError.
+    If the method defines a keyword parameter *is_retry*, then this parameter will be set to True
+    whenever the function is retried.
     '''
 
     if inspect.isgeneratorfunction(method):
@@ -138,7 +137,7 @@ def retry(method, _tracker=RateTracker(60)):
                         method.__name__,
                         exc,
                     )
-                    raise
+                    raise TimeoutError() from exc
 
                 retries += 1
                 if retries <= 2:

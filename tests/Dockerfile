@@ -1,12 +1,12 @@
 # This is not a general purpose Dockerfile
 # It's tailored for running tests and building documentation.
 
-FROM ubuntu:focal AS build
+FROM ubuntu:jammy AS build
 ENV DEBIAN_FRONTEND noninteractive
 
 RUN apt-get update \
  && apt-get dist-upgrade -y \
- && apt-get install -y fakeroot curl dpkg-dev build-essential manpages pbuilder aptitude rsync \
+ && apt-get install -y lsb-release sudo curl build-essential manpages \
                        git libbz2-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev \
                        zlib1g-dev libsqlite3-dev wget curl llvm libncurses5-dev xz-utils libxml2-dev libxmlsec1-dev liblzma-dev \
                        libsystemd-dev gcc psmisc pkg-config libattr1-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base \
@@ -17,7 +17,7 @@ RUN apt-get update \
  && pip install "setuptools >= 40.3.0"
 
 ADD tests/ci-prepare-latest.sh /ci-prepare-latest.sh
-RUN /ci-prepare-latest.sh ubuntu-20.04
+RUN /ci-prepare-latest.sh ubuntu-22.04
 
 ADD . /build
 WORKDIR /build

@@ -26,7 +26,7 @@ from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
-from typing import Optional, Union
+from typing import Union
 
 import trio
 
@@ -97,7 +97,6 @@ class HTTPResponse:
     '''
 
     def __init__(self, method, path, status, reason, headers, length=None):
-
         #: HTTP Method of the request this was response is associated with
         self.method = method
 
@@ -282,7 +281,6 @@ class _Buffer:
     __slots__ = ('d', 'b', 'e')
 
     def __init__(self, size):
-
         #: Holds the actual data
         self.d = bytearray(size)
 
@@ -354,7 +352,6 @@ class HTTPConnection:
     '''
 
     def __init__(self, hostname, port=None, ssl_context=None, proxy=None):
-
         if port is None:
             if ssl_context is None:
                 self.port = HTTP_PORT
@@ -406,9 +403,8 @@ class HTTPConnection:
         self._encoding = None
 
         #: If a regular `HTTPConnection` method is unable to send or receive data for more than
-        #: this period (in ms), it will raise `ConnectionTimedOut`. If zero, do not time out.
-        #: Coroutines are not affected by this attribute.
-        self._timeout_ms: Optional[int] = None
+        #: this period (in ms), it will raise `ConnectionTimedOut`.
+        self._timeout_ms: int = 24 * 60 * 60 * 1000
 
         #: Filehandler for tracing
         self.trace_fh = None
@@ -424,7 +420,7 @@ class HTTPConnection:
     @timeout.setter
     def timeout(self, value: Union[int, float, None]) -> None:
         if value is None:
-            self._timeout_ms = None
+            self._timeout_ms = 24 * 60 * 60 * 1000
         else:
             self._timeout_ms = int(value * 1000)
 
@@ -648,7 +644,10 @@ class HTTPConnection:
                     if not self._poll_send(self._timeout_ms):
                         raise ConnectionTimedOut('Timeout in send()')
                 else:
-                    await trio.lowlevel.wait_writable(self._sock)
+                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                        await trio.lowlevel.wait_writable(self._sock)
+                    if ctx.cancelled_caught:
+                        raise ConnectionTimedOut('Timeout in send()')
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
@@ -867,12 +866,19 @@ class HTTPConnection:
 
         if will_close:
             log.debug('no content-length, will read until EOF')
-            self._in_remaining = READ_UNTIL_EOF
-            return None
-
-        log.debug('no content length and no chunked encoding, will raise on read')
-        self._encoding = UnsupportedResponse('No content-length and no chunked encoding')
-        self._in_remaining = RESPONSE_BODY_ERROR
+        else:
+            log.warning(
+                '%s:%d sent response with missing content-length header. This is not HTTP/1.1 '
+                'specification compliant but we will ignore this error. Response headers: %s',
+                self.hostname,
+                self.port,
+                header,
+                extra={'rate_limit': 60},
+            )
+            # correct the connection header for library users (HTTPConnection does not need it)
+            del header['Connection']
+            header['Connection'] = 'close'
+        self._in_remaining = READ_UNTIL_EOF
         return None
 
     async def _co_read_status(self):
@@ -884,7 +890,7 @@ class HTTPConnection:
         try:
             line = await self._co_readstr_until(b'\r\n', MAX_LINE_SIZE)
         except _ChunkTooLong:
-            raise InvalidResponse('server send ridicously long status line')
+            raise InvalidResponse('server send ridiculously long status line')
 
         try:
             version, status, reason = line.split(None, 2)
@@ -928,7 +934,7 @@ class HTTPConnection:
         try:
             hstring = await self._co_readstr_until(b'\r\n\r\n', MAX_HEADER_SIZE)
         except _ChunkTooLong:
-            raise InvalidResponse('server sent ridicously long header')
+            raise InvalidResponse('server sent ridiculously long header')
 
         log.debug('done (%d characters)', len(hstring))
         return hstring
@@ -1048,7 +1054,10 @@ class HTTPConnection:
                     if not self._poll_recv(self._timeout_ms):
                         raise ConnectionTimedOut('Timeout in recv()')
                 else:
-                    await trio.lowlevel.wait_readable(self._sock)
+                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                        await trio.lowlevel.wait_readable(self._sock)
+                    if ctx.cancelled_caught:
+                        raise ConnectionTimedOut('Timeout in recv()')
             elif got_data == 0:
                 if self._in_remaining is READ_UNTIL_EOF:
                     log.debug('connection closed, %d bytes in buffer', len(rbuf))
@@ -1174,7 +1183,10 @@ class HTTPConnection:
                         if not self._poll_recv(self._timeout_ms):
                             raise ConnectionTimedOut('Timeout in recv()')
                     else:
-                        await trio.lowlevel.wait_readable(self._sock)
+                        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                            await trio.lowlevel.wait_readable(self._sock)
+                        if ctx.cancelled_caught:
+                            raise ConnectionTimedOut('Timeout in recv()')
                 elif res == 0:
                     raise ConnectionClosed('server closed connection')
                 else:
@@ -1247,7 +1259,10 @@ class HTTPConnection:
                     if not self._poll_recv(self._timeout_ms):
                         raise ConnectionTimedOut('Timeout in recv()')
                 else:
-                    await trio.lowlevel.wait_readable(self._sock)
+                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                        await trio.lowlevel.wait_readable(self._sock)
+                    if ctx.cancelled_caught:
+                        raise ConnectionTimedOut('Timeout in recv()')
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
 
@@ -1306,10 +1321,11 @@ class HTTPConnection:
     def reset(self):
         '''Reset HTTP connection
 
-        This method resets the status of the HTTP connection after an exception
-        has occurred. Any cached data and pending responses are discarded.
+        This method resets the status of the HTTP connection. Any cached data and pending responses
+        are discarded.
         '''
         self.disconnect()
+        self.connect()
 
     def disconnect(self):
         '''Close HTTP connection'''
@@ -1318,12 +1334,6 @@ class HTTPConnection:
         if self.trace_fh:
             self.trace_fh.close()
         if self._sock:
-            try:
-                self._sock.shutdown(socket.SHUT_RDWR)
-            except OSError:
-                # When called to reset after connection problems, socket
-                # may have shut down already.
-                pass
             self._sock.close()
             self._sock = None
             self._rbuf.clear()
@@ -1341,7 +1351,6 @@ class HTTPConnection:
 
 
 def _extend_HTTPConnection_docstrings():
-
     co_suffix = '\n\n' + textwrap.fill(
         'This method returns a coroutine. `.%s` is a regular method '
         'implementing the same functionality.',
@@ -1424,7 +1433,7 @@ def create_socket(address):
     # https://stackoverflow.com/questions/24855669/). Therefore, we try to resolve
     # "well-known" hosts to resolve the ambiguity.
 
-    for (hostname, port) in DNS_TEST_HOSTNAMES:
+    for hostname, port in DNS_TEST_HOSTNAMES:
         try:
             try_connect(lambda: socket.getaddrinfo(hostname, port), address[0])
         except HostnameNotResolvableOrDNSUnavailable:
@@ -1505,8 +1514,8 @@ class CaseInsensitiveDict(MutableMapping):
 
     All keys are expected to be strings. The structure remembers the case of the
     last key to be set, and :meth:`!iter`, :meth:`!keys` and :meth:`!items` will
-    contain case-sensitive keys. However, querying and contains testing is case
-    insensitive::
+    contain case-sensitive keys. However, querying and contains testing is
+    case-insensitive::
 
         cid = CaseInsensitiveDict()
         cid['Accept'] = 'application/json'

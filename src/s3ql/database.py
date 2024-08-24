@@ -61,7 +61,19 @@ def sqlite3_log(errcode, message):
         log.warning(f'sqlite3: {message} ({errstr})')
 
 
-apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+try:
+    apsw.config(apsw.SQLITE_CONFIG_LOG, sqlite3_log)
+except apsw.MisuseError:
+    import sys
+
+    print(
+        "Unable to set SQLITE3 log handler. Are you perhaps running S3QL from a launcher that ",
+        "itself uses SQLite and initializes it before loading S3QL (like pytest-coverage)? ",
+        "If so, upgrading to SQLite 3.42.0 should fix this issue",
+        file=sys.stderr,
+        sep="\n",
+    )
+    raise
 
 
 @dataclasses.dataclass
@@ -136,7 +148,11 @@ class Connection:
     def __init__(self, file_: str, blocksize: Optional[int] = None):
         if blocksize:
             sqlite3ext.set_blocksize(blocksize)
-            file_ = os.path.abspath(file_)
+
+            # Need to make sure that SQLite and the write tracker module agree on the canonical path
+            # of the file (otherwise write tracking will not be enabled).
+            file_ = os.path.realpath(file_)
+
             self.dirty_blocks = sqlite3ext.track_writes(file_)
             self.conn = apsw.Connection(file_, vfs=sqlite3ext.get_vfsname())
         else:
@@ -158,6 +174,12 @@ class Connection:
             'PRAGMA recursize_triggers = on',
             'PRAGMA temp_store = FILE',
             'PRAGMA legacy_file_format = off',
+            # Read performance decreases linearly with increasing WAL size, so we do not
+            # want the WAL to grow too much. However, every checkpointing operation requires
+            # fsync(), so we can speed up writes by having them as rarely as possible.
+            # The default value of 1000 pages (i.e, 4 MB) seems a little low, so increase
+            # to 32 MB. See https://github.com/s3ql/s3ql/issues/324 for discussion.
+            'PRAGMA wal_autocheckpoint = 8192',
         ):
             cur.execute(s)
 
@@ -503,7 +525,7 @@ def download_metadata(
     processed = 0
 
     with open(db_file, 'w+b', buffering=0) as fh:
-        for (blockno, candidates) in block_list.items():
+        for blockno, candidates in block_list.items():
             off = blockno * blocksize
             if off >= file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
@@ -590,14 +612,14 @@ def expire_objects(backend, versions_to_keep=32):
         # the index, need to subtract one (with one blocks, the max index is 0).
         max_blockno = math.ceil(params.db_size / blocksize) - 1
 
-        for (blockno, candidates) in block_list.items():
+        for blockno, candidates in block_list.items():
             log.debug('block %d has candidates %s', blockno, candidates)
             if blockno > max_blockno:
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
     # Remove what's no longer needed
-    for (blockno, candidates) in block_list.items():
+    for blockno, candidates in block_list.items():
         for seq_no in candidates:
             if seq_no in to_keep[blockno]:
                 continue

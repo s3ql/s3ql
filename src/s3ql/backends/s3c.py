@@ -146,9 +146,10 @@ class Backend(AbstractBackend):
 
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We probably can't use the connection anymore, so use this
-            # opportunity to reset it
-            self.conn.reset()
+            # We probably can't use the connection anymore, so disconnect (can't use reset, since
+            # this would immediately attempt to reconnect, circumventing retry logic)
+            self.conn.disconnect()
+            return True
 
         if isinstance(
             exc,
@@ -165,9 +166,6 @@ class Backend(AbstractBackend):
         ):
             return True
 
-        elif is_temp_network_error(exc):
-            return True
-
         # In doubt, we retry on 5xx (Server error). However, there are some
         # codes where retry is definitely not desired. For 4xx (client error) we
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
@@ -177,14 +175,6 @@ class Backend(AbstractBackend):
             (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
             or exc.status in (408, 429)
         ):
-            return True
-
-        # Consider all SSL errors as temporary. There are a lot of bug
-        # reports from people where various SSL errors cause a crash
-        # but are actually just temporary. On the other hand, we have
-        # no information if this ever revealed a problem where retrying
-        # was not the right choice.
-        elif isinstance(exc, ssl.SSLError):
             return True
 
         return False
@@ -257,7 +247,6 @@ class Backend(AbstractBackend):
 
     @retry
     def _list_page(self, prefix, page_token=None, batch_size=1000):
-
         # We can get at most 1000 keys at a time, so there's no need
         # to bother with streaming.
         query_string = {'prefix': prefix, 'max-keys': str(batch_size)}
@@ -390,12 +379,11 @@ class Backend(AbstractBackend):
         off = fh.tell()
         if len_ is None:
             fh.seek(0, os.SEEK_END)
-            len_ = fh.tell()
+            len_ = fh.tell() - off
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
     def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
-
         headers = CaseInsensitiveDict()
         headers.update(self._extra_put_headers)
         self._add_meta_headers(headers, metadata)
@@ -420,7 +408,6 @@ class Backend(AbstractBackend):
 
     # NOTE: ! This function is also used by the swift backend. !
     def _add_meta_headers(self, headers, metadata, chunksize=255):
-
         hdr_count = 0
         length = 0
         for key in metadata.keys():
@@ -782,7 +769,7 @@ class Backend(AbstractBackend):
         meta = literal_eval('{ %s }' % buf)
 
         # Decode bytes values
-        for (k, v) in meta.items():
+        for k, v in meta.items():
             if not isinstance(v, bytes):
                 continue
             try:

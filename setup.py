@@ -47,7 +47,6 @@ class pytest(TestCommand):
 
 
 def main():
-
     with open(os.path.join(basedir, 'README.rst'), 'r') as fh:
         long_desc = fh.read()
 
@@ -85,8 +84,6 @@ def main():
         'trio >= 0.15',
         'pyfuse3 >= 3.2.0, < 4.0',
     ]
-    if sys.version_info < (3, 7, 0):
-        required_pkgs.append('async_generator')
 
     setuptools.setup(
         name='s3ql',
@@ -116,6 +113,7 @@ def main():
                 ['src/s3ql/sqlite3ext.cpp'],
                 extra_compile_args=compile_args,
                 language='c++',
+                depends=['src/s3ql/_sqlite3ext.cpp'],
             ),
         ],
         data_files=[
@@ -145,6 +143,7 @@ def main():
         },
         install_requires=required_pkgs,
         tests_require=['pytest >= 3.7'],
+        python_requires='>=3.8',
         cmdclass={'upload_docs': upload_docs, 'build_cython': build_cython, 'pytest': pytest},
     )
 

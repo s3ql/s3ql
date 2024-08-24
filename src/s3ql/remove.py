@@ -63,8 +63,9 @@ def main(args=None):
         if os.path.ismount(name):
             raise QuietError('%s is a mount point.' % name)
 
-        ctrlfile = assert_fs_owner(name)
-        fstat_p = os.stat(os.path.dirname(os.path.abspath(name)))
+        parent = os.path.join(name, '..')
+        ctrlfile = assert_fs_owner(parent)
+        fstat_p = os.stat(parent)
 
         # Make sure that write cache is flushed
         pyfuse3.syncfs(name)
