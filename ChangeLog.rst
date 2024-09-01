@@ -1,5 +1,5 @@
-UNRELEASED
-======================
+S3QL 5.2.2 (2024-09-01)
+=======================
 
 * Make S3QL's HTTP client library more forgiving when HTTP servers do not behave
   according to HTTP/1.1 specification. This will make filesystems with
