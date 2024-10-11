@@ -2,7 +2,7 @@
 # It's tailored for running tests and building documentation.
 
 FROM ubuntu:jammy AS build
-ENV DEBIAN_FRONTEND noninteractive
+ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update \
  && apt-get dist-upgrade -y \
