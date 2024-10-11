@@ -40,5 +40,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo python3 -m pip install "black == 23.3.0"
-      - run: black --line-length=100 --skip-string-normalization --check --diff --color --required-version 23.3.0 .
+      - run: python3 -m venv venv
+      - run: venv/bin/pip install "black == 23.3.0"
+      - run: venv/bin/black --line-length=100 --skip-string-normalization --check --diff --color --required-version 23.3.0 .

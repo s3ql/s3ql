@@ -169,6 +169,13 @@ Git repository, a bit more effort is required. You'll also need:
 
 With these additional dependencies installed, S3QL can be build and
 tested as explained above under "Running S3QL commands directly".
+After installing the dependencies into the virtual environment,
+you need to execute::
+
+  venv/bin/python3 setup.py build_cython
+
+This step will generate the file ``src/s3ql/sqlite3ext.cpp``.
+It is necessary for the ``build_ext`` step.
 
 Note that when building from the Git repository, building and testing is done with several
 additional checks. This may cause compilation and/or tests to fail even though there are
