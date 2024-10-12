@@ -14,6 +14,12 @@ echo "Creating release tarball for ${TAG}..."
 
 git checkout -q "${TAG}"
 
+# check if we have a recent enough Cython version so that the release tarball is compatible with Python 3.12
+if ! python3 -c 'import sys; from Cython.Compiler.Version import version as cython_version; sys.exit(1) if tuple(map(int, (cython_version.split(".")[0:3]))) < (3, 0, 0) else sys.exit(0)'; then
+  printf "You need to install Cython >= 3.0.0. You have version %s installed\n" "$(python3 -c 'from Cython.Compiler.Version import version as cython_version; print(cython_version)')"
+  exit 1
+fi
+
 python3 setup.py build_cython build_ext --inplace
 ./build_docs.sh
 (cd doc/pdf && latexmk)
