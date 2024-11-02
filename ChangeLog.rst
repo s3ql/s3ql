@@ -1,8 +1,9 @@
-UNRELEASED
+S3QL 5.2.3 (2024-11-02)
 =======================
 
 * Make release tarballs compatible with Python 3.12 by using a newer Cython version
   to generate the necessary C++ extension.
+* Minor bugfixes and improvements (see git history for details)
 
 S3QL 5.2.2 (2024-09-01)
 =======================
