@@ -8,10 +8,10 @@
   signify/$P.sec`
   * `git add signify/*.pub`
   * Expire old release signing keys (keep one around just in case)
-* Update authors: `git log --all --pretty="format:%an <%aE>" | grep -v '<none@none>$' | sort -u >> AUTHORS`
+* Update authors: `git log --all --pretty="format:%an <%aE>" | grep -v '<none@none>$' | sort -u --ignore-case >> AUTHORS`
 * `git commit --all -m "Released $TAG"`
 * `git tag $TAG`
-* `./make_release.sh`
+* `PATH=~/lib/python-user-venv/bin:$PATH ./make_release.sh`
 * Test tarball:
   * `./setup.py build_ext --inplace`
   * `python3 -m pytest tests/`
