@@ -999,7 +999,7 @@ class Operations(pyfuse3.Operations):
             dedup_size,
             compr_size,
             self.db.get_size(),
-            *self.cache.get_usage()
+            *self.cache.get_usage(),
         )
 
     async def statfs(self, ctx, _cache=[]):
