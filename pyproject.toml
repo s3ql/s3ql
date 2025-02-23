@@ -35,10 +35,10 @@ dependencies = [
 ]
 
 [project.scripts]
-mkfs.s3ql = "s3ql.mkfs:main"
-fsck.s3ql = "s3ql.fsck:main"
-mount.s3ql = "s3ql.mount:main"
-umount.s3ql = "s3ql.umount:main"
+"mkfs.s3ql" = "s3ql.mkfs:main"
+"fsck.s3ql" = "s3ql.fsck:main"
+"mount.s3ql" = "s3ql.mount:main"
+"umount.s3ql" = "s3ql.umount:main"
 s3qlcp = "s3ql.cp:main"
 s3qlstat = "s3ql.statfs:main"
 s3qladm = "s3ql.adm:main"
