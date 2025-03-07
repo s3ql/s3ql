@@ -1,3 +1,9 @@
+UNRELEASED
+==========
+
+* Add `--fast` flag for fsck.s3ql. For now, this just skips the verification of
+  metadata backups.
+
 S3QL 5.2.3 (2024-11-02)
 =======================
 

@@ -1197,6 +1197,12 @@ def parse_args(args):
         default=False,
         help="Force use of remote metadata even when this would likely result in data loss.",
     )
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        default=False,
+        help="Run a faster, less thorough check.",
+    )
     options = parser.parse_args(args)
 
     return options
@@ -1218,7 +1224,10 @@ def main(args=None):
     backend = get_backend(options)
     atexit.register(backend.close)
 
-    log.info('Starting fsck of %s', options.storage_url)
+    if options.fast:
+        log.info('Starting fast fsck of %s', options.storage_url)
+    else:
+        log.info('Starting fsck of %s', options.storage_url)
 
     cachepath = options.cachepath
     db = None
@@ -1341,7 +1350,8 @@ def main(args=None):
         )
 
     # To detect bugs in S3QL, make sure we can correctly download the last few metadata snapshots.
-    verify_metadata_snapshots(backend, count=5, include_most_recent=check_current_metadata)
+    if not options.fast:
+        verify_metadata_snapshots(backend, count=5, include_most_recent=check_current_metadata)
 
     param.is_mounted = True
     param.seq_no += 1
