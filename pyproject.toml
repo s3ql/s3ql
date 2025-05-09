@@ -8,31 +8,42 @@ version = "5.3.0"
 description = "A full-featured file system for online data storage"
 readme = "README.rst"
 requires-python = ">=3.8"
-license = { text = "GPLv3" }
-authors = [
-    { name = "Nikolaus Rath", email = "Nikolaus@rath.org" }
-]
+license = "GPL-3.0-only"
+authors = [{ name = "Nikolaus Rath", email = "Nikolaus@rath.org" }]
 
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Environment :: No Input/Output (Daemon)",
-    "Environment :: Console",
-    "License :: OSI Approved :: GNU Library or Lesser General Public License (GPLv3)",
-    "Topic :: Internet",
-    "Operating System :: POSIX",
-    "Topic :: System :: Archiving",
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: No Input/Output (Daemon)",
+  "Environment :: Console",
+  "Topic :: Internet",
+  "Operating System :: POSIX",
+  "Topic :: System :: Archiving",
 ]
 
 dependencies = [
-    "apsw >= 3.42.0",
-    "cryptography",
-    "requests",
-    "defusedxml",
-    "google-auth",
-    "google-auth-oauthlib",
-    "trio >= 0.15",
-    "pyfuse3 >= 3.2.0, < 4.0",
+  # https://github.com/rogerbinns/apsw/issues/459
+  "apsw >= 3.42.0",
+  "cryptography",
+  "requests",
+  "defusedxml",
+  "google-auth",
+  "google-auth-oauthlib",
+  "trio >= 0.15",
+  "pyfuse3 >= 3.2.0, < 4.0",
 ]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "pytest-trio",
+  "sphinx",
+  "setuptools",
+  "cython",
+  "black == 23.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/s3ql/s3ql"
 
 [project.scripts]
 "mkfs.s3ql" = "s3ql.mkfs:main"
@@ -47,6 +58,3 @@ s3qllock = "s3ql.lock:main"
 s3qlrm = "s3ql.remove:main"
 s3ql_oauth_client = "s3ql.oauth_client:main"
 s3ql_verify = "s3ql.verify:main"
-
-[tool.pytest.ini_options]
-minversion = "3.7"

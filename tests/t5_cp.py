@@ -57,8 +57,8 @@ class TestCp(t4_fuse.TestFuse):
 
             # copy
             subprocess.check_call(
-                self.s3ql_cmd_argv('s3qlcp')
-                + [
+                [
+                    's3qlcp',
                     '--quiet',
                     os.path.join(self.mnt_dir, 'orig'),
                     os.path.join(self.mnt_dir, 'copy'),
@@ -126,7 +126,8 @@ class TestCp(t4_fuse.TestFuse):
 
         os.mkdir(os.path.join(self.mnt_dir, 'orig'))
 
-        cmd = self.s3ql_cmd_argv('s3qlcp') + [
+        cmd = [
+            's3qlcp',
             '--quiet',
             os.path.join(self.mnt_dir, 'orig'),
             os.path.join(self.mnt_dir, 'copy'),

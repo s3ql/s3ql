@@ -20,6 +20,9 @@ if ! python3 -c 'import sys; from Cython.Compiler.Version import version as cyth
   exit 1
 fi
 
+# Install into virtualenv
+.venv/bin/python3 -m pip install .
+
 python3 setup.py build_cython build_ext --inplace
 ./build_docs.sh
 (cd doc/pdf && latexmk)

@@ -32,7 +32,7 @@ Options
 
 The |command| command accepts the following options.
 
-.. pipeinclude:: python3 ../../bin/s3qladm --help
+.. pipeinclude:: s3qladm --help
    :start-after: show this help message and exit
 
 Actions

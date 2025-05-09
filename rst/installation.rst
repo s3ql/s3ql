@@ -5,66 +5,30 @@
  Installation
 ==============
 
-S3QL depends on several other programs and libraries that have to be
-installed first. The best method to satisfy these dependencies depends
-on your distribution.
-
 
 Dependencies
 ============
-
-The following is a list of the programs and libraries required for
-running S3QL. Generally, you should first check if your distribution
-already provides a suitable packages and only install from source if
-that is not the case.
 
 * Kernel: Linux 3.9 or newer.
 
 * The `psmisc <http://psmisc.sf.net/>`_ utilities.
 
-* `SQLite <http://www.sqlite.org/>`_ version 3.7.0 or newer. SQLite
-  has to be installed as a *shared library* with development headers.
+* The development headers for `SQLite <http://www.sqlite.org/>`_, version 3.7.0 or newer.
 
-* `Python <http://www.python.org/>`_ 3.8 or newer. Make sure to also
-  install the development headers.
+* `Python <http://www.python.org/>`_ 3.8 or newer, installed with development headers.
 
-* The following Python modules:
+* `systemd <https://github.com/systemd/python-systemd>`_ (optional, for enabling systemd support).
+  Do *not* install the module from PyPi, this is a different module (which unfortunately has the
+  same name).
 
-  * `setuptools <https://pypi.python.org/pypi/setuptools>`_, version 1.0 or newer.
-  * `cryptography <https://cryptography.io/en/latest/installation/>`_
-  * `defusedxml <https://pypi.python.org/pypi/defusedxml/>`_
-  * `apsw <https://github.com/rogerbinns/apsw>`_, version 3.42.0 or
-    newer.
-  * `trio <https://github.com/python-trio/trio>`_, version 0.15 or newer.
-  * `pyfuse3 <https://github.com/libfuse/pyfuse3/>`_, any
-    version between 3.2.0 (inclusive) and 4.0 (exclusive)
-  * `pytest <http://pytest.org/>`_, version 3.7 or newer (optional, to run unit tests)
-  * `systemd <https://github.com/systemd/python-systemd>`_ (optional,
-    for enabling systemd support). Do *not* install the module from
-    PyPi, this is from a third-party developer and incompatible with
-    the official module from the systemd developers.
-  * `requests <https://pypi.python.org/pypi/requests/>`_ (optional,
-    required for OAuth2 authentication with Google Storage)
-  * `google-auth <https://pypi.python.org/project/google-auth/>`_
-    (optional, required for ADC authentication with Google Storage)
-  * `google-auth-oauthlib <https://pypi.python.org/project/google-auth-oauthlib/>`_
-    (optional, required for browser-based authentication with Google Storage)
-  * `pytest_trio <https://github.com/python-trio/pytest-trio>`_ (optional, to run unit tests)
+* Additional Python dependencies are listed in `pyproject.toml` (and your Python package installer
+  should normally be able to install them automatically)
 
-  To check if a specific module :var:`<module>` is installed, execute
-  :samp:`python3 -c 'import {<module>};
-  print({<module>}.__version__)'`. This will result in an
-  `ModuleNotFoundError` if the module is not installed, and will print the
-  installed version if the module is installed.
+Installing from a source release
+================================
 
-
-.. _inst-s3ql:
-
-Installing S3QL
-===============
-
-To build and install S3QL, first download the release tarball from
-`GitHub <https://github.com/s3ql/s3ql/releases>`_. Then validate the tarball using
+Download the release tarball from
+`GitHub <https://github.com/s3ql/s3ql/releases>`_ and validate it with
 `signify <https://github.com/aperezdc/signify>`_::
 
   signify -V -m s3ql-XX.tar.gz -p s3ql-XX.pub
@@ -74,151 +38,19 @@ signing key). Each S3QL release contains the signing key for the release after i
 `signify` directory, so you only need to manually acquire this file once when you install
 S3QL for the first time).
 
-After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z`
-directory. Then you have three options:
+After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z` directory. At
+this point, you can use any tool that can work with Python `pyproject.toml` files to install S3QL.
+If you don't know which one to use, `pipx <https://pipx.pypa.io/latest/>`_ is a good choice. To install
+S3QL with `pipx`, run ::
 
-* Run the S3QL commands directly from the `bin/` directory .
+   pipx install .
 
-* Install S3QL into `~/.local`
-
-* You can install S3QL system-wide for all users.
-
-Running S3QL commands directly
-------------------------------
-
-Create a virtual environment in the S3QL source directory::
-
-  python3 -m venv venv/
-
-and install S3QL dependencies with::
-
-  venv/bin/pip install \
-    apsw cryptography defusedxml trio pyfuse3 pytest \\
-    requests google-auth google-auth-oauthlib pytest_trio
-
-Then build and test S3QL with::
-
-  venv/bin/python3 setup.py build_ext --inplace
-  venv/bin/python3 -m pytest tests/
-
-If this fails, ask for help on the `mailing list
-<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
-<https://github.com/s3ql/s3ql/issues>`_.
-
-You can now run the S3QL commands in `bin` by calling e.g. `venv/bin/python3
-bin/mkfs.s3ql` or `venv/bin/python3 bin/mount.s3ql`. When using bash, you can
-also `source venv/bin/activate` (which activates the virtual environment for
-this shell) and then call the commands directly (with e.g. `bin/mkfs.s3ql`).
-
-Installing S3QL for the current user
-------------------------------------
-
-Create a virtual environment with::
-
-  python3 -m venv ~/.local/lib/s3ql-venv/
-
-and install S3QL dependencies with::
-
-  ~/.local/lib/s3ql-venv/bin/pip install \
-    apsw cryptography defusedxml trio pyfuse3 pytest \\
-    requests google-auth google-auth-oauthlib pytest_trio
-
-Then build and test S3QL with::
-
-  ~/.local/lib/s3ql-venv/bin/python3 setup.py build_ext --inplace
-  ~/.local/lib/s3ql-venv/bin/python3 -m pytest tests/
-
-If this fails, ask for help on the `mailing list
-<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
-<https://github.com/s3ql/s3ql/issues>`_. Otherwise, install S3QL with::
-
-  ~/.local/lib/s3ql-venv/bin/python3 setup.py install --user
-
-Make sure that `~/.local/bin` is in your `$PATH`.
+This will download all necessary Python dependencies and install S3QL in its own separate
+virtual environment.
 
 
-Installing S3QL for all users
------------------------------
+Installing from Git / Developing S3QL
+=====================================
 
-As much as possible, use your system's package manager to install S3QL
-dependencies. If something is not available, install it with::
+Clone the S3QL repository and take a look at `developer_notes/setup.md`.
 
-  sudo python3 -m pip install <package>
-
-Then build and test S3QL with::
-
-  python3 setup.py build_ext --inplace
-  python3 -m pytest tests/
-
-If this fails, ask for help on the `mailing list
-<http://groups.google.com/group/s3ql>`_ or report a bug in the `issue tracker
-<https://github.com/s3ql/s3ql/issues>`_. Otherwise, install S3QL with::
-
-  sudo python3 setup.py install
-
-
-Development Version
-===================
-
-If you have checked out the unstable development version from the
-Git repository, a bit more effort is required. You'll also need:
-
-* Version 0.28.1 or newer of the Cython_ compiler.
-
-* Version 1.2b1 or newer of the Sphinx_ document processor.
-
-With these additional dependencies installed, S3QL can be build and
-tested as explained above under "Running S3QL commands directly".
-After installing the dependencies into the virtual environment,
-you need to execute::
-
-  venv/bin/python3 setup.py build_cython
-
-This step will generate the file ``src/s3ql/sqlite3ext.cpp``.
-It is necessary for the ``build_ext`` step.
-
-Note that when building from the Git repository, building and testing is done with several
-additional checks. This may cause compilation and/or tests to fail even though there are
-no problems with functionality. For example, any use of functions that are scheduled for
-deprecation in future Python version will cause tests to fail. If you would rather just
-check for functionality, you can delete the :file:`MANIFEST.in` file. In that case, the
-build system will behave as it does for a regular release.
-
-The HTML and PDF documentation can be generated with ::
-
-  ./build_docs.sh
-  (cd doc/pdf && make)
-
-
-
-Running tests requiring remote servers
-======================================
-
-By default, tests requiring a connection to a remote storage backend
-are skipped. If you would like to run these tests too (which is always
-a good idea), you have to create additional entries in your
-`~/.s3ql/authinfo2` file that tell S3QL what server and credentials to
-use for these tests. These entries have the following form::
-
-  [<BACKEND>-test]
-  backend-login: <user>
-  backend-password: <password>
-  test-fs: <storage-url>
-
-Here *<BACKEND>* specifies the backend that you want to test
-(e.g. *s3*, *s3c*, *gs*, or *swift*), *<user>* and *<password>* are
-the backend authentication credentials, and *<storage-url>* specifies
-the full storage URL that will be used for testing. **Any existing
-S3QL file system in this storage URL will be destroyed during
-testing**.
-
-For example, to run tests that need connection to a Google Storage
-server, you would add something like ::
-
-  [gs-test]
-  backend-login: GOOGIGWLONT238MD7HZ4
-  backend-password: rmEbstjscoeunt1249oes1298gauidbs3hl
-  test-fs: gs://joes-gs-bucket/s3ql_tests/
-
-.. _Cython: http://www.cython.org/
-.. _Sphinx: http://sphinx.pocoo.org/

@@ -16,7 +16,6 @@ import gc
 import logging.handlers
 import os.path
 import signal
-import sys
 import time
 
 import pytest
@@ -40,17 +39,6 @@ def pytest_pyfunc_call(pyfuncitem):
         time.sleep(1)
 
 
-@pytest.fixture(scope="class")
-def s3ql_cmd_argv(request):
-    '''Provide argument list to execute s3ql commands in tests'''
-
-    if request.config.getoption('installed'):
-        yield lambda cmd: [cmd]
-    else:
-        basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-        yield lambda cmd: [sys.executable, os.path.join(basedir, 'bin', cmd)]
-
-
 # Enable output checks
 pytest_plugins = ('pytest_checklogs',)
 
@@ -59,12 +47,6 @@ pytest_plugins = ('pytest_checklogs',)
 def pass_reg_output(request, reg_output):
     '''Provide reg_output function to UnitTest instances'''
     request.instance.reg_output = reg_output
-
-
-@pytest.fixture()
-def pass_s3ql_cmd_argv(request, s3ql_cmd_argv):
-    '''Provide s3ql_cmd_argv function to UnitTest instances'''
-    request.instance.s3ql_cmd_argv = s3ql_cmd_argv
 
 
 def pytest_addoption(parser):
@@ -78,21 +60,9 @@ def pytest_addoption(parser):
         "specified multiple times.",
     )
 
-    group = parser.getgroup("general")
-    group._addoption(
-        "--installed", action="store_true", default=False, help="Test the installed package."
-    )
-
 
 def pytest_configure(config):
-    # If we are running from the S3QL source directory, make sure that we
-    # load modules from here
     basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-    if not config.getoption('installed'):
-        if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
-            os.path.join(basedir, 'src', 's3ql', '__init__.py')
-        ):
-            sys.path = [os.path.join(basedir, 'src')] + sys.path
 
     # Enable all warnings for subprocesses. This is not optimal, because they will be treated like
     # other log messages (rather than captured as warnings by pytest) and can thus trigger test

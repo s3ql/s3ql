@@ -30,7 +30,7 @@ from s3ql.backends.common import CorruptedObjectError
 from s3ql.backends.comprenc import ComprencBackend
 
 
-@pytest.mark.usefixtures('pass_s3ql_cmd_argv', 'pass_reg_output')
+@pytest.mark.usefixtures('pass_reg_output')
 class AdmTests(unittest.TestCase):
     def setUp(self):
         self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
@@ -45,8 +45,8 @@ class AdmTests(unittest.TestCase):
 
     def mkfs(self):
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('mkfs.s3ql')
-            + [
+            [
+                'mkfs.s3ql',
                 '-L',
                 'test fs',
                 '--data-block-size',
@@ -78,8 +78,8 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + [
+            [
+                's3qladm',
                 '--quiet',
                 '--log',
                 'none',
@@ -108,8 +108,16 @@ class AdmTests(unittest.TestCase):
         self.mkfs()
 
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + ['--quiet', '--log', 'none', '--authfile', '/dev/null', 'clear', self.storage_url],
+            [
+                's3qladm',
+                '--quiet',
+                '--log',
+                'none',
+                '--authfile',
+                '/dev/null',
+                'clear',
+                self.storage_url,
+            ],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
@@ -141,8 +149,8 @@ class AdmTests(unittest.TestCase):
         passphrase_new = 'sd982jhd'
 
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + [
+            [
+                's3qladm',
                 '--quiet',
                 '--log',
                 'none',
@@ -169,8 +177,8 @@ class AdmTests(unittest.TestCase):
 class TestMetadataRestore(TestFuse):
     def restore_backup(self):
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + [
+            [
+                's3qladm',
                 '--quiet',
                 '--log',
                 'none',

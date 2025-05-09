@@ -3,20 +3,11 @@
 import os
 import sys
 
-# Add S3QL sources
+import s3ql
+
+# Add tools
 basedir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
-sys.path.insert(0, os.path.join(basedir, 'src'))
 sys.path.insert(0, os.path.join(basedir, 'util'))
-try:
-    import s3ql
-except ModuleNotFoundError:
-    print(
-        'ERROR: s3ql python module not found.',
-        'Did you run `setup.py build_ext --inplace`?',
-        sep='\n',
-        file=sys.stderr,
-    )
-    sys.exit(8)
 
 
 # Add a custom role for command line options that does not try to reference anything.
