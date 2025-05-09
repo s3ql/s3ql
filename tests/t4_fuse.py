@@ -35,7 +35,7 @@ from s3ql.common import path2bytes
 USE_VALGRIND = False
 
 
-@pytest.mark.usefixtures('pass_s3ql_cmd_argv', 'pass_reg_output')
+@pytest.mark.usefixtures('pass_reg_output')
 class TestFuse:
     def setup_method(self, method):
         if platform.system() != 'Darwin':
@@ -59,7 +59,8 @@ class TestFuse:
         self.name_cnt = 0
 
     def mkfs(self, max_obj_size=500):
-        argv = self.s3ql_cmd_argv('mkfs.s3ql') + [
+        argv = [
+            'mkfs.s3ql',
             '-L',
             'test fs',
             '--data-block-size',
@@ -87,7 +88,8 @@ class TestFuse:
         assert proc.wait() == 0
 
     def mount(self, expect_fail=None, in_foreground=True, extra_args=[]):
-        cmd = self.s3ql_cmd_argv('mount.s3ql') + [
+        cmd = [
+            'mount.s3ql',
             '--cachedir',
             self.cache_dir,
             '--log',
@@ -134,7 +136,7 @@ class TestFuse:
                 == 1,
             )
 
-        proc = subprocess.Popen(self.s3ql_cmd_argv('umount.s3ql') + ['--quiet', self.mnt_dir])
+        proc = subprocess.Popen(['umount.s3ql', '--quiet', self.mnt_dir])
         retry(30, lambda: proc.poll() is not None)
         assert proc.wait() == 0
 
@@ -143,8 +145,8 @@ class TestFuse:
 
     def fsck(self, expect_retcode=0, args=[]):
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('fsck.s3ql')
-            + [
+            [
+                'fsck.s3ql',
                 '--force',
                 '--quiet',
                 '--log',
@@ -175,9 +177,7 @@ class TestFuse:
                 subprocess.call(['fusermount', '-z', '-u', self.mnt_dir], stderr=devnull)
 
     def flush_cache(self):
-        subprocess.check_call(
-            self.s3ql_cmd_argv('s3qlctrl') + ['--quiet', 'flushcache', self.mnt_dir]
-        )
+        subprocess.check_call(['s3qlctrl', '--quiet', 'flushcache', self.mnt_dir])
 
     def teardown_method(self, method):
         self.umount_fuse()

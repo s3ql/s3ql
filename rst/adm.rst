@@ -18,7 +18,7 @@ where :var:`action` may be either of :program:`passphrase`, :program:`restore-me
 The :program:`s3qladm` accepts the following general options, no
 matter what specific action is being invoked:
 
-.. pipeinclude:: python3 ../bin/s3qladm --help
+.. pipeinclude:: s3qladm --help
    :start-after: show this help message and exit
 
 

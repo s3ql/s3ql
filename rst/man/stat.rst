@@ -29,7 +29,7 @@ Options
 
 The |command| command accepts the following options:
 
-.. pipeinclude:: python3 ../../bin/s3qlstat --help
+.. pipeinclude:: s3qlstat --help
    :start-after: show this help message and exit
 
 

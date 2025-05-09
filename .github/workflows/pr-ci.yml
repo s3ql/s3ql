@@ -18,7 +18,6 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-24.04
         deps: [ dist, latest ]
@@ -29,12 +28,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: 'sudo apt-get update'
-      - run: python3 -m venv venv --system-site-packages
+      - run: python3 -m venv venv
       - run: tests/ci-prepare-${{ matrix.deps }}.sh
-      - run: venv/bin/python setup.py build_cython
-      - run: venv/bin/python setup.py build_ext --inplace
-      - run: venv/bin/python -m pytest -r s tests/
-      - run: venv/bin/pip install sphinx
+      - run: venv/bin/pip install --upgrade pip
+      - run: venv/bin/pip install .[dev]
+      - run: '. venv/bin/activate && pytest -r s tests/'
       - run: '. venv/bin/activate && ./build_docs.sh'
   check-style:
     runs-on: ubuntu-latest

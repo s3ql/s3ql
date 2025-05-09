@@ -22,14 +22,13 @@ from argparse import Namespace
 import pytest
 
 
-def test_invalid_option(s3ql_cmd_argv, reg_output):
+def test_invalid_option(reg_output):
     with tempfile.NamedTemporaryFile('wt') as fh:
         print('[entry1]', 'storage-url: local:///foo', 'invalid-option: bla', '', file=fh, sep='\n')
         fh.flush()
 
         proc = subprocess.Popen(
-            s3ql_cmd_argv('fsck.s3ql')
-            + ['--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
+            ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
@@ -38,8 +37,7 @@ def test_invalid_option(s3ql_cmd_argv, reg_output):
 
         reg_output(r"ERROR: '/com' does not exist", count=1)
         proc = subprocess.Popen(
-            s3ql_cmd_argv('fsck.s3ql')
-            + ['--quiet', '--authfile', fh.name, '--log', 'none', 'local:///com'],
+            ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 'local:///com'],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
@@ -47,7 +45,7 @@ def test_invalid_option(s3ql_cmd_argv, reg_output):
         assert proc.wait() == 16
 
 
-def test_invalid_backend_option(s3ql_cmd_argv):
+def test_invalid_backend_option():
     with tempfile.NamedTemporaryFile('wt') as fh:
         print(
             '[entry1]',
@@ -59,8 +57,7 @@ def test_invalid_backend_option(s3ql_cmd_argv):
         fh.flush()
 
         proc = subprocess.Popen(
-            s3ql_cmd_argv('fsck.s3ql')
-            + ['--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
+            ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
@@ -68,7 +65,7 @@ def test_invalid_backend_option(s3ql_cmd_argv):
         assert proc.wait() == 3
 
 
-def test_option_precedence(s3ql_cmd_argv, reg_output):
+def test_option_precedence(reg_output):
     with tempfile.NamedTemporaryFile('wt') as fh:
         print(
             '[entry1]',
@@ -85,8 +82,7 @@ def test_option_precedence(s3ql_cmd_argv, reg_output):
 
         reg_output(r"ERROR: Invalid storage URL", count=1)
         proc = subprocess.Popen(
-            s3ql_cmd_argv('fsck.s3ql')
-            + ['--quiet', '--authfile', fh.name, '--log', 'none', 's3://foo'],
+            ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 's3://foo'],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
@@ -107,11 +103,11 @@ def context():
     shutil.rmtree(ctx.backend_dir)
 
 
-def test_passphrase(context, reg_output, s3ql_cmd_argv):
+def test_passphrase(context, reg_output):
     passphrase = 'out3d'
     proc = subprocess.Popen(
-        s3ql_cmd_argv('mkfs.s3ql')
-        + [
+        [
+            'mkfs.s3ql',
             '-L',
             'test fs',
             '--data-block-size',
@@ -147,8 +143,8 @@ def test_passphrase(context, reg_output, s3ql_cmd_argv):
         fh.flush()
 
         proc = subprocess.Popen(
-            s3ql_cmd_argv('fsck.s3ql')
-            + [
+            [
+                'fsck.s3ql',
                 '--quiet',
                 '--authfile',
                 fh.name,

@@ -45,8 +45,8 @@ from s3ql.http import (
     ExcessBodyData,
     HostnameNotResolvable,
     HTTPConnection,
-    StateError,
     InvalidResponse,
+    StateError,
     _Buffer,
 )
 
@@ -983,7 +983,8 @@ def test_aborted_write2(conn, monkeypatch, random_fh):
             conn.write(random_fh.read(BUFSIZE))
 
     # Nevertheless, try to read response
-    assert_raises(ConnectionClosed, conn.read_response)
+    with pytest.raises((ConnectionClosed, ssl.SSLError)):
+        conn.read_response()
 
 
 def test_read_toomuch(conn):

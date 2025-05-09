@@ -4,12 +4,6 @@
     "files.trimTrailingWhitespace": true,
     "pythonIndent.trimLinesWithOnlyWhitespace": true,
     "python.analysis.importFormat": "absolute",
-    "python.formatting.provider": "black",
-    "python.formatting.blackArgs": [
-        "--line-length=100",
-        "--skip-string-normalization",
-        "--required-version=23.3.0"
-    ],
     "editor.formatOnSave": true,
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.block": "sameLine",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "sameLine",
@@ -18,10 +12,6 @@
     "C_Cpp.vcFormat.newLine.beforeElse": false,
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.namespace": "sameLine",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.type": "sameLine",
-    "python.analysis.extraPaths": [
-        "src"
-    ],
-    "python.analysis.diagnosticMode": "workspace",
     "python.analysis.diagnosticSeverityOverrides": {
         "reportShadowedImports": "none",
         "reportUnusedVariable": "warning",
@@ -42,13 +32,17 @@
     },
     "isort.check": true,
     "python.analysis.exclude": [
-        "s3ql.old/"
+        "s3ql.old/",
+        ".venv/",
+        ".git/",
+        "build/",
+        "**/__pycache__",
     ],
-    "python.linting.mypyEnabled": false,
     "black-formatter.importStrategy": "fromEnvironment",
     "black-formatter.args": [
         "--line-length=100",
         "--skip-string-normalization",
         "--required-version=23.3.0"
-    ]
+    ],
+    "python.analysis.diagnosticMode": "workspace"
 }

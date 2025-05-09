@@ -147,8 +147,8 @@ class TestUpgrade(t4_fuse.TestFuse):
 
     def upgrade(self):
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + [
+            [
+                's3qladm',
                 '--cachedir',
                 self.cache_dir,
                 '--authfile',
@@ -276,8 +276,7 @@ class RemoteUpgradeTest:
         super().teardown_method(method)
 
         proc = subprocess.Popen(
-            self.s3ql_cmd_argv('s3qladm')
-            + ['--quiet', '--authfile', '/dev/null', 'clear', self.storage_url],
+            ['s3qladm', '--quiet', '--authfile', '/dev/null', 'clear', self.storage_url],
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )
