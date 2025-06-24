@@ -21,10 +21,6 @@ jobs:
           - ubuntu-22.04
           - ubuntu-24.04
         deps: [ dist, latest ]
-        exclude:
-          # gets error 'Fatal Python error: Cannot recover from stack overflow.' in tests
-          - os: ubuntu-20.04
-            deps: latest
     steps:
       - uses: actions/checkout@v4
       - run: 'sudo apt-get update'
