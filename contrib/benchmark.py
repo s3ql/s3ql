@@ -129,12 +129,13 @@ class MockBackend:
         metadata: Optional[Dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
+        cur_off = fh.tell()
         if len_ is None:
             fh.seek(0, os.SEEK_END)
-            return fh.tell()
+            return fh.tell() - cur_off
         else:
             fh.seek(len_)
-            return fh.tell()
+            return fh.tell() - cur_off
 
 
 def main(args=None):
