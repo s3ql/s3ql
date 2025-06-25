@@ -203,11 +203,14 @@ def main(args=None):
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = obj_size / dt
+        log.info(
+            '%s test file compression ratio: %3.1f %% of original', alg, (obj_size / size) * 100
+        )
         log.info('%s compression speed: %d KiB/sec per thread (in)', alg, in_speed[alg] / 1024)
         log.info('%s compression speed: %d KiB/sec per thread (out)', alg, out_speed[alg] / 1024)
 
-    print('')
     print(
+        '',
         'With %d KiB blocks, maximum performance for different compression'
         % (block_sizes[-1] / 1024),
         'algorithms and thread counts is:',
@@ -215,7 +218,7 @@ def main(args=None):
         sep='\n',
     )
 
-    threads = set([1, 2, 4, 8])
+    threads = {1, 2, 4, 8}
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     if cores != -1:
         threads.add(cores)
