@@ -17,10 +17,6 @@ Dependencies
 
 * `Python <http://www.python.org/>`_ 3.8 or newer, installed with development headers.
 
-* `systemd <https://github.com/systemd/python-systemd>`_ (optional, for enabling systemd support).
-  Do *not* install the module from PyPi, this is a different module (which unfortunately has the
-  same name).
-
 * Additional Python dependencies are listed in `pyproject.toml` (and your Python package installer
   should normally be able to install them automatically)
 
