@@ -13,7 +13,7 @@ any tests.
 
 import faulthandler
 import gc
-import logging.handlers
+import logging
 import os.path
 import signal
 import time

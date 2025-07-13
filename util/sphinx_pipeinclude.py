@@ -17,7 +17,6 @@ import sys
 import tempfile
 
 from docutils.parsers.rst.directives.misc import Include
-from docutils.utils.error_reporting import SafeString
 
 
 class PipeInclude(Include):
@@ -45,9 +44,8 @@ class PipeInclude(Include):
             exitcode = subprocess.call(command_list, stdout=fh, cwd=source_dir)
             if exitcode != 0:
                 raise self.severe(
-                    'Problems with "%s" directive:\n'
-                    'Command %s returned with exit code %d'
-                    % (self.name, SafeString(command), exitcode)
+                    f'Problems with "{self.name}" directive:\n'
+                    f'Command `{command}` returned with exit code {exitcode}'
                 )
 
             fh.flush()

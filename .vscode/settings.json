@@ -30,6 +30,7 @@
         },
         "editor.defaultFormatter": "ms-python.black-formatter"
     },
+    "python.analysis.typeCheckingMode": "off",
     "isort.check": true,
     "python.analysis.exclude": [
         "s3ql.old/",
