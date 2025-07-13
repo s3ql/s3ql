@@ -7,13 +7,9 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
+from contextlib import asynccontextmanager
 
 import trio
-
-try:
-    from contextlib import asynccontextmanager
-except ModuleNotFoundError:
-    from async_generator import asynccontextmanager
 
 __all__ = ["MultiLock"]
 
