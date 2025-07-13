@@ -18,6 +18,7 @@ import re
 import resource
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -49,6 +50,26 @@ from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
 log = logging.getLogger(__name__)
+
+
+def systemd_notify(message: str) -> None:
+    notify_socket_path = os.environ.get('NOTIFY_SOCKET')
+    if not notify_socket_path:
+        raise RuntimeError("NOTIFY_SOCKET environment variable not set.")
+
+    # Systemd expects an abstract namespace socket if the path starts with '@' On Linux, this means
+    # the first byte is null.
+    if notify_socket_path.startswith('@'):
+        # Replace '@' with a null byte for abstract namespace socket The path length includes the
+        # null byte.
+        notify_socket_path = '\0' + notify_socket_path[1:]
+        logging.debug("Using abstract namespace socket: %r", notify_socket_path)
+    else:
+        logging.debug("Using filesystem socket: %s", notify_socket_path)
+
+    with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM | socket.SOCK_CLOEXEC) as sock:
+        sock.connect(notify_socket_path)
+        sock.sendall(message.encode('utf-8'))
 
 
 def install_thread_excepthook():
@@ -300,9 +321,7 @@ async def main_async(options, stdout_log_handler):
             old_handler = signal.signal(signal.SIGINT, signal_handler)
 
             if options.systemd:
-                import systemd.daemon
-
-                systemd.daemon.notify('READY=1')
+                systemd_notify('READY=1')
 
             await pyfuse3.main()
 
