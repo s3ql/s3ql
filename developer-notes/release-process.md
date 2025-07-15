@@ -12,12 +12,8 @@
 * `git commit --all -m "Released $TAG"`
 * `git tag $TAG`
 * `PATH=~/lib/python-user-venv/bin:$PATH ./make_release.sh`
-* Test tarball:
-  * `./setup.py build_ext --inplace`
-  * `python3 -m pytest tests/`
 * `git checkout master`
 * `git push && git push --tags`, create release on Github
-* `./setup.py upload_docs`
 * Write announcement to mailing list
 
 ## Email template
