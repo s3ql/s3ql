@@ -14,6 +14,7 @@ import threading
 import time
 from argparse import Namespace
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from queue import Empty as QueueEmpty
 from queue import Full as QueueFull
 from queue import Queue
@@ -26,11 +27,6 @@ from s3ql.common import sha256_fh
 from .backends.common import NoSuchObject
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
-
-try:
-    from contextlib import asynccontextmanager
-except ModuleNotFoundError:
-    from async_generator import asynccontextmanager
 
 # standard logger for this module
 log = logging.getLogger(__name__)

@@ -29,28 +29,21 @@ Cython_options.language_level = "3"
 
 
 def main():
-    compile_args = ['-Wall', '-Wextra', '-Wconversion', '-Wsign-compare']
+    compile_args = ['-Wall', '-Wextra']
 
-    # Enable all fatal warnings only when compiling from Mercurial tip.
-    # (otherwise we break forward compatibility because compilation with newer
-    # compiler may fail if additional warnings are added)
-    if DEVELOPER_MODE:
-        if os.environ.get('CI') != 'true':
-            compile_args.append('-Werror')
+    # Value-changing conversions should always be explicit.
+    compile_args.append('-Wconversion')
 
-        # Value-changing conversions should always be explicit.
-        compile_args.append('-Werror=conversion')
+    # Note that (i > -1) is false if i is unsigned (-1 will be converted to
+    # a large positive value). We certainly don't want to do this by
+    # accident.
+    compile_args.append('-Wsign-compare')
 
-        # Note that (i > -1) is false if i is unsigned (-1 will be converted to
-        # a large positive value). We certainly don't want to do this by
-        # accident.
-        compile_args.append('-Werror=sign-compare')
-
-        # These warnings have always been harmless, and have always been due to
-        # issues in Cython code rather than S3QL. Cython itself warns if there
-        # are unused variables in .pyx code.
-        compile_args.append('-Wno-unused-parameter')
-        compile_args.append('-Wno-unused-function')
+    # These warnings have always been harmless, and have always been due to
+    # issues in Cython code rather than S3QL. Cython itself warns if there
+    # are unused variables in .pyx code.
+    compile_args.append('-Wno-unused-parameter')
+    compile_args.append('-Wno-unused-function')
 
     setuptools.setup(
         name='s3ql',
