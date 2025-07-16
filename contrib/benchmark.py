@@ -21,17 +21,6 @@ import tempfile
 import time
 from typing import Any, BinaryIO, Dict, Optional
 
-# We are running from the S3QL source directory, make sure
-# that we use modules from this directory
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
-    os.path.join(basedir, 'src', 's3ql', '__init__.py')
-):
-    sys.path = [os.path.join(basedir, 'src')] + sys.path
-    exec_prefix = os.path.join(basedir, 'bin', '')
-else:
-    exec_prefix = ''
-
 import logging
 
 from s3ql import BUFSIZE
@@ -85,8 +74,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
 
         subprocess.check_call(
             [
-                sys.executable,
-                exec_prefix + 'mkfs.s3ql',
+                'mkfs.s3ql',
                 '--plain',
                 'local://%s' % backend_dir,
                 '--quiet',
@@ -96,8 +84,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
         )
         subprocess.check_call(
             [
-                sys.executable,
-                exec_prefix + 'mount.s3ql',
+                'mount.s3ql',
                 '--threads',
                 '1',
                 '--quiet',
@@ -130,7 +117,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
                 write_time = time.time() - write_time
                 os.unlink('%s/bigfile' % mnt_dir)
         finally:
-            subprocess.check_call([sys.executable, exec_prefix + 'umount.s3ql', mnt_dir])
+            subprocess.check_call(['umount.s3ql', mnt_dir])
 
     return copied / write_time
 
@@ -143,7 +130,13 @@ class MockBackend:
         metadata: Optional[Dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
-        return len_
+        cur_off = fh.tell()
+        if len_ is None:
+            fh.seek(0, os.SEEK_END)
+            return fh.tell() - cur_off
+        else:
+            fh.seek(len_)
+            return fh.tell() - cur_off
 
 
 def main(args=None):
@@ -163,6 +156,7 @@ def main(args=None):
             buf = src.read(BUFSIZE)
             rnd_fh.write(buf)
             copied += len(buf)
+    rnd_fh_size = copied
 
     log.info('Measuring throughput to cache...')
     block_sizes = [2**b for b in range(8, 18)]
@@ -183,24 +177,13 @@ def main(args=None):
 
     upload_time = 0
     size = 512 * 1024
-    while upload_time < 10:
+    while upload_time < 10 and size <= (rnd_fh_size / 2):
         size *= 2
-
-        def do_write(dst):
-            rnd_fh.seek(0)
-            stamp = time.time()
-            copied = 0
-            while copied < size:
-                buf = rnd_fh.read(BUFSIZE)
-                if not buf:
-                    rnd_fh.seek(0)
-                    continue
-                dst.write(buf)
-                copied += len(buf)
-            return (copied, stamp)
-
-        (upload_size, upload_time) = backend.perform_write(do_write, 's3ql_testdata')
-        upload_time = time.time() - upload_time
+        rnd_fh.seek(0)
+        stamp = time.time()
+        upload_size = backend.write_fh('s3ql_testdata', rnd_fh, None, size)
+        upload_time = time.time() - stamp
+        assert upload_time > 0, 'Upload took 0 seconds'
     backend_speed = upload_size / upload_time
     log.info('Backend throughput: %d KiB/sec', backend_speed / 1024)
     backend.delete('s3ql_testdata')
@@ -221,11 +204,14 @@ def main(args=None):
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = obj_size / dt
+        log.info(
+            '%s test file compression ratio: %3.1f %% of original', alg, (obj_size / size) * 100
+        )
         log.info('%s compression speed: %d KiB/sec per thread (in)', alg, in_speed[alg] / 1024)
         log.info('%s compression speed: %d KiB/sec per thread (out)', alg, out_speed[alg] / 1024)
 
-    print('')
     print(
+        '',
         'With %d KiB blocks, maximum performance for different compression'
         % (block_sizes[-1] / 1024),
         'algorithms and thread counts is:',
@@ -233,7 +219,7 @@ def main(args=None):
         sep='\n',
     )
 
-    threads = set([1, 2, 4, 8])
+    threads = {1, 2, 4, 8}
     cores = os.sysconf('SC_NPROCESSORS_ONLN')
     if cores != -1:
         threads.add(cores)

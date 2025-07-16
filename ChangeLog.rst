@@ -1,3 +1,8 @@
+UNRELEASED
+=======================
+
+* `contrib/benchmark.py` works again. It stopped working with S3QL 5.0.0.
+
 S3QL 5.3.0 (2025-05-10)
 =======================
 
