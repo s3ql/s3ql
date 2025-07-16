@@ -16,14 +16,6 @@ import textwrap
 from collections import defaultdict
 from datetime import datetime, timedelta
 
-# We are running from the S3QL source directory, make sure
-# that we use modules from this directory
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
-    os.path.join(basedir, 'src', 's3ql', '__init__.py')
-):
-    sys.path = [os.path.join(basedir, 'src')] + sys.path
-
 from s3ql.common import freeze_basic_mapping, thaw_basic_mapping
 from s3ql.logging import QuietError, setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser

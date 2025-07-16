@@ -21,17 +21,6 @@ import tempfile
 import time
 from typing import Any, BinaryIO, Dict, Optional
 
-# We are running from the S3QL source directory, make sure
-# that we use modules from this directory
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
-    os.path.join(basedir, 'src', 's3ql', '__init__.py')
-):
-    sys.path = [os.path.join(basedir, 'src')] + sys.path
-    exec_prefix = os.path.join(basedir, 'bin', '')
-else:
-    exec_prefix = ''
-
 import logging
 
 from s3ql import BUFSIZE
@@ -85,8 +74,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
 
         subprocess.check_call(
             [
-                sys.executable,
-                exec_prefix + 'mkfs.s3ql',
+                'mkfs.s3ql',
                 '--plain',
                 'local://%s' % backend_dir,
                 '--quiet',
@@ -96,8 +84,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
         )
         subprocess.check_call(
             [
-                sys.executable,
-                exec_prefix + 'mount.s3ql',
+                'mount.s3ql',
                 '--threads',
                 '1',
                 '--quiet',
@@ -130,7 +117,7 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
                 write_time = time.time() - write_time
                 os.unlink('%s/bigfile' % mnt_dir)
         finally:
-            subprocess.check_call([sys.executable, exec_prefix + 'umount.s3ql', mnt_dir])
+            subprocess.check_call(['umount.s3ql', mnt_dir])
 
     return copied / write_time
 
