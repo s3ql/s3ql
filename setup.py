@@ -8,22 +8,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import faulthandler
 import os
-import subprocess
 import sys
 from glob import glob
 
 import setuptools
 from Cython.Compiler import Options as Cython_options
 
-faulthandler.enable()
-
 basedir = os.path.abspath(os.path.dirname(sys.argv[0]))
-DEVELOPER_MODE = os.path.exists(os.path.join(basedir, 'MANIFEST.in'))
-if DEVELOPER_MODE:
-    print('MANIFEST.in exists, running in developer mode')
-
 
 Cython_options.language_level = "3"
 
@@ -68,40 +60,7 @@ def main():
                 ],
             )
         ],
-        cmdclass={'upload_docs': upload_docs},
     )
-
-
-class upload_docs(setuptools.Command):
-    user_options = []
-    boolean_options = []
-    description = "Upload documentation"
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        subprocess.check_call(
-            [
-                'rsync',
-                '-aHv',
-                '--del',
-                os.path.join(basedir, 'doc', 'html') + '/',
-                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/',
-            ]
-        )
-        subprocess.check_call(
-            [
-                'rsync',
-                '-aHv',
-                '--del',
-                os.path.join(basedir, 'doc', 'manual.pdf'),
-                'ebox.rath.org:/srv/www.rath.org/s3ql-docs/',
-            ]
-        )
 
 
 if __name__ == '__main__':

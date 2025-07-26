@@ -5,6 +5,7 @@
     "pythonIndent.trimLinesWithOnlyWhitespace": true,
     "python.analysis.importFormat": "absolute",
     "editor.formatOnSave": true,
+    "editor.formatOnSaveMode": "modificationsIfAvailable",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.block": "sameLine",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.function": "sameLine",
     "C_Cpp.formatting": "vcFormat",
@@ -26,7 +27,7 @@
     },
     "[python]": {
         "editor.codeActionsOnSave": {
-            "source.organizeImports": "explicit"
+            "source.organizeImports": "always"
         },
         "editor.defaultFormatter": "ms-python.black-formatter"
     },

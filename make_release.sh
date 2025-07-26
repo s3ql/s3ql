@@ -33,6 +33,9 @@ python3 ./setup.py sdist
 signify-openbsd -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
 #mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
+echo "Uploading documentation..."
+rsync -aHv --del doc/html/ doc/manual.pdf ebox.rath.org:/srv/www.rath.org/s3ql-docs/
+
 echo "Contributors from ${PREV_TAG} to ${TAG}:"
 git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | \
     grep -v '<none@none>$' | \
