@@ -2,7 +2,7 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "Lint with Ruff (Workspace)",
+            "label": "Lint with Ruff (Entire Workspace)",
             "type": "shell",
             "command": "ruff check --output-format=concise ${workspaceFolder}",
             "group": {
@@ -27,6 +27,42 @@
                         "column": 3,
                         "code": 4,
                         "message": 5
+                    }
+                ]
+            }
+        },
+        {
+            "label": "Mypy Typecheck (Entire Workspace)",
+            "type": "process",
+            "command": "${command:python.interpreterPath}",
+            "args": [
+                "-m",
+                "mypy",
+                "--show-column-numbers",
+                "${workspaceFolder}"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            },
+            "problemMatcher": {
+                "owner": "mypy",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceFolder}"
+                ],
+                "pattern": [
+                    {
+                        "regexp": "^(.+?):(\\d+):(\\d+): (.+?) \\[(.+)\\]$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3,
+                        "code": 5,
+                        "message": 4
                     }
                 ]
             }

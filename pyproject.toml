@@ -39,7 +39,9 @@ dev = [
   "sphinx",
   "setuptools",
   "cython",
-  "ruff",
+  "mypy",
+  "types-defusedxml>=0.7.0.20240218",
+  "types-docutils>=0.21.0.20241128",
 ]
 
 [project.urls]
@@ -93,3 +95,16 @@ ignore= [
   'B904',   # Implicitly chaining exceptions is fine
   'UP015',  # Explicit open mode is fine
 ]
+
+[tool.mypy]
+warn_unused_configs = true
+
+# No type stubs available
+[[tool.mypy.overrides]]
+module = "pytest_trio"
+ignore_missing_imports = true
+
+# No type stubs available
+[[tool.mypy.overrides]]
+module = "google_auth_oauthlib.*"
+ignore_missing_imports = true

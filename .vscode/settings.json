@@ -42,5 +42,6 @@
     "python.analysis.diagnosticMode": "workspace",
     "python.analysis.extraPaths": [
         "src"
-    ]
+    ],
+    "mypy-type-checker.reportingScope": "workspace",
 }
