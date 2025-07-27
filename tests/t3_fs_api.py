@@ -357,8 +357,7 @@ async def test_forget(ctx):
     await ctx.server.write(fh, 0, b'foobar')
     await ctx.server.unlink(ROOT_INODE, name, some_ctx)
     assert not ctx.db.has_val(
-        'SELECT 1 FROM contents JOIN names ON names.id = name_id '
-        'WHERE name=? AND parent_inode = ?',
+        'SELECT 1 FROM contents JOIN names ON names.id = name_id WHERE name=? AND parent_inode = ?',
         (name, ROOT_INODE),
     )
     assert (await ctx.server.getattr(inode.st_ino, some_ctx)).st_ino

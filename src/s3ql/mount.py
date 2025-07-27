@@ -622,8 +622,7 @@ def parse_args(args):
         "--systemd",
         action="store_true",
         default=False,
-        help="Run as systemd unit. Consider specifying --log none as well "
-        "to make use of journald.",
+        help="Run as systemd unit. Consider specifying --log none as well to make use of journald.",
     )
     parser.add_argument(
         "--metadata-backup-interval",

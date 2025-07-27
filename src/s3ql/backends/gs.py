@@ -167,9 +167,7 @@ class Backend(AbstractBackend):
     def __init__(self, options):
         super().__init__()
 
-        self.ssl_context = get_ssl_context(
-            options.backend_options.get('ssl-ca-path', None)
-        )  # type: Optional[ssl.Context]
+        self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))  # type: Optional[ssl.Context]
         self.options = options.backend_options  # type: Dict[str, str]
         self.proxy = get_proxy(ssl=True)  # type: str
         self.login = options.backend_login  # type: str
