@@ -49,3 +49,6 @@ jobs:
 
       - name: Run Ruff Formatter
         run: ruff format --diff
+
+      - name: Run Ruff Linter
+        run: ruff check --output-format=github .
