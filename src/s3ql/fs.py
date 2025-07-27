@@ -1002,7 +1002,7 @@ class Operations(pyfuse3.Operations):
             *self.cache.get_usage(),
         )
 
-    async def statfs(self, ctx, _cache=[]):
+    async def statfs(self, ctx, _cache=[]):  # noqa: B006
         log.debug('started')
 
         stat_ = pyfuse3.StatvfsData()

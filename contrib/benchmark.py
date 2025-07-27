@@ -176,7 +176,7 @@ def main(args=None):
             rnd_fh.seek(0)
             stamp = time.time()
             copied = 0
-            while copied < size:
+            while copied < size:  # noqa: B023
                 buf = rnd_fh.read(BUFSIZE)
                 if not buf:
                     rnd_fh.seek(0)
