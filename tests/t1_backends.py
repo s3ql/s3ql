@@ -104,7 +104,7 @@ def _get_backend_info():
     return info
 
 
-def pytest_generate_tests(metafunc, _info_cache=[]):
+def pytest_generate_tests(metafunc, _info_cache=[]):  # noqa: B006
     if _info_cache:
         backend_info = _info_cache[0]
     else:
@@ -238,7 +238,7 @@ def yield_mock_backend(bi):
         server.server_close()
 
 
-def yield_remote_backend(bi, _ctr=[0]):
+def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
     # Add timestamp + ctr to prefix so we don't have to deal with cruft from
     # previous tests
     _ctr[0] += 1
@@ -266,7 +266,7 @@ def yield_remote_backend(bi, _ctr=[0]):
         backend.close()
 
 
-def newname(name_counter=[0]):
+def newname(name_counter=[0]):  # noqa: B006
     '''Return random, unique string'''
     name_counter[0] += 1
     return "random\\'name' %d" % name_counter[0]
@@ -598,7 +598,7 @@ def test_corrupted_get(backend, monkeypatch):
     # Monkeypatch request handler to produce invalid etag
     handler_class = mock_server.S3CRequestHandler
 
-    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):
+    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):  # noqa: B006
         if keyword == 'ETag':
             count[0] += 1
             if count[0] <= 3:
@@ -624,7 +624,7 @@ def test_corrupted_meta(backend, monkeypatch):
     # Monkeypatch request handler to mess up metadata
     handler_class = mock_server.S3CRequestHandler
 
-    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):
+    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):  # noqa: B006
         if keyword == self.hdr_prefix + 'Meta-md5':
             count[0] += 1
             if count[0] <= 3:
@@ -649,7 +649,7 @@ def test_corrupted_put(backend, monkeypatch):
     # Monkeypatch request handler to produce invalid etag
     handler_class = mock_server.S3CRequestHandler
 
-    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):
+    def send_header(self, keyword, value, count=[0], send_header_real=handler_class.send_header):  # noqa: B006
         if keyword == 'ETag':
             count[0] += 1
             if count[0] < 3:
@@ -676,7 +676,7 @@ def test_get_s3error(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def do_GET(self, real_GET=handler_class.do_GET, count=[0]):
+    def do_GET(self, real_GET=handler_class.do_GET, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 3:
             return real_GET(self)
@@ -700,7 +700,7 @@ def test_head_s3error(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def do_HEAD(self, real_HEAD=handler_class.do_HEAD, count=[0]):
+    def do_HEAD(self, real_HEAD=handler_class.do_HEAD, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 3:
             return real_HEAD(self)
@@ -725,7 +725,7 @@ def test_delete_s3error(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 3:
             return real_DELETE(self)
@@ -774,7 +774,7 @@ def test_httperror(backend, monkeypatch):
     # Monkeypatch request handler to produce a HTTP Error
     handler_class = mock_server.S3CRequestHandler
 
-    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):
+    def do_DELETE(self, real_DELETE=handler_class.do_DELETE, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] >= 3:
             return real_DELETE(self)
@@ -803,7 +803,7 @@ def test_put_s3error_early(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def handle_expect_100(self, real=handler_class.handle_expect_100, count=[0]):
+    def handle_expect_100(self, real=handler_class.handle_expect_100, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 3:
             return real(self)
@@ -828,7 +828,7 @@ def test_put_s3error_med(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
+    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):  # noqa: B006
         count[0] += 1
         # Note: every time we return an error, the request will be retried
         # *twice*: once because of the error, and a second time because the
@@ -859,7 +859,7 @@ def test_put_s3error_late(backend, monkeypatch):
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
 
-    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):
+    def do_PUT(self, real_PUT=handler_class.do_PUT, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 3:
             return real_PUT(self)
@@ -882,7 +882,7 @@ def test_issue58(backend, monkeypatch):
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
 
-    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 1:
             return real(self)
@@ -915,7 +915,7 @@ def test_issue58_b(backend, monkeypatch):
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
 
-    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 1:
             return real(self)
@@ -962,7 +962,7 @@ def test_expired_token_get(backend, monkeypatch):
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
 
-    def do_GET(self, real=handler_class.do_GET, count=[0]):
+    def do_GET(self, real=handler_class.do_GET, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 1:
             return real(self)
@@ -996,7 +996,7 @@ def test_expired_token_put(backend, monkeypatch):
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
 
-    def do_PUT(self, real=handler_class.do_PUT, count=[0]):
+    def do_PUT(self, real=handler_class.do_PUT, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 1:
             return real(self)
@@ -1022,7 +1022,7 @@ def test_conn_abort(backend, monkeypatch):
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
 
-    def send_data(self, data, count=[0]):
+    def send_data(self, data, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] >= 3:
             self.wfile.write(data)

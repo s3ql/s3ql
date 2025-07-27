@@ -230,7 +230,7 @@ def process_backups(backup_list, state, cycles):
 
             # Look in simstate
             found = False
-            for backup, age in simstate.items():
+            for backup, age in simstate.items():  # noqa: B007
                 if min_ <= age < max_:
                     found = True
                     break
@@ -280,10 +280,10 @@ def process_backups(backup_list, state, cycles):
     return to_delete
 
 
-def format_list(l):
+def format_list(l):  # noqa: E741
     if not l:
         return ''
-    l = l[:]
+    l = l[:]  # copy
 
     # Append bogus end element
     l.append(l[-1] + 2)

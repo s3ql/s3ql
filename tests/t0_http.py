@@ -1136,7 +1136,7 @@ def test_request_timeout(conn, monkeypatch):
 Your browser didn't send a complete request in time.
 </body></html>"""
 
-    def recv_into(self, buffer, nbytes=0, flags=0, count=[0]):
+    def recv_into(self, buffer, nbytes=0, flags=0, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] == 1:
             r = (
