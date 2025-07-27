@@ -65,3 +65,27 @@ line-length = 100
 [tool.ruff.format]
 quote-style = "preserve"
 
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+
+    "RUF100", # unused noqa comments
+]
+
+ignore= [
+  'SIM108', # Do not favor ternary expressions over if statements
+  'UP031',  # Old style string formatting is ok
+  'B904',   # Implicitly chaining exceptions is fine
+  'UP015',  # Explicit open mode is fine
+]
