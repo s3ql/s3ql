@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# mypy: ignore-errors
+
 '''
 setup.py - this file is part of S3QL.
 

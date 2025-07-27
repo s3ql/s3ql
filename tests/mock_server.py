@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# pyright: ignore[]
 '''
 mock_server.py - this file is part of S3QL.
 

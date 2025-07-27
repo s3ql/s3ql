@@ -70,10 +70,20 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          python-version: ${{ matrix.python-version }}
+          python-version: /usr/bin/python3
 
       - name: Run formatter
         run: uv tool run ruff format --diff
 
       - name: Run linter
         run: uv tool run ruff check --output-format=github .
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          # Install libfuse3-dev in case there is no pyfuse3 wheel and 
+          # uv/pip need to compile it from source
+          sudo apt-get install -y fuse3 libfuse3-dev libsqlite3-dev psmisc
+
+      - name: Run mypy type checker
+        run: uv sync --frozen && uv run mypy .
