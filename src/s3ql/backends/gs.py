@@ -270,7 +270,7 @@ class Backend(AbstractBackend):
         elif isinstance(exc, ServerResponseError):
             return True
 
-        if g_auth and isinstance(exc, g_auth.exceptions.TransportError):
+        if g_auth and isinstance(exc, g_auth.exceptions.TransportError):  # noqa: SIM103 # auto-added, needs manual check!
             return True
 
         return False

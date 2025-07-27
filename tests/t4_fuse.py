@@ -401,7 +401,7 @@ class TestFuse:
         cmd = ('(%d, %r)' % (pyfuse3.ROOT_INODE, path2bytes(dirname))).encode()
         pyfuse3.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 'rmtree', cmd)
         # Invalidation is asynchronous...
-        try:
+        try:  # noqa: SIM105 # auto-added, needs manual check!
             retry(5, lambda: not os.path.exists(fullname))
         except RetryTimeoutError:
             pass  # assert_raises should fail

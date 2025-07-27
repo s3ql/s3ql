@@ -299,7 +299,7 @@ class Fsck:
         except NoSuchRowError:
             self.found_errors = True
             try:
-                # A bug in sqlite made fsck.s3ql move lost+found into lost+found. We just move it back to the root.
+                # A bug in sqlite made fsck.s3ql move lost+found into lost+found. We just move it back to the root.  # noqa: E501 # auto-added, needs manual check!
                 (inode_l, name_id) = self.conn.get_row(
                     "SELECT inode, name_id FROM contents_v WHERE name=? AND parent_inode=inode",
                     (b"lost+found",),
@@ -749,8 +749,8 @@ class Fsck:
     def create_inode(
         self,
         mode,
-        uid=os.getuid(),
-        gid=os.getgid(),
+        uid=os.getuid(),  # noqa: B008 # auto-added, needs manual check!
+        gid=os.getgid(),  # noqa: B008 # auto-added, needs manual check!
         mtime_ns=None,
         atime_ns=None,
         ctime_ns=None,

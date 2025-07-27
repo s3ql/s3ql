@@ -113,7 +113,7 @@ class Backend(AbstractBackend):
             try:
                 dest = es.enter_context(open(tmpname, 'wb', buffering=0))
             except FileNotFoundError:
-                try:
+                try:  # noqa: SIM105 # auto-added, needs manual check!
                     os.makedirs(os.path.dirname(path))
                 except FileExistsError:
                     # Another thread may have created the directory already

@@ -1430,7 +1430,7 @@ def create_socket(address):
 
     for hostname, port in DNS_TEST_HOSTNAMES:
         try:
-            try_connect(lambda: socket.getaddrinfo(hostname, port), address[0])
+            try_connect(lambda: socket.getaddrinfo(hostname, port), address[0])  # noqa: B023 # auto-added, needs manual check!
         except HostnameNotResolvableOrDNSUnavailable:
             pass
         else:
