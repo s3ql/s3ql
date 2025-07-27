@@ -93,7 +93,7 @@ def check_test_output(capfd, item):
         'abort(?:ed)',
         'fishy',
     ):
-        cp = re.compile(r'\b{}\b'.format(pattern), re.IGNORECASE | re.MULTILINE)
+        cp = re.compile(rf'\b{pattern}\b', re.IGNORECASE | re.MULTILINE)
         hit = cp.search(stderr)
         if hit:
             pytest.fail('Suspicious output to stderr (matched "%s")' % hit.group(0))

@@ -701,7 +701,7 @@ class B2Backend(AbstractBackend):
         info_header_count = 0
 
         buffer = ''
-        for key in metadata.keys():
+        for key in metadata:
             if not isinstance(key, str):
                 raise ValueError('dict keys must be str, not %s' % type(key))
 
@@ -744,7 +744,7 @@ class B2Backend(AbstractBackend):
 
         metadata_dict = self._create_metadata_dict(metadata)
 
-        for key in metadata_dict.keys():
+        for key in metadata_dict:
             header_key = '%s%s' % (info_header_prefix, key)
             encoded_value = self._b2_url_encode(metadata_dict[key])
 

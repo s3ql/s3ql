@@ -87,7 +87,9 @@ class TestFuse:
 
         assert proc.wait() == 0
 
-    def mount(self, expect_fail=None, in_foreground=True, extra_args=[]):
+    def mount(self, expect_fail=None, in_foreground=True, extra_args=None):
+        if extra_args is None:
+            extra_args = []
         cmd = [
             'mount.s3ql',
             '--cachedir',
@@ -143,7 +145,9 @@ class TestFuse:
         assert self.mount_process.poll() == 0
         assert not os.path.ismount(self.mnt_dir)
 
-    def fsck(self, expect_retcode=0, args=[]):
+    def fsck(self, expect_retcode=0, args=None):
+        if args is None:
+            args = []
         proc = subprocess.Popen(
             [
                 'fsck.s3ql',

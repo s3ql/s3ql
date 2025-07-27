@@ -59,11 +59,8 @@ def is_mounted(storage_url):
 
     match = storage_url + ' '
     if os.path.exists('/proc/mounts'):
-        with open('/proc/mounts', 'r') as fh:
-            for line in fh:
-                if line.startswith(match):
-                    return True
-            return False
+        with open('/proc/mounts') as fh:
+            return any(line.startswith(match) for line in fh)
 
     try:
         for line in subprocess.check_output(
@@ -459,15 +456,17 @@ def parse_literal(buf, type_spec):
     except (ValueError, SyntaxError):
         raise ValueError('unable to parse as python literal')
 
-    if isinstance(type_spec, list) and type(obj) == list and [type(x) for x in obj] == type_spec:
-        return obj
-    elif (
-        isinstance(type_spec, tuple)
-        and type(obj) == tuple
-        and [type(x) for x in obj] == list(type_spec)
+    if (
+        isinstance(type_spec, list)
+        and type(obj) == list
+        and [type(x) for x in obj] == type_spec
+        or (
+            isinstance(type_spec, tuple)
+            and type(obj) == tuple
+            and [type(x) for x in obj] == list(type_spec)
+        )
+        or type(obj) == type_spec
     ):
-        return obj
-    elif type(obj) == type_spec:
         return obj
 
     raise ValueError('literal has wrong type')
@@ -534,7 +533,7 @@ def freeze_basic_mapping(d):
         (k_repr, v_repr) = (repr(k), repr(v))
         assert (literal_eval(k_repr), literal_eval(v_repr)) == (k, v)
 
-        els.append(('%s: %s' % (k_repr, v_repr)))
+        els.append('%s: %s' % (k_repr, v_repr))
 
     buf = '{ %s }' % ', '.join(els)
     return buf.encode('utf-8')

@@ -115,7 +115,7 @@ class HTTPServerThread(threading.Thread):
 
 
 def pytest_generate_tests(metafunc):
-    if not 'http_server' in metafunc.fixturenames:
+    if 'http_server' not in metafunc.fixturenames:
         return
 
     if hasattr(metafunc, 'definition'):

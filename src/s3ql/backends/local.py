@@ -10,7 +10,7 @@ import _thread
 import logging
 import os
 import struct
-from contextlib import ExitStack
+from contextlib import ExitStack, suppress
 from typing import Any, BinaryIO, Dict, Optional
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
@@ -149,10 +149,8 @@ class Backend(AbstractBackend):
 
     def delete(self, key):
         path = self._key_to_path(key)
-        try:
+        with suppress(FileNotFoundError):
             os.unlink(path)
-        except FileNotFoundError:
-            pass
 
     def list(self, prefix=''):
         if prefix:

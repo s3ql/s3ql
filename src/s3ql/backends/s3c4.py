@@ -78,7 +78,7 @@ class Backend(s3c.Backend):
         auth_strs.append(s)
 
         # Headers
-        sig_hdrs = sorted(x.lower() for x in headers.keys())
+        sig_hdrs = sorted(x.lower() for x in headers)
         for hdr in sig_hdrs:
             auth_strs.append('%s:%s' % (hdr, headers[hdr].strip()))
         auth_strs.append('')

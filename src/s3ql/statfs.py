@@ -54,7 +54,9 @@ def main(args=None):
     setup_logging(options)
 
     if options.raw:
-        pprint = lambda x: '%d bytes' % x
+
+        def pprint(x):
+            return '%d bytes' % x
     else:
         pprint = pretty_print_size
 

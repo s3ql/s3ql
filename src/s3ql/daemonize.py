@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 '''
 daemonize.py - this file is part of S3QL.
 

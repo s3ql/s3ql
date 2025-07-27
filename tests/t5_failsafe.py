@@ -66,10 +66,9 @@ class TestFailsafe(t4_fuse.TestFuse):
 
         # We need lots of data to keep the connection alive
         # and reproduce issue 424
-        with open(fname1, 'wb') as fh:
-            with open('/dev/urandom', 'rb') as src:
-                for _ in range(5):
-                    fh.write(src.read(BUFSIZE))
+        with open(fname1, 'wb') as fh, open('/dev/urandom', 'rb') as src:
+            for _ in range(5):
+                fh.write(src.read(BUFSIZE))
         s3ql.ctrl.main(['flushcache', self.mnt_dir])
 
         with open(fname2, 'w') as fh:
@@ -86,9 +85,8 @@ class TestFailsafe(t4_fuse.TestFuse):
         # Try to read
 
         self.mount()
-        with pytest.raises(IOError) as exc_info:
-            with open(fname1, 'rb') as fh:
-                fh.read()
+        with pytest.raises(IOError) as exc_info, open(fname1, 'rb') as fh:
+            fh.read()
         assert exc_info.value.errno == errno.EIO
         self.reg_output(
             r'^ERROR: Backend returned malformed data for block 0 of inode \d+ .+$', count=1

@@ -16,6 +16,7 @@ import urllib.parse
 from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import urlsplit
 
+from s3ql.common import copyfh
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -23,8 +24,6 @@ from s3ql.http import (
     HTTPConnection,
     is_temp_network_error,
 )
-
-from s3ql.common import copyfh
 
 from ..logging import LOG_ONCE, QuietError
 from . import s3c

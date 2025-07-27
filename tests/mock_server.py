@@ -518,7 +518,7 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
 
     def do_POST(self):
         q = self.parse_url(self.path)
-        if not 'bulk-delete' in q.params:
+        if 'bulk-delete' not in q.params:
             return super().do_POST()
 
         response = {
