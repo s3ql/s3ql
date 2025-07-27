@@ -13,7 +13,7 @@ from . import logging
 
 assert logging.LOG_ONCE  # prevent warnings about unused module
 
-from pyfuse3 import ROOT_INODE
+from pyfuse3 import ROOT_INODE  # noqa: E402 # auto-added, needs manual check!
 
 VERSION = '5.3.0'
 RELEASE = '%s' % VERSION

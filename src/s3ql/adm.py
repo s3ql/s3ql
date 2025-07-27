@@ -265,7 +265,7 @@ def clear(options, on_return):
                     t.join_and_raise()
 
     queue.maxsize += len(threads)
-    for t in threads:
+    for t in threads:  # noqa: B007 # auto-added, needs manual check!
         queue.put(None)
 
     for t in threads:
@@ -430,7 +430,7 @@ def restore_metadata_cmd(backend, options):
         buf = input('Enter index to revert to: ')
         try:
             seq_no = backups[int(buf.strip())]
-        except:
+        except:  # noqa: E722 # auto-added, needs manual check!
             print('Invalid selection.')
 
     params = read_remote_params(backend, seq_no=seq_no)

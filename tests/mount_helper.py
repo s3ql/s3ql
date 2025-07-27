@@ -12,7 +12,7 @@ sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 # Override pyfuse3.invalidate_inode : Drop kernel dentries and inodes cache
 # just before calling pyfuse3.invalidate_inode
-import pyfuse3
+import pyfuse3  # noqa: E402 # auto-added, needs manual check!
 
 pyfuse3_invalidate_inode = pyfuse3.invalidate_inode
 
@@ -26,6 +26,6 @@ def patched_pyfuse3_invalidate_inode(inode):
 
 pyfuse3.invalidate_inode = patched_pyfuse3_invalidate_inode
 
-import s3ql.mount
+import s3ql.mount  # noqa: E402 # auto-added, needs manual check!
 
 s3ql.mount.main(sys.argv[1:])

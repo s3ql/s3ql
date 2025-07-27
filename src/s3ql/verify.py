@@ -193,7 +193,7 @@ def retrieve_objects(
                     t.join_and_raise()
 
     queue.maxsize += len(threads)
-    for t in threads:
+    for t in threads:  # noqa: B007 # auto-added, needs manual check!
         queue.put(None)
 
     for t in threads:

@@ -359,7 +359,7 @@ class B2Backend(AbstractBackend):
             self._reset_authorization_values()
             return True
 
-        elif isinstance(exc, HTTPError) and (
+        elif isinstance(exc, HTTPError) and (  # noqa: SIM114 # auto-added, needs manual check!
             (500 <= exc.status <= 599)
             or exc.status == 408  # server errors
             or exc.status == 429  # request timeout

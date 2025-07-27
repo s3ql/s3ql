@@ -68,7 +68,7 @@ def check_for_internet_access():
         resp = conn.getresponse()
         assert resp.status in (200, 301, 302)
         return True
-    except:
+    except:  # noqa: E722 # auto-added, needs manual check!
         return False
     finally:
         conn.close()

@@ -47,7 +47,7 @@ def brace_expand(s):
     if not hit:
         return [s]
     (p, e, s) = hit.groups()
-    l = []
+    l = []  # noqa: E741 # auto-added, needs manual check!
     for el in e.split(','):
         l.append(p + el + s)
     return l

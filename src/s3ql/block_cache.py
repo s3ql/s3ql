@@ -265,14 +265,14 @@ class BlockCache:
         # terminated prematurely, continue gracefully.
         log.debug('Signaling upload threads...')
         try:
-            for t in self.upload_threads:
+            for t in self.upload_threads:  # noqa: B007 # auto-added, needs manual check!
                 await self._queue_upload(QuitSentinel)
         except NoWorkerThreads:
             pass
 
         log.debug('Signaling removal threads...')
         try:
-            for t in self.removal_threads:
+            for t in self.removal_threads:  # noqa: B007 # auto-added, needs manual check!
                 self._queue_removal(QuitSentinel)
         except NoWorkerThreads:
             pass

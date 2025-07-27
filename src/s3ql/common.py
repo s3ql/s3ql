@@ -355,7 +355,7 @@ class ExceptionStoringThread(threading.Thread):
     def run(self):
         try:
             self.run_protected()
-        except:
+        except:  # noqa: E722 # auto-added, needs manual check!
             # This creates a circular reference chain
             self._exc_info = sys.exc_info()
             log.exception('Thread %s terminated with exception', self.name)
@@ -458,14 +458,14 @@ def parse_literal(buf, type_spec):
 
     if (
         isinstance(type_spec, list)
-        and type(obj) == list
+        and type(obj) == list  # noqa: E721 # auto-added, needs manual check!
         and [type(x) for x in obj] == type_spec
         or (
             isinstance(type_spec, tuple)
-            and type(obj) == tuple
+            and type(obj) == tuple  # noqa: E721 # auto-added, needs manual check!
             and [type(x) for x in obj] == list(type_spec)
         )
-        or type(obj) == type_spec
+        or type(obj) == type_spec  # noqa: E721 # auto-added, needs manual check!
     ):
         return obj
 

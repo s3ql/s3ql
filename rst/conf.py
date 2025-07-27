@@ -25,7 +25,7 @@ add_literal_role('cmdopt')
 add_literal_role('var')  # A variable defined in a :samp: role
 
 # Add our own Pygments Lexer
-import pygments.lexers._mapping as pmap
+import pygments.lexers._mapping as pmap  # noqa: E402 # auto-added, needs manual check!
 
 pmap.LEXERS['CommandLineLexer'] = (
     'cmdline_lexer',

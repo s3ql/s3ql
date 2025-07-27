@@ -85,7 +85,7 @@ class RateTracker:
 RETRY_TIMEOUT = 60 * 60 * 24
 
 
-def retry(method, _tracker=RateTracker(60)):
+def retry(method, _tracker=RateTracker(60)):  # noqa: B008 # auto-added, needs manual check!
     '''Wrap *method* for retrying on some exceptions
 
     If *method* raises an exception for which the instance's `is_temp_failure(exc)` method is true,
@@ -239,7 +239,7 @@ class AbstractBackend(metaclass=ABCMeta):
 
         return False
 
-    def reset(self):
+    def reset(self):  # noqa: B027 # auto-added, needs manual check!
         '''Reset backend
 
         This resets the backend and ensures that it is ready to process requests. In most cases,
@@ -374,7 +374,7 @@ class AbstractBackend(metaclass=ABCMeta):
         '''
         pass
 
-    def close(self):
+    def close(self):  # noqa: B027 # auto-added, needs manual check!
         '''Close any opened resources
 
         This method closes any resources allocated by the backend (e.g. network

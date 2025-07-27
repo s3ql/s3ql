@@ -142,5 +142,5 @@ class Backend(s3c4.Backend):
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
-        except:
+        except:  # noqa: E722 # auto-added, needs manual check!
             self.conn.discard()

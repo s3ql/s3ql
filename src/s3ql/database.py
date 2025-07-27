@@ -498,7 +498,7 @@ def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
         seq_no = int(hit.group(2), base=16)
         block_list[blockno].append(seq_no)
 
-    for l in block_list.values():
+    for l in block_list.values():  # noqa: E741 # auto-added, needs manual check!
         l.sort()
 
     return block_list
@@ -563,7 +563,7 @@ def download_metadata(
     return Connection(db_file, blocksize)
 
 
-def first_le_than(l: List[int], threshold: int):
+def first_le_than(l: List[int], threshold: int):  # noqa: E741 # auto-added, needs manual check!
     '''Return first element of *l* less or equal than *threshold*
 
     Assumes that *l* is sorted in ascending order

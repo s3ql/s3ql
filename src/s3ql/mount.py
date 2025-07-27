@@ -93,7 +93,7 @@ def install_thread_excepthook():
                 run_old(*args, **kw)
             except SystemExit:
                 raise
-            except:
+            except:  # noqa: E722 # auto-added, needs manual check!
                 sys.excepthook(*sys.exc_info())
 
         self.run = run_with_except_hook
@@ -304,7 +304,7 @@ async def main_async(options, stdout_log_handler):
         received_signals = []
         old_handler = None
 
-        def signal_handler(signum, frame, _main_thread=_thread.get_ident()):
+        def signal_handler(signum, frame, _main_thread=_thread.get_ident()):  # noqa: B008 # auto-added, needs manual check!
             log.debug('Signal %d received', signum)
             if pyfuse3.trio_token is None:
                 log.debug('FUSE loop not running, calling parent handler...')
@@ -800,11 +800,11 @@ class CommitTask:
             # to be that bad:
             # >>> from timeit import timeit
             # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501 # auto-added, needs manual check!
             # ... number=500)/500 * 1e3
             # 1.3769531380003173
             # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501 # auto-added, needs manual check!
             # ... number=500)/500 * 1e3
             # 1.456586996000624
             for el in list(self.block_cache.cache.values()):

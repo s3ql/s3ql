@@ -21,7 +21,7 @@ def get_definitions(path):
 
 def _iter_definitions(node):
     if isinstance(node, ast.Assign):
-        for node in node.targets:
+        for node in node.targets:  # noqa: B020 # auto-added, needs manual check!
             while isinstance(node, ast.Attribute):
                 node = node.value
             assert isinstance(node, ast.Name)
@@ -56,7 +56,7 @@ def iter_imports(path):
                 for snode in node.names:
                     yield (node.level, prefix + (snode.name,))
             elif isinstance(node, ast.Import):
-                for node in node.names:
+                for node in node.names:  # noqa: B020 # auto-added, needs manual check!
                     yield (0, tuple(node.name.split('.')))
 
 
