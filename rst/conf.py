@@ -58,8 +58,8 @@ master_doc = 'index'
 nitpicky = True
 
 # General information about the project.
-project = u'S3QL'
-copyright = u'© 2008 Nikolaus Rath <Nikolaus@rath.org>'
+project = 'S3QL'
+copyright = '© 2008 Nikolaus Rath <Nikolaus@rath.org>'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -194,7 +194,7 @@ htmlhelp_basename = 'S3QLdoc'
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ('index', 'manual.tex', u'S3QL Documentation', u'Nikolaus Rath', 'manual'),
+    ('index', 'manual.tex', 'S3QL Documentation', 'Nikolaus Rath', 'manual'),
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
@@ -220,18 +220,18 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    ('man/mkfs', 'mkfs.s3ql', u'Create an S3QL file system', None, 1),
-    ('man/mount', 'mount.s3ql', u'Mount an S3QL file system', None, 1),
-    ('man/umount', 'umount.s3ql', u'Unmount an S3QL file system', None, 1),
-    ('man/fsck', 'fsck.s3ql', u'Check an S3QL file system for errors', None, 1),
-    ('man/ctrl', 's3qlctrl', u'Control a mounted S3QL file system', None, 1),
-    ('man/adm', 's3qladm', u'Manage S3QL file systems', None, 1),
-    ('man/cp', 's3qlcp', u'Copy-on-write replication on S3QL file systems', None, 1),
-    ('man/lock', 's3qllock', u'Make trees on an S3QL file system immutable', None, 1),
-    ('man/rm', 's3qlrm', u'Fast tree removal on S3QL file systems', None, 1),
-    ('man/stat', 's3qlstat', u'Gather S3QL file system statistics', None, 1),
-    ('man/expire_backups', 'expire_backups', u'Intelligently expire old backups', None, 1),
-    ('man/pcp', 'pcp', u'Recursive, parallel copy of directory trees', None, 1),
-    ('man/oauth_client', 's3ql_oauth_client', u'Obtain Google Storage OAuth2 tokens', None, 1),
-    ('man/verify', 's3ql_verify', u'Verify data in an S3QL file system', None, 1),
+    ('man/mkfs', 'mkfs.s3ql', 'Create an S3QL file system', None, 1),
+    ('man/mount', 'mount.s3ql', 'Mount an S3QL file system', None, 1),
+    ('man/umount', 'umount.s3ql', 'Unmount an S3QL file system', None, 1),
+    ('man/fsck', 'fsck.s3ql', 'Check an S3QL file system for errors', None, 1),
+    ('man/ctrl', 's3qlctrl', 'Control a mounted S3QL file system', None, 1),
+    ('man/adm', 's3qladm', 'Manage S3QL file systems', None, 1),
+    ('man/cp', 's3qlcp', 'Copy-on-write replication on S3QL file systems', None, 1),
+    ('man/lock', 's3qllock', 'Make trees on an S3QL file system immutable', None, 1),
+    ('man/rm', 's3qlrm', 'Fast tree removal on S3QL file systems', None, 1),
+    ('man/stat', 's3qlstat', 'Gather S3QL file system statistics', None, 1),
+    ('man/expire_backups', 'expire_backups', 'Intelligently expire old backups', None, 1),
+    ('man/pcp', 'pcp', 'Recursive, parallel copy of directory trees', None, 1),
+    ('man/oauth_client', 's3ql_oauth_client', 'Obtain Google Storage OAuth2 tokens', None, 1),
+    ('man/verify', 's3ql_verify', 'Verify data in an S3QL file system', None, 1),
 ]

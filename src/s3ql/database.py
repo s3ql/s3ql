@@ -13,7 +13,6 @@ Module Attributes:
                connection is created.
 '''
 
-
 import collections
 import copy
 import dataclasses
@@ -346,7 +345,8 @@ class BatchedTransactionManager:
         self.conn.checkpoint()
         dt = time.time() - self.stamp
         self.batch_size = max(
-            100, int(processed * self.dt_target / dt)  # make sure to make some progress
+            100,
+            int(processed * self.dt_target / dt),  # make sure to make some progress
         )
         log.debug(
             'Last batch of %d took %.2f s, adjusting batch_size to %d and yielding',

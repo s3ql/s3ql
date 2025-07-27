@@ -33,7 +33,6 @@ are:
 # Pylint really gets confused by this module
 # pylint: disable-all
 
-
 import argparse
 import configparser
 import logging

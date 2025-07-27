@@ -27,7 +27,6 @@ a shell or some other process)". In this case the user will have to live with
 that.
 '''
 
-
 import logging
 import os
 import sys

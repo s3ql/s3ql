@@ -247,8 +247,7 @@ class Fsck:
 
             except NoSuchRowError:
                 obj_id = self.conn.rowid(
-                    'INSERT INTO objects (refcount, phys_size, length, hash) '
-                    'VALUES(1, -1, ?, ?)',
+                    'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, -1, ?, ?)',
                     (size, hash_should),
                 )
 
@@ -327,8 +326,7 @@ class Fsck:
         if not stat.S_ISDIR(mode):
             self.found_errors = True
             self.log_error(
-                '/lost+found is not a directory! Old entry will be saved as '
-                '/lost+found/inode-%s*',
+                '/lost+found is not a directory! Old entry will be saved as /lost+found/inode-%s*',
                 inode_l,
             )
             # We leave the old inode unassociated, so that it will be added
@@ -495,8 +493,7 @@ class Fsck:
         )
         self.conn.execute('CREATE INDEX ix_loopcheck_parent_inode ON loopcheck(parent_inode)')
         self.conn.execute(
-            'INSERT INTO loopcheck (inode) '
-            'SELECT parent_inode FROM contents GROUP BY parent_inode'
+            'INSERT INTO loopcheck (inode) SELECT parent_inode FROM contents GROUP BY parent_inode'
         )
         self.conn.execute(
             'UPDATE loopcheck SET parent_inode = '
@@ -559,8 +556,7 @@ class Fsck:
         log.info('Checking inodes (sizes)...')
 
         self.conn.execute(
-            'CREATE TEMPORARY TABLE min_sizes '
-            '(id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)'
+            'CREATE TEMPORARY TABLE min_sizes (id INTEGER PRIMARY KEY, min_size INTEGER NOT NULL)'
         )
         try:
             self.conn.execute(
@@ -601,8 +597,7 @@ class Fsck:
         log.info('Checking inodes (refcounts)...')
 
         self.conn.execute(
-            'CREATE TEMPORARY TABLE refcounts '
-            '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
+            'CREATE TEMPORARY TABLE refcounts (id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
         )
         try:
             self.conn.execute(
@@ -778,8 +773,7 @@ class Fsck:
         log.info('Checking names (refcounts)...')
 
         self.conn.execute(
-            'CREATE TEMPORARY TABLE refcounts '
-            '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
+            'CREATE TEMPORARY TABLE refcounts (id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
         )
         try:
             self.conn.execute('INSERT INTO refcounts (id, refcount) SELECT id, 0 FROM names')
@@ -950,8 +944,7 @@ class Fsck:
         log.info('Checking objects (reference counts)...')
 
         self.conn.execute(
-            'CREATE TEMPORARY TABLE refcounts '
-            '(id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
+            'CREATE TEMPORARY TABLE refcounts (id INTEGER PRIMARY KEY, refcount INTEGER NOT NULL)'
         )
         try:
             self.conn.execute(

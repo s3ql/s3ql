@@ -29,22 +29,15 @@
         "editor.codeActionsOnSave": {
             "source.organizeImports": "always"
         },
-        "editor.defaultFormatter": "ms-python.black-formatter"
+        "editor.defaultFormatter": "charliermarsh.ruff",
     },
     "python.analysis.typeCheckingMode": "off",
-    "isort.check": true,
     "python.analysis.exclude": [
         "s3ql.old/",
         ".venv/",
         ".git/",
         "build/",
         "**/__pycache__",
-    ],
-    "black-formatter.importStrategy": "fromEnvironment",
-    "black-formatter.args": [
-        "--line-length=100",
-        "--skip-string-normalization",
-        "--required-version=23.3.0"
     ],
     "python.analysis.diagnosticMode": "workspace"
 }
