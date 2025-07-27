@@ -158,7 +158,7 @@ def conn(request, http_server):
 
 @pytest.fixture(scope='module')
 def random_fh(request):
-    fh = open('/dev/urandom', 'rb')
+    fh = open('/dev/urandom', 'rb')  # noqa: SIM115
     request.addfinalizer(fh.close)
     return fh
 

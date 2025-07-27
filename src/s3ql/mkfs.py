@@ -172,9 +172,8 @@ def main(args=None):
 
         # Generate data encryption passphrase
         log.info('Generating random encryption key...')
-        fh = open('/dev/urandom', "rb", 0)  # No buffering
-        data_pw = fh.read(32)
-        fh.close()
+        with open('/dev/urandom', "rb", 0) as fh:  # No buffering
+            data_pw = fh.read(32)
 
         backend = ComprencBackend(wrap_pw, ('lzma', 2), plain_backend)
         backend['s3ql_passphrase'] = data_pw

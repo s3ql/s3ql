@@ -66,7 +66,7 @@ class CacheEntry:
         # Writing 100MB in 128k chunks takes 90ms unbuffered and
         # 116ms with 1 MB buffer. Reading time does not depend on
         # buffer size.
-        self.fh = open(filename, mode, 0)
+        self.fh = open(filename, mode, 0)  # noqa: SIM115
         self.dirty = False
         self.inode = inode
         self.blockno = blockno
@@ -704,30 +704,28 @@ class BlockCache:
 
             # Need to download corresponding object
             log.debug('downloading object %d..', obj_id)
-            tmpfh = open(filename + '.tmp', 'wb')
-            try:
-                # Lock object. This ensures that we wait until the object
-                # is uploaded. We don't have to worry about deletion, because
-                # as long as the current cache entry exists, there will always be
-                # a reference to the object (and we already have a lock on the
-                # cache entry).
-                await self.mlock.acquire(obj_id)
-                await self.mlock.release(obj_id)
+            with open(filename + '.tmp', 'wb') as tmpfh:
+                try:
+                    # Lock object. This ensures that we wait until the object
+                    # is uploaded. We don't have to worry about deletion, because
+                    # as long as the current cache entry exists, there will always be
+                    # a reference to the object (and we already have a lock on the
+                    # cache entry).
+                    await self.mlock.acquire(obj_id)
+                    await self.mlock.release(obj_id)
 
-                def with_lock_released():
-                    with self.backend_pool() as backend:
-                        backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh)
+                    def with_lock_released():
+                        with self.backend_pool() as backend:
+                            backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh)
 
-                await trio.to_thread.run_sync(with_lock_released)
+                    await trio.to_thread.run_sync(with_lock_released)
 
-                tmpfh.flush()
-                os.fsync(tmpfh.fileno())
-                os.rename(tmpfh.name, filename)
-            except:
-                os.unlink(tmpfh.name)
-                raise
-            finally:
-                tmpfh.close()
+                    tmpfh.flush()
+                    os.fsync(tmpfh.fileno())
+                    os.rename(tmpfh.name, filename)
+                except:
+                    os.unlink(tmpfh.name)
+                    raise
 
             el = CacheEntry(inode, blockno, filename, mode='r+b')
             self.cache[(inode, blockno)] = el

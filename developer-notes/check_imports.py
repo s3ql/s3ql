@@ -12,9 +12,10 @@ def get_definitions(path):
     '''
 
     names = set()
-    for node in ast.parse(open(path, 'rb').read()).body:
-        for name in _iter_definitions(node):
-            names.add(name)
+    with open(path, 'rb') as f:
+        for node in ast.parse(f.read()).body:
+            for name in _iter_definitions(node):
+                names.add(name)
     return names
 
 
@@ -45,17 +46,18 @@ def _iter_definitions(node):
 def iter_imports(path):
     '''Yield imports in *path*'''
 
-    for node in ast.parse(open(path, 'rb').read()).body:
-        if isinstance(node, ast.ImportFrom):
-            if node.module is None:
-                prefix = ()
-            else:
-                prefix = tuple(node.module.split('.'))
-            for snode in node.names:
-                yield (node.level, prefix + (snode.name,))
-        elif isinstance(node, ast.Import):
-            for node in node.names:
-                yield (0, tuple(node.name.split('.')))
+    with open(path, 'rb') as f:
+        for node in ast.parse(f.read()).body:
+            if isinstance(node, ast.ImportFrom):
+                if node.module is None:
+                    prefix = ()
+                else:
+                    prefix = tuple(node.module.split('.'))
+                for snode in node.names:
+                    yield (node.level, prefix + (snode.name,))
+            elif isinstance(node, ast.Import):
+                for node in node.names:
+                    yield (0, tuple(node.name.split('.')))
 
 
 def yield_modules(path):

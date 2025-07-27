@@ -38,7 +38,7 @@ class TestCp(t4_fuse.TestFuse):
     def test_bg(self):
         skip_without_rsync()
         self.mkfs()
-        self.logfile = tempfile.NamedTemporaryFile()
+        self.logfile = tempfile.NamedTemporaryFile()  # noqa: SIM115
         self.mount(in_foreground=False, extra_args=["--log", self.logfile.name])
         self.tst_cp()
         self.umount()

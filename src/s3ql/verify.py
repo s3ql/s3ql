@@ -34,7 +34,7 @@ def _new_file_type(s, encoding='utf-8'):
         msg = 'File already exists - refusing to overwrite: %s' % s
         raise argparse.ArgumentTypeError(msg)
 
-    fh = open(s, 'w', encoding=encoding)
+    fh = open(s, 'w', encoding=encoding)  # noqa: SIM115
     atexit.register(fh.close)
     return fh
 

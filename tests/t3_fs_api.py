@@ -83,7 +83,7 @@ async def ctx():
     # Destructors are not guaranteed to run, and we can't unlink
     # the file immediately because apsw refers to it by name.
     # Therefore, we unlink the file manually in tearDown()
-    ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)
+    ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)  # noqa: SIM115
 
     ctx.db = Connection(ctx.dbfile.name)
     create_tables(ctx.db)

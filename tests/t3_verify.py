@@ -44,15 +44,14 @@ def backend():
 
 @pytest.fixture()
 def db():
-    dbfile = tempfile.NamedTemporaryFile()
-    db = Connection(dbfile.name)
-    create_tables(db)
-    init_tables(db)
-    try:
-        yield db
-    finally:
-        db.close()
-        dbfile.close()
+    with tempfile.NamedTemporaryFile() as dbfile:
+        db = Connection(dbfile.name)
+        create_tables(db)
+        init_tables(db)
+        try:
+            yield db
+        finally:
+            db.close()
 
 
 @pytest.mark.parametrize("full", (True, False))

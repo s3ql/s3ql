@@ -54,7 +54,7 @@ class TestLockRemove(t4_fuse.TestFuse):
 
         # Try to write
         with pytest.raises(PermissionError):
-            open(filename, 'w+').write('Hello')
+            open(filename, 'w+').write('Hello')  # noqa: SIM115
 
         # delete properly
         try:

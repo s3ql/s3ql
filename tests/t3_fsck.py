@@ -42,7 +42,7 @@ class fsck_tests(unittest.TestCase):
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024
 
-        self.dbfile = tempfile.NamedTemporaryFile()
+        self.dbfile = tempfile.NamedTemporaryFile()  # noqa: SIM115
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)
         init_tables(self.db)
