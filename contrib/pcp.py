@@ -11,18 +11,9 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import logging
-import os
 import subprocess
 import sys
 from argparse import ArgumentTypeError
-
-# We are running from the S3QL source directory, make sure
-# that we use modules from this directory
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-if os.path.exists(os.path.join(basedir, 'setup.py')) and os.path.exists(
-    os.path.join(basedir, 'src', 's3ql', '__init__.py')
-):
-    sys.path = [os.path.join(basedir, 'src')] + sys.path
 
 from s3ql.logging import setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
