@@ -671,7 +671,7 @@ def _unwrap_user_meta(json_resp):
     if (
         meta_raw.get('format', None) == 'raw2'
         and 'md5' in meta_raw
-        and all(key in ('format', 'md5') or re.match(r'^\d\d\d$', key) for key in meta_raw.keys())
+        and all(key in ('format', 'md5') or re.match(r'^\d\d\d$', key) for key in meta_raw)
     ):
         parts = []
         for i in count():

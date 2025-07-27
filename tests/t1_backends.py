@@ -778,7 +778,7 @@ def test_httperror(backend, monkeypatch):
         count[0] += 1
         if count[0] >= 3:
             return real_DELETE(self)
-        content = "I'm a proxy, and I messed up!".encode('utf-8')
+        content = b"I'm a proxy, and I messed up!"
         self.send_response(502, "Bad Gateway")
         self.send_header("Content-Type", 'text/plain; charset="utf-8"')
         self.send_header("Content-Length", str(len(content)))

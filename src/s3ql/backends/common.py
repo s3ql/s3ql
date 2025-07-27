@@ -195,7 +195,7 @@ def extend_docstring(fun, s):
     fun.__doc__ += '\n'
 
 
-class AbstractBackend(object, metaclass=ABCMeta):
+class AbstractBackend(metaclass=ABCMeta):
     '''Functionality shared between all backends.
 
     Instances behave similarly to dicts. They can be iterated over and

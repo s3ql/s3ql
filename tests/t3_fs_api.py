@@ -272,7 +272,7 @@ async def test_listxattr(ctx):
     assert await ctx.server.listxattr(inode.st_ino, some_ctx) == []
 
     await ctx.server.setxattr(inode.st_ino, b'key1', b'blub', some_ctx)
-    assert [b'key1'] == await ctx.server.listxattr(inode.st_ino, some_ctx)
+    assert await ctx.server.listxattr(inode.st_ino, some_ctx) == [b'key1']
 
     await ctx.server.setxattr(inode.st_ino, b'key2', b'blub', some_ctx)
     assert sorted([b'key1', b'key2']) == sorted(await ctx.server.listxattr(inode.st_ino, some_ctx))

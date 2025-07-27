@@ -197,7 +197,9 @@ def recover(backend, options):
 
 @handle_on_return
 def clear(options, on_return):
-    backend_factory = lambda: options.backend_class(options)
+    def backend_factory():
+        return options.backend_class(options)
+
     backend = on_return.enter_context(backend_factory())
 
     print(

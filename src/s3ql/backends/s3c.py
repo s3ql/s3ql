@@ -7,6 +7,8 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import binascii
+import builtins
+import contextlib
 import hashlib
 import hmac
 import logging
@@ -24,6 +26,8 @@ from typing import Any, BinaryIO, Dict, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from defusedxml import ElementTree
+
+from s3ql.common import copyfh
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -32,8 +36,6 @@ from s3ql.http import (
     UnsupportedResponse,
     is_temp_network_error,
 )
-
-from s3ql.common import copyfh
 
 from ..logging import QuietError
 from .common import (
@@ -410,7 +412,7 @@ class Backend(AbstractBackend):
     def _add_meta_headers(self, headers, metadata, chunksize=255):
         hdr_count = 0
         length = 0
-        for key in metadata.keys():
+        for key in metadata:
             if not isinstance(key, str):
                 raise ValueError('dict keys must be str, not %s' % type(key))
             val = metadata[key]
@@ -720,10 +722,8 @@ class Backend(AbstractBackend):
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             resp = None
-            try:
+            with contextlib.suppress(builtins.BaseException):
                 resp = self.conn.read_response()
-            except:
-                pass
             if resp is not None:
                 self._parse_error_response(resp)
             else:

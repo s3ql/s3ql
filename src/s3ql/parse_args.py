@@ -288,7 +288,7 @@ class ArgumentParser(argparse.ArgumentParser):
             fixed_keys = {'backend-login', 'backend-password', 'fs-passphrase', 'storage-url'}
             unknown_keys = (
                 set(ini_config.keys())
-                - {x.replace('_', '-') for x in options.__dict__.keys()}
+                - {x.replace('_', '-') for x in options.__dict__}
                 - fixed_keys
             )
             if unknown_keys:
@@ -334,7 +334,7 @@ class ArgumentParser(argparse.ArgumentParser):
             self.exit(11, 'No such backend: ' + backend)
 
         backend_options = options.backend_options
-        for opt in backend_options.keys():
+        for opt in backend_options:
             if opt not in backend_class.known_options:
                 self.exit(3, 'Unknown backend option: ' + opt)
 

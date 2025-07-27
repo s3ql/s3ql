@@ -586,12 +586,12 @@ class HTTPConnection:
         # Generate host header
         host = self.hostname
         if host.find(':') >= 0:
-            host = '[{}]'.format(host)
+            host = f'[{host}]'
         default_port = HTTPS_PORT if self.ssl_context else HTTP_PORT
         if self.port == default_port:
             headers['Host'] = host
         else:
-            headers['Host'] = '{}:{}'.format(host, self.port)
+            headers['Host'] = f'{host}:{self.port}'
 
         # Assemble request
         headers['Accept-Encoding'] = 'identity'
@@ -601,9 +601,9 @@ class HTTPConnection:
             gpath = "http://{}{}".format(headers['Host'], path)
         else:
             gpath = path
-        request = ['{} {} HTTP/1.1'.format(method, gpath).encode('latin1')]
+        request = [f'{method} {gpath} HTTP/1.1'.encode('latin1')]
         for key, val in headers.items():
-            request.append('{}: {}'.format(key, val).encode('latin1'))
+            request.append(f'{key}: {val}'.encode('latin1'))
         request.append(b'')
 
         if body is not None:
@@ -832,12 +832,7 @@ class HTTPConnection:
                 self._in_remaining = RESPONSE_BODY_ERROR
                 return None
 
-        if (
-            status == NO_CONTENT
-            or status == NOT_MODIFIED
-            or 100 <= status < 200
-            or method == 'HEAD'
-        ):
+        if status in (NO_CONTENT, NOT_MODIFIED) or 100 <= status < 200 or method == 'HEAD':
             log.debug('no content by RFC')
             self._in_remaining = None
             self._encoding = None

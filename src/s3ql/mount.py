@@ -172,7 +172,7 @@ def main(args=None):
 
 class Tracer(trio.abc.Instrument):
     def _print_with_task(self, msg, task):
-        print("{}: {}".format(msg, task.name))
+        print(f"{msg}: {task.name}")
 
     def task_spawned(self, task):
         self._print_with_task("### new task spawned", task)
@@ -191,14 +191,14 @@ class Tracer(trio.abc.Instrument):
 
     def before_io_wait(self, timeout):
         if timeout:
-            print("### waiting for I/O for up to {} seconds".format(timeout))
+            print(f"### waiting for I/O for up to {timeout} seconds")
         else:
             print("### doing a quick check for I/O")
         self._sleep_time = trio.current_time()
 
     def after_io_wait(self, timeout):
         duration = trio.current_time() - self._sleep_time
-        print("### finished I/O check (took {} seconds)".format(duration))
+        print(f"### finished I/O check (took {duration} seconds)")
 
 
 async def main_async(options, stdout_log_handler):
@@ -235,110 +235,109 @@ async def main_async(options, stdout_log_handler):
 
     metadata_upload_task = MetadataUploadTask(param, backend_pool, db, options)
 
-    async with trio.open_nursery() as nursery:
-        async with AsyncExitStack() as cm:
-            block_cache = BlockCache(
-                backend_pool,
-                db,
-                cachepath + '-cache',
-                options.cachesize * 1024,
-                options.max_cache_entries,
+    async with trio.open_nursery() as nursery, AsyncExitStack() as cm:
+        block_cache = BlockCache(
+            backend_pool,
+            db,
+            cachepath + '-cache',
+            options.cachesize * 1024,
+            options.max_cache_entries,
+        )
+        cm.push_async_callback(block_cache.destroy, options.keep_cache)
+
+        operations = fs.Operations(
+            block_cache,
+            db,
+            max_obj_size=param.data_block_size,
+            inode_cache=InodeCache(db, param.inode_gen),
+            upload_task=metadata_upload_task,
+        )
+        cm.push_async_callback(operations.destroy)
+        block_cache.fs = operations
+        metadata_upload_task.fs = operations
+
+        log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
+        try:
+            pyfuse3.init(operations, options.mountpoint, get_fuse_opts(options))
+        except RuntimeError as exc:
+            raise QuietError(str(exc), exitcode=39)
+
+        unmount_clean = False
+
+        def unmount():
+            log.info("Unmounting file system...")
+            pyfuse3.close(unmount=unmount_clean)
+
+        cm.callback(unmount)
+
+        if options.fg or options.systemd:
+            faulthandler.enable()
+            faulthandler.register(signal.SIGUSR1)
+        else:
+            if stdout_log_handler:
+                logging.getLogger().removeHandler(stdout_log_handler)
+            crit_log_fd = os.open(
+                os.path.join(options.cachedir, 'mount.s3ql_crit.log'),
+                flags=os.O_APPEND | os.O_CREAT | os.O_WRONLY,
+                mode=0o644,
             )
-            cm.push_async_callback(block_cache.destroy, options.keep_cache)
+            faulthandler.enable(crit_log_fd)
+            faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
+            daemonize(options.cachedir)
 
-            operations = fs.Operations(
-                block_cache,
-                db,
-                max_obj_size=param.data_block_size,
-                inode_cache=InodeCache(db, param.inode_gen),
-                upload_task=metadata_upload_task,
-            )
-            cm.push_async_callback(operations.destroy)
-            block_cache.fs = operations
-            metadata_upload_task.fs = operations
+        param.seq_no += 1
+        param.is_mounted = True
+        write_params(cachepath, param)
+        upload_params(backend, param)
 
-            log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
-            try:
-                pyfuse3.init(operations, options.mountpoint, get_fuse_opts(options))
-            except RuntimeError as exc:
-                raise QuietError(str(exc), exitcode=39)
+        block_cache.init(options.threads)
 
-            unmount_clean = False
+        nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
+        cm.callback(metadata_upload_task.stop)
 
-            def unmount():
-                log.info("Unmounting file system...")
-                pyfuse3.close(unmount=unmount_clean)
+        commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
+        nursery.start_soon(commit_task.run, name='commit-task')
+        cm.callback(commit_task.stop)
 
-            cm.callback(unmount)
+        exc_info = setup_exchook()
 
-            if options.fg or options.systemd:
-                faulthandler.enable()
-                faulthandler.register(signal.SIGUSR1)
+        received_signals = []
+        old_handler = None
+
+        def signal_handler(signum, frame, _main_thread=_thread.get_ident()):
+            log.debug('Signal %d received', signum)
+            if pyfuse3.trio_token is None:
+                log.debug('FUSE loop not running, calling parent handler...')
+                return old_handler(signum, frame)
+            log.debug('Calling pyfuse3.terminate()...')
+            if _thread.get_ident() == _main_thread:
+                pyfuse3.terminate()
             else:
-                if stdout_log_handler:
-                    logging.getLogger().removeHandler(stdout_log_handler)
-                crit_log_fd = os.open(
-                    os.path.join(options.cachedir, 'mount.s3ql_crit.log'),
-                    flags=os.O_APPEND | os.O_CREAT | os.O_WRONLY,
-                    mode=0o644,
-                )
-                faulthandler.enable(crit_log_fd)
-                faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
-                daemonize(options.cachedir)
+                trio.from_thread.run_sync(pyfuse3.terminate, trio_token=pyfuse3.trio_token)
+            received_signals.append(signum)
 
-            param.seq_no += 1
-            param.is_mounted = True
-            write_params(cachepath, param)
-            upload_params(backend, param)
+        signal.signal(signal.SIGTERM, signal_handler)
+        old_handler = signal.signal(signal.SIGINT, signal_handler)
 
-            block_cache.init(options.threads)
+        if options.systemd:
+            systemd_notify('READY=1')
 
-            nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
-            cm.callback(metadata_upload_task.stop)
+        await pyfuse3.main()
 
-            commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
-            nursery.start_soon(commit_task.run, name='commit-task')
-            cm.callback(commit_task.stop)
+        if received_signals == [signal.SIGINT]:
+            log.info('SIGINT received, exiting normally.')
+        elif received_signals:
+            log.info('Received termination signal, exiting without data upload.')
+            raise RuntimeError('Received signal(s) %s, terminating' % (received_signals,))
 
-            exc_info = setup_exchook()
+        # Re-raise if main loop terminated due to exception in other thread
+        if exc_info:
+            (exc_inst, exc_tb) = exc_info
+            raise exc_inst.with_traceback(exc_tb)
 
-            received_signals = []
-            old_handler = None
+        log.info("FUSE main loop terminated.")
 
-            def signal_handler(signum, frame, _main_thread=_thread.get_ident()):
-                log.debug('Signal %d received', signum)
-                if pyfuse3.trio_token is None:
-                    log.debug('FUSE loop not running, calling parent handler...')
-                    return old_handler(signum, frame)
-                log.debug('Calling pyfuse3.terminate()...')
-                if _thread.get_ident() == _main_thread:
-                    pyfuse3.terminate()
-                else:
-                    trio.from_thread.run_sync(pyfuse3.terminate, trio_token=pyfuse3.trio_token)
-                received_signals.append(signum)
-
-            signal.signal(signal.SIGTERM, signal_handler)
-            old_handler = signal.signal(signal.SIGINT, signal_handler)
-
-            if options.systemd:
-                systemd_notify('READY=1')
-
-            await pyfuse3.main()
-
-            if received_signals == [signal.SIGINT]:
-                log.info('SIGINT received, exiting normally.')
-            elif received_signals:
-                log.info('Received termination signal, exiting without data upload.')
-                raise RuntimeError('Received signal(s) %s, terminating' % (received_signals,))
-
-            # Re-raise if main loop terminated due to exception in other thread
-            if exc_info:
-                (exc_inst, exc_tb) = exc_info
-                raise exc_inst.with_traceback(exc_tb)
-
-            log.info("FUSE main loop terminated.")
-
-            unmount_clean = True
+        unmount_clean = True
 
     # At this point, there should be no other threads left
     param.is_mounted = False

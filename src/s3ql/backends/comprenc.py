@@ -402,7 +402,7 @@ def decompress_buf(decomp, buf):
 
     try:
         return decomp.decompress(buf)
-    except IOError as exc:
+    except OSError as exc:
         if exc.args[0].lower().startswith('invalid data stream'):
             raise CorruptedObjectError('Invalid compressed stream')
         raise
