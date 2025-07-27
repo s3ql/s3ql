@@ -478,7 +478,7 @@ class HTTPConnection:
         self._poll_send = poll.poll
 
         if 'S3QL_HTTP_TRACEFILE' in os.environ:
-            self.trace_fh = open(
+            self.trace_fh = open(  # noqa: SIM115
                 os.environ['S3QL_HTTP_TRACEFILE'] % id(self._sock), 'wb+', buffering=0
             )
 

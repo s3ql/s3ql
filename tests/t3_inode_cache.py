@@ -29,7 +29,7 @@ class cache_tests(unittest.TestCase):
         # Destructors are not guaranteed to run, and we can't unlink
         # the file immediately because apsw refers to it by name.
         # Therefore, we unlink the file manually in tearDown()
-        self.dbfile = tempfile.NamedTemporaryFile(delete=False)
+        self.dbfile = tempfile.NamedTemporaryFile(delete=False)  # noqa: SIM115
 
         self.db = Connection(self.dbfile.name)
         create_tables(self.db)

@@ -142,7 +142,7 @@ def main(args=None):
 
     # /dev/urandom may be slow, so we cache the data first
     log.info('Preparing test data...')
-    rnd_fh = tempfile.TemporaryFile()
+    rnd_fh = tempfile.TemporaryFile()  # noqa: SIM115
     with open('/dev/urandom', 'rb', 0) as src:
         copied = 0
         while copied < 50 * 1024 * 1024:

@@ -98,7 +98,7 @@ class TestFailsafe(t4_fuse.TestFuse):
 
         # But this should not
         with pytest.raises(PermissionError):
-            open(fname2, 'wb')
+            open(fname2, 'wb')  # noqa: SIM115
         self.reg_output(
             r'^ERROR: Backend returned malformed data for block 0 of inode \d+ .+$', count=1
         )
