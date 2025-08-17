@@ -54,7 +54,7 @@ def main():
             (
                 'share/man/man1',
                 [
-                    os.path.join('doc/manpages/', x)
+                    os.path.join('doc/manpages/', os.path.basename(x))
                     for x in glob(os.path.join(basedir, 'doc', 'manpages', '*.1'))
                 ],
             )
