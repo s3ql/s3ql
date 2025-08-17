@@ -951,6 +951,8 @@ async def test_failsafe(ctx):
     assert cm.value.errno == errno.EIO
 
     # Don't call fsck, we're missing a block
+    # Just call ctx.dbfile.close() to mute resource leak warning
+    ctx.dbfile.close()
 
 
 async def test_create_open(ctx):
