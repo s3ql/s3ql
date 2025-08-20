@@ -1234,6 +1234,11 @@ class HTTPConnection:
             return None
         except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
             raise ConnectionClosed('connection was interrupted')
+        except ssl.SSLError as exc:
+            if exc.library == 'SSL' and exc.reason == 'UNEXPECTED_EOF_WHILE_READING':
+                raise ConnectionClosed('connection was interrupted')
+            else:
+                raise
 
         rbuf.e += len_
         log.debug('done (got %d bytes)', len_)
