@@ -424,7 +424,7 @@ class HTTPConnection:
         else:
             self._timeout_ms = int(value * 1000)
 
-    # Implement bare-bones `io.BaseIO` interface, so that instances
+    # Implement bare-bones `io.IOBase` interface, so that instances
     # can be wrapped in `io.TextIOWrapper` if desired.
     def writable(self):
         return True
@@ -435,11 +435,45 @@ class HTTPConnection:
     def seekable(self):
         return False
 
-    # One could argue that the stream should be considered closed if
-    # there is no active response. However, this breaks TextIOWrapper
-    # (which fails if the stream becomes closed even after b'' has
-    # been read), so we just declare to be always open.
+    def isatty(self):
+        return False
+
+    def flush(self):
+        pass
+
+    def close(self):
+        if self.closed:
+            raise ValueError('connection already closed')
+        self.closed = True
+        self.disconnect()
+
     closed = False
+
+    def fileno(self):
+        # on Python <= 3.10 io.TextIOWrapper calls fileno()
+        # but it cannot handle the documented throwing of the OSError
+        # That's why we return the invalid value -1 instead
+        # When we drop Python 3.10 support, we can raise an OSError instead.
+        return -1
+
+    def readline(self, size=-1, /):
+        raise OSError('not implemented')
+
+    def readlines(self, hint=-1, /):
+        raise OSError('not implemented')
+
+    def seek(self, offset, whence=0, /):
+        raise OSError('seek not supported')
+
+    def tell(self):
+        raise OSError('tell not supported')
+
+    def truncate(self, size=None, /):
+        raise OSError('truncate not supported')
+
+    def writelines(self, lines, /):
+        for line in lines:
+            self.write(line)
 
     def connect(self):
         """Connect to the remote server
