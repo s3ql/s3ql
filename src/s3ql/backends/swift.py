@@ -580,8 +580,15 @@ class Backend(AbstractBackend):
         except ValueError:
             raise RuntimeError('Unexpected server reply')
 
-        if resp_status_code == 200:
-            # No errors occurred, everything has been deleted
+        if resp_status_code == 200 or (
+            resp_status_code in (400, 404)
+            and len(resp_dict['Errors']) == 0
+            and resp_dict['Number Not Found'] > 0
+        ):
+            # No/only 404 errors occurred.
+            # We remove all keys since we don't know which ones have been deleted.
+            # (Swift only returns a counter of deleted objects, not the list of deleted objects.)
+            # Swift returns a 400 error, but we also accept the more appropriate 404 error code.
             del keys[:]
             return
 
@@ -599,22 +606,6 @@ class Backend(AbstractBackend):
         for key in keys[:]:
             if key not in failed_keys:
                 keys.remove(key)
-
-        if resp_status_code in (400, 404) and len(resp_dict['Errors']) == 0:
-            # Swift returns 400 instead of 404 when files were not found.
-            # (but we also accept the correct status code 404 if Swift
-            # decides to correct this in the future)
-
-            # ensure that we actually have objects that were not found
-            # (otherwise there is a logic error that we need to know about)
-            assert resp_dict['Number Not Found'] > 0
-
-            # Since AbstractBackend.delete_multi allows this, we just
-            # swallow this error even when *force* is False.
-            # N.B.: We removed even the keys from *keys* that are not found.
-            # This is because Swift only returns a counter of deleted
-            # objects, not the list of deleted objects (as S3 does).
-            return
 
         # At this point it is clear that the server has sent some kind of error response.
         # Swift is not very consistent in returning errors.
