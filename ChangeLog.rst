@@ -1,7 +1,8 @@
-UNRELEASED
+S3QL 5.4.0 (2025-09-06)
 =======================
 
 * `contrib/benchmark.py` works again. It stopped working with S3QL 5.0.0.
+
 * S3QL is now compatible with Python 3.13 and newer OpenSSL versions.
   This makes S3QL compatible with e.g. Debian trixie.
 
