@@ -11,8 +11,8 @@ by hand as follows:
 $ python3 -m venv .venv   # create the venv
 $ . .venv/bin/activate    # activate it
 $ pip install --upgrade pip # upgrade pip
-$ pip install .[dev]      # build & install S3QL and dependencies
-$ pip install --no-build-isolation --editable .  # re-install in editable mode
+$ pip install --group dev # install build dependencies
+$ pip install --no-build-isolation --editable .  # install s3ql in editable mode
 ```
 
 As long as the venv is active, you can run tests with

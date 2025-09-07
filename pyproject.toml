@@ -32,7 +32,7 @@ dependencies = [
   "pyfuse3 >= 3.2.0, < 4.0",
 ]
 
-[project.optional-dependencies]
+[dependency-groups]
 dev = [
   "pytest",
   "pytest-trio",

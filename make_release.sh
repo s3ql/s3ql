@@ -14,7 +14,7 @@ echo "Creating release tarball for ${TAG}..."
 
 git checkout -q "${TAG}"
 
-uv sync --frozen --extra dev
+uv sync --frozen
 . .venv/bin/activate
 
 # check if we have a recent enough Cython version so that the release tarball is compatible with Python 3.12
