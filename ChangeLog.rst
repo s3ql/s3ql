@@ -1,7 +1,7 @@
 Unreleased Changes
 ==================
 
-* Running *mount.s3ql* with `--metadata-backup-interval=-` no longer crashes.
+* Running *mount.s3ql* with `--metadata-backup-interval=0` no longer crashes.
 
 
 S3QL 5.4.0 (2025-09-06)
