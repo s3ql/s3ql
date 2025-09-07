@@ -1046,7 +1046,7 @@ wheels = [
 
 [[package]]
 name = "s3ql"
-version = "5.3.0"
+version = "5.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "apsw", version = "3.46.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -1061,7 +1061,7 @@ dependencies = [
     { name = "trio", version = "0.30.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
 ]
 
-[package.optional-dependencies]
+[package.dev-dependencies]
 dev = [
     { name = "cython" },
     { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
@@ -1080,20 +1080,23 @@ dev = [
 requires-dist = [
     { name = "apsw", specifier = ">=3.42.0" },
     { name = "cryptography" },
-    { name = "cython", marker = "extra == 'dev'" },
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
     { name = "pyfuse3", specifier = ">=3.2.0,<4.0" },
-    { name = "pytest", marker = "extra == 'dev'" },
-    { name = "pytest-trio", marker = "extra == 'dev'" },
     { name = "requests" },
-    { name = "ruff", marker = "extra == 'dev'" },
-    { name = "setuptools", marker = "extra == 'dev'" },
-    { name = "sphinx", marker = "extra == 'dev'" },
     { name = "trio", specifier = ">=0.15" },
 ]
-provides-extras = ["dev"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "cython" },
+    { name = "pytest" },
+    { name = "pytest-trio" },
+    { name = "ruff" },
+    { name = "setuptools" },
+    { name = "sphinx" },
+]
 
 [[package]]
 name = "setuptools"
