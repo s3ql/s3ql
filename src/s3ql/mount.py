@@ -684,7 +684,10 @@ class MetadataUploadTask:
         log.debug('started')
 
         while not self.quit:
-            with trio.move_on_after(self.options.metadata_backup_interval):
+            if self.options.metadata_backup_interval:
+                with trio.move_on_after(self.options.metadata_backup_interval):
+                    await self.event.wait()
+            else:
                 await self.event.wait()
 
             if self.quit:
