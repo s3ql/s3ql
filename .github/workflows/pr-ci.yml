@@ -17,17 +17,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu-22.04
-          - ubuntu-24.04
-        deps: [ dist, latest ]
-        python-version:
-          - "3.13"
-          - "3.12"
-          - "3.11"
-          - "3.10"
-          - "3.9"
-          - "3.8"
+        include:
+         # Check different Python versions
+         - os: ubuntu-24.04
+           python-version: "3.13"
+         - os: ubuntu-24.04
+           python-version: "3.12"
+         - os: ubuntu-24.04
+           python-version: "3.11"
+         - os: ubuntu-24.04
+           python-version: "3.10"
+
+         # Check different OS releases, with whatever Python they come with
+         - os: ubuntu-22.04
+           python-version: /usr/bin/python3
+         - os: ubuntu-latest
+           python-version: /usr/bin/python3
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -41,7 +47,9 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          tests/ci-prepare-${{ matrix.deps }}.sh
+          # Install libfuse3-dev in case there is no pyfuse3 wheel and 
+          # uv/pip need to compile it from source
+          sudo apt install -y fuse3 libfuse3-dev libsqlite3-dev psmisc
 
       - name: Build S3QL
         run: uv sync --locked
