@@ -500,7 +500,7 @@ class Backend(AbstractBackend):
             self.conn.discard()
             raise AccessTokenExpired()
         elif resp.status != 200:
-            exc = _parse_error_response(resp, self.conn.co_readall())
+            exc = _parse_error_response(resp, self.conn.readall())
             raise _map_request_error(exc, key) or exc
         _parse_json_response(resp, self.conn.readall())
 
