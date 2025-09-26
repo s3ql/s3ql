@@ -61,6 +61,10 @@ s3ql_verify = "s3ql.verify:main"
 
 [tool.ruff]
 line-length = 100
+exclude = [
+   "rst/conf.py",
+   ".venv/",
+]
 
 [tool.ruff.format]
 quote-style = "preserve"
