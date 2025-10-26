@@ -19,6 +19,8 @@ from base64 import b64decode, b64encode
 from itertools import count
 from typing import Any, BinaryIO, Dict, Optional
 
+import google.auth as g_auth
+
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -42,12 +44,6 @@ from .common import (
     get_ssl_context,
     retry,
 )
-
-try:
-    import google.auth as g_auth
-except ModuleNotFoundError:
-    g_auth = None
-
 
 log = logging.getLogger(__name__)
 
@@ -174,9 +170,7 @@ class Backend(AbstractBackend):
         self.refresh_token = options.backend_password  # type: str
 
         if self.login == 'adc':
-            if g_auth is None:
-                raise QuietError('ADC authentication requires the google.auth module')
-            elif self.adc is None:
+            if self.adc is None:
                 import google.auth.transport.urllib3
                 import urllib3
 
@@ -270,7 +264,7 @@ class Backend(AbstractBackend):
         elif isinstance(exc, ServerResponseError):
             return True
 
-        if g_auth and isinstance(exc, g_auth.exceptions.TransportError):  # noqa: SIM103 # auto-added, needs manual check!
+        if isinstance(exc, g_auth.exceptions.TransportError):  # noqa: SIM103 # auto-added, needs manual check!
             return True
 
         return False
