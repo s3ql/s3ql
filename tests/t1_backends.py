@@ -39,7 +39,7 @@ from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, 
 from s3ql.http import ConnectionClosed
 
 log = logging.getLogger(__name__)
-empty_set = set()
+empty_set: set[str] = set()
 
 
 def brace_expand(s):

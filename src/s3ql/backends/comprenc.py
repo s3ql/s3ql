@@ -15,10 +15,12 @@ import lzma
 import struct
 import time
 import zlib
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Dict, Optional, Union
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+
+from s3ql.types import CompressorProtocol, DecompressorProtocol
 
 from .. import BUFSIZE
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
@@ -203,7 +205,7 @@ class ComprencBackend(AbstractBackend):
             return meta
 
         if compr_alg == 'BZIP2':
-            decompressor = bz2.BZ2Decompressor()
+            decompressor: DecompressorProtocol = bz2.BZ2Decompressor()
         elif compr_alg == 'LZMA':
             decompressor = lzma.LZMADecompressor()
         elif compr_alg == 'ZLIB':
@@ -237,13 +239,13 @@ class ComprencBackend(AbstractBackend):
             metadata = dict()
 
         meta_buf = freeze_basic_mapping(metadata)
-        meta_raw = dict(format_version=2)
+        meta_raw: Dict[str, Union[int, str, bytes]] = dict(format_version=2)
 
         if dont_compress or self.compression[0] is None:
             meta_raw['compression'] = 'None'
         else:
             if self.compression[0] == 'zlib':
-                compr = zlib.compressobj(self.compression[1])
+                compr: CompressorProtocol = zlib.compressobj(self.compression[1])
                 meta_raw['compression'] = 'ZLIB'
             elif self.compression[0] == 'bzip2':
                 compr = bz2.BZ2Compressor(self.compression[1])

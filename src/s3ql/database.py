@@ -80,7 +80,7 @@ class FsAttributes:
     data_block_size: int
     metadata_block_size: int
     seq_no: int = 0
-    db_size: Optional[int] = None
+    db_size: int = 0
     revision: int = CURRENT_FS_REV
     label: str = '<unnamed>'
     needs_fsck: bool = False
@@ -88,7 +88,7 @@ class FsAttributes:
     inode_gen: int = 0
     last_fsck: float = 0
     last_modified: float = 0
-    db_md5: Optional[str] = None
+    db_md5: str = ''
 
     def copy(self):
         return copy.copy(self)
@@ -317,7 +317,7 @@ class BatchedTransactionManager:
         self.conn = conn
         self.dt_target = dt_target
         self.in_tx = False
-        self.stamp = None
+        self.stamp = 0.0
         self.batch_size = 100
 
     def __enter__(self):
@@ -643,6 +643,7 @@ def upload_metadata(
     '''
 
     blocksize = db.blocksize
+    assert blocksize is not None
     log.info('Uploading metadata...')
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)

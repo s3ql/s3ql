@@ -203,6 +203,7 @@ class AbstractBackend(metaclass=ABCMeta):
     '''
 
     needs_login = True
+    known_options: set[str] = set()
 
     def __init__(self):
         super().__init__()

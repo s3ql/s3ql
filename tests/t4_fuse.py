@@ -399,7 +399,7 @@ class TestFuse:
         assert stat.S_ISDIR(os.stat(fullname).st_mode)
         assert dirname in pyfuse3.listdir(self.mnt_dir)
         cmd = ('(%d, %r)' % (pyfuse3.ROOT_INODE, path2bytes(dirname))).encode()
-        pyfuse3.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME), 'rmtree', cmd)
+        pyfuse3.setxattr('%s/%s' % (self.mnt_dir, CTRL_NAME.decode('utf-8')), 'rmtree', cmd)
         # Invalidation is asynchronous...
         try:  # noqa: SIM105 # auto-added, needs manual check!
             retry(5, lambda: not os.path.exists(fullname))

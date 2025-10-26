@@ -17,11 +17,11 @@ import pyfuse3  # noqa: E402 # auto-added, needs manual check!
 pyfuse3_invalidate_inode = pyfuse3.invalidate_inode
 
 
-def patched_pyfuse3_invalidate_inode(inode):
+def patched_pyfuse3_invalidate_inode(inode: pyfuse3.InodeT, attr_only=False) -> None:
     # echo 2 > /proc/sys/vm/drop_caches : Drop kernel dentries and inodes cache
     with open("/proc/sys/vm/drop_caches", "w") as drop_caches:
         drop_caches.write("2\n")
-    pyfuse3_invalidate_inode(inode)
+    pyfuse3_invalidate_inode(inode, attr_only=attr_only)
 
 
 pyfuse3.invalidate_inode = patched_pyfuse3_invalidate_inode
