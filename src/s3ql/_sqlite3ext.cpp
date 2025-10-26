@@ -126,7 +126,7 @@ static int vfstraceWrite(
     if (rc != SQLITE_OK) {
         return rc;
     }
-    if (!p->block_map) {
+    if (!p->block_map || !blocksize) {
         return rc;
     }
 
@@ -153,7 +153,7 @@ static int vfstraceTruncate(sqlite3_file* pFile, sqlite_int64 size) {
     if (rc != SQLITE_OK) {
         return rc;
     }
-    if (!p->block_map) {
+    if (!p->block_map || !blocksize) {
         return rc;
     }
     auto it = p->block_map->begin();
