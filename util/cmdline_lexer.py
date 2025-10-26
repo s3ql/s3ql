@@ -5,6 +5,7 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 
 This work can be distributed under the terms of the GNU GPLv3.
 '''
+# mypy: ignore-errors
 
 from pygments.lexer import RegexLexer
 from pygments.token import Comment, Generic, Literal, Name

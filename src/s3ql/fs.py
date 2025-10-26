@@ -18,15 +18,12 @@ from io import BytesIO
 
 import pyfuse3
 import trio
-from pyfuse3 import FUSEError
+from pyfuse3 import FUSEError, InodeT
 
 from . import CTRL_INODE, CTRL_NAME
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .common import get_path, parse_literal, time_ns
 from .database import Connection, NoSuchRowError
-
-# We work in bytes
-CTRL_NAME = CTRL_NAME.encode('us-ascii')
 
 # standard logger for this module
 log = logging.getLogger(__name__)
@@ -60,7 +57,7 @@ else:
     ACL_ERRNO = errno.EOPNOTSUPP
 
 
-class _TruncSetattrFields:
+class _TruncSetattrFieldsC:
     """A private class used for O_TRUNC.
 
     This is needed because pyfuse3.SetattrFields fields are read only"""
@@ -72,7 +69,7 @@ class _TruncSetattrFields:
 
 
 """We only need a single instance of this read-only class"""
-_TruncSetattrFields = _TruncSetattrFields()
+_TruncSetattrFields = _TruncSetattrFieldsC()
 
 
 class Operations(pyfuse3.Operations):
@@ -122,11 +119,11 @@ class Operations(pyfuse3.Operations):
         self.inodes = inode_cache
         self.db = db
         self.upload_task = upload_task
-        self.open_inodes = collections.defaultdict(lambda: 0)
+        self.open_inodes: dict[InodeT, int] = collections.defaultdict(lambda: 0)
         self.max_obj_size = max_obj_size
         self.cache = block_cache
         self.failsafe = False
-        self.broken_blocks = collections.defaultdict(set)
+        self.broken_blocks: dict[InodeT, set[int]] = collections.defaultdict(set)
 
         # Root inode is always open
         self.open_inodes[pyfuse3.ROOT_INODE] += 1

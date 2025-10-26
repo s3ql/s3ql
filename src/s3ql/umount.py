@@ -140,7 +140,7 @@ def blocking_umount(mountpoint):
         if subprocess.call(['fuser', '-m', mountpoint], stdout=devnull, stderr=devnull) == 0:
             raise MountInUseError(mountpoint)
 
-    ctrlfile = os.path.join(mountpoint, CTRL_NAME)
+    ctrlfile = os.path.join(mountpoint, CTRL_NAME.decode('utf-8'))
 
     log.debug('Flushing cache...')
     pyfuse3.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')

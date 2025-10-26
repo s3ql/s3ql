@@ -440,7 +440,11 @@ class B2Backend(AbstractBackend):
 
         if remote_sha1 != sha1.hexdigest():
             log.warning('SHA1 mismatch for %s: %s vs %s', key, remote_sha1, sha1.hexdigest())
-            raise BadDigestError(400, 'SHA1 header does not agree with calculated value')
+            raise BadDigestError(
+                status=400,
+                code="BadDigest",
+                message="SHA1 header does not agree with calculated value",
+            )
 
         return metadata
 
@@ -497,13 +501,17 @@ class B2Backend(AbstractBackend):
             response_body = conn.readall()
 
             if response.status != 200:
-                json_error_response = (
-                    json.loads(response_body.decode('utf-8')) if response_body else None
+                if not response_body:
+                    raise B2Error(
+                        response.status, response.reason, '<no body provided>', response.headers
+                    )
+                json_error_response: dict = json.loads(response_body.decode('utf-8'))
+                raise B2Error(
+                    json_error_response['status'],
+                    code=json_error_response['code'],
+                    message=json_error_response['message'],
+                    headers=response.headers,
                 )
-                code = json_error_response['code'] if json_error_response else None
-                message = json_error_response['message'] if json_error_response else response.reason
-                b2_error = B2Error(json_error_response['status'], code, message, response.headers)
-                raise b2_error
         except B2Error as exc:
             if exc.status == 503:
                 # storage url too busy, change it

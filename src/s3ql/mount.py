@@ -471,6 +471,7 @@ def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
         if os.path.exists(cachepath + '-cache'):
             shutil.rmtree(cachepath + '-cache')
 
+    assert db is not None
     return (param, db)
 
 

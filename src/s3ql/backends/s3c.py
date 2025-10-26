@@ -95,8 +95,6 @@ class Backend(AbstractBackend):
         self.login = options.backend_login
         self._extra_put_headers = CaseInsensitiveDict()
 
-    # NOTE: ! This function is also used by the swift backend !
-
     def reset(self):
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
@@ -181,7 +179,6 @@ class Backend(AbstractBackend):
 
         return False
 
-    # NOTE: ! This function is also used by the swift backend. !
     def _dump_response(self, resp, body=None):
         '''Return string representation of server response
 
@@ -208,7 +205,6 @@ class Backend(AbstractBackend):
             body.decode('utf-8', errors='backslashreplace'),
         )
 
-    # NOTE: ! This function is also used by the swift backend. !
     def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
@@ -408,7 +404,6 @@ class Backend(AbstractBackend):
         self._assert_empty_response(resp)
         return len_
 
-    # NOTE: ! This function is also used by the swift backend. !
     def _add_meta_headers(self, headers, metadata, chunksize=255):
         hdr_count = 0
         length = 0
@@ -749,7 +744,6 @@ class Backend(AbstractBackend):
     def close(self):
         self.conn.disconnect()
 
-    # NOTE: ! This function is also used by the swift backend !
     def _extractmeta(self, resp, obj_key):
         '''Extract metadata from HTTP response object'''
 
@@ -862,7 +856,7 @@ class HTTPError(Exception):
     Represents an HTTP error returned by S3.
     '''
 
-    def __init__(self, status, msg, headers=None):
+    def __init__(self, status: int, msg: str, headers=None):
         super().__init__()
         self.status = status
         self.msg = msg

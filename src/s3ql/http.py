@@ -26,7 +26,7 @@ from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
-from typing import Union
+from typing import Deque, Optional, Union
 
 import trio
 
@@ -43,6 +43,10 @@ MAX_LINE_SIZE = BUFFER_SIZE - 1
 #: lines together). If the server sends a header segment longer than
 #: this value, `InvalidResponse` will be raised.
 MAX_HEADER_SIZE = BUFFER_SIZE - 1
+
+
+# Method, path, body size
+PendingRequestT = tuple[str, str, Optional[int]]
 
 
 class Symbol:
@@ -351,7 +355,13 @@ class HTTPConnection:
     `.disconnect` method will be called on exit from the managed block.
     '''
 
-    def __init__(self, hostname, port=None, ssl_context=None, proxy=None):
+    def __init__(
+        self,
+        hostname: str,
+        port: Optional[int] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        proxy: Optional[tuple[str, int]] = None,
+    ):
         if port is None:
             if ssl_context is None:
                 self.port = HTTP_PORT
@@ -384,7 +394,7 @@ class HTTPConnection:
         #: after the request header has been sent, and once after the request
         #: body data has been sent. *body_len* is `None`, or the size of the
         #: **request** body that still has to be sent when using 100-continue.
-        self._pending_requests = deque()
+        self._pending_requests: Deque[PendingRequestT] = deque()
 
         #: This attribute is `None` when a request has been sent completely.  If
         #: request headers have been sent, but request body data is still
@@ -761,7 +771,7 @@ class HTTPConnection:
 
         return self._sock is not None and len(self._pending_requests) > 0
 
-    def read_response(self):
+    def read_response(self) -> HTTPResponse:
         '''placeholder, will be replaced dynamically'''
         orig_context = self._sync_context
         self._sync_context = True

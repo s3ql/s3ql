@@ -70,7 +70,7 @@ class RequestError(Exception):
     '''
 
     def __init__(
-        self, code: str, reason: str, message: Optional[str] = None, body: Optional[str] = None
+        self, code: int, reason: str, message: Optional[str] = None, body: Optional[str] = None
     ):
         super().__init__()
         self.code = code
@@ -80,7 +80,7 @@ class RequestError(Exception):
 
     def __str__(self) -> str:
         if self.message:
-            return '<RequestError, code=%d, reason=%r, message=%r>' % (
+            return '<RequestError, code=%s, reason=%r, message=%r>' % (
                 self.code,
                 self.reason,
                 self.message,
@@ -109,11 +109,9 @@ def _parse_error_response(resp, body: bytes) -> RequestError:
 
     try:
         message = json_resp['error']['message']
-        body = None
     except KeyError:
         log.warning('Did not find error.message element in JSON error response.')
-        message = None
-        body = str(json_resp)
+        message = str(json_resp)
 
     return RequestError(code=resp.status, reason=resp.reason, message=message)
 
@@ -156,14 +154,14 @@ class Backend(AbstractBackend):
     # because there is a limit on the total number of valid tokens.
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
-    access_token = dict()
+    access_token: dict[str, str] = dict()
     _refresh_lock = threading.Lock()
     adc = None
 
-    def __init__(self, options):
+    def __init__(self, options) -> None:
         super().__init__()
 
-        self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))  # type: Optional[ssl.Context]
+        self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
         self.options = options.backend_options  # type: Dict[str, str]
         self.proxy = get_proxy(ssl=True)  # type: str
         self.login = options.backend_login  # type: str
@@ -420,7 +418,7 @@ class Backend(AbstractBackend):
 
     @retry
     def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
-        metadata = json.dumps(
+        metadata_s = json.dumps(
             {
                 'metadata': _wrap_user_meta(metadata),
                 'name': self.prefix + key,
@@ -438,7 +436,7 @@ class Backend(AbstractBackend):
                 '--' + boundary,
                 'Content-Type: application/json; charset=UTF-8',
                 '',
-                metadata,
+                metadata_s,
                 '--' + boundary,
                 'Content-Type: application/octet-stream',
                 '',
@@ -494,8 +492,8 @@ class Backend(AbstractBackend):
             self.conn.discard()
             raise AccessTokenExpired()
         elif resp.status != 200:
-            exc = _parse_error_response(resp, self.conn.readall())
-            raise _map_request_error(exc, key) or exc
+            exc_ = _parse_error_response(resp, self.conn.readall())
+            raise _map_request_error(exc_, key) or exc_
         _parse_json_response(resp, self.conn.readall())
 
         return body_size

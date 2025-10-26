@@ -26,7 +26,7 @@ CURRENT_FS_REV = 26
 BUFSIZE = 256 * 1024
 
 # Name and inode of the special s3ql control file
-CTRL_NAME = '.__s3ql__ctrl__'
+CTRL_NAME = b'.__s3ql__ctrl__'
 CTRL_INODE = ROOT_INODE + 1
 
 # Maps file system revisions to the last S3QL version that

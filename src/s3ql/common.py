@@ -11,7 +11,6 @@ import contextlib
 import errno
 import functools
 import hashlib
-import inspect
 import logging
 import os
 import posixpath
@@ -28,6 +27,7 @@ from typing import BinaryIO, Callable, Optional
 import pyfuse3
 
 from s3ql.http import HostnameNotResolvable
+from s3ql.types import HashFunction
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
@@ -145,7 +145,7 @@ def escape(s):
     return s
 
 
-def sha256_fh(fh) -> hashlib.sha256:
+def sha256_fh(fh: BinaryIO) -> HashFunction:
     sha = hashlib.sha256()
     fh.seek(0)
     while True:
@@ -156,12 +156,12 @@ def sha256_fh(fh) -> hashlib.sha256:
     return sha
 
 
-def assert_s3ql_fs(path):
+def assert_s3ql_fs(path: str):
     '''Raise `QuietError` if *path* is not on an S3QL file system
 
     Returns name of the S3QL control file.
     '''
-
+    ctrl_name = CTRL_NAME.decode('us-ascii')
     try:
         os.stat(path)
     except FileNotFoundError:
@@ -171,8 +171,8 @@ def assert_s3ql_fs(path):
             raise QuietError('File system appears to have crashed.')
         raise
 
-    ctrlfile = os.path.join(path, CTRL_NAME)
-    if not (CTRL_NAME not in pyfuse3.listdir(path) and os.path.exists(ctrlfile)):
+    ctrlfile = os.path.join(path, ctrl_name)
+    if not (ctrl_name not in pyfuse3.listdir(path) and os.path.exists(ctrlfile)):
         raise QuietError('%s is not on an S3QL file system' % path)
 
     return ctrlfile

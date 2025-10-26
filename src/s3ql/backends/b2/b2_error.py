@@ -8,7 +8,7 @@ class B2Error(HTTPError):
     For possible codes, see https://www.backblaze.com/b2/docs/calling.html
     '''
 
-    def __init__(self, status, code, message, headers=None):
+    def __init__(self, status: int, code: str, message: str, headers=None):
         super().__init__(status, message, headers)
         self.code = code
 
