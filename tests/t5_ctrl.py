@@ -18,6 +18,7 @@ import os
 import sys
 import time
 
+import pytest
 import t4_fuse
 
 import s3ql.ctrl

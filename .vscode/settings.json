@@ -13,25 +13,12 @@
     "C_Cpp.vcFormat.newLine.beforeElse": false,
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.namespace": "sameLine",
     "C_Cpp.vcFormat.newLine.beforeOpenBrace.type": "sameLine",
-    "python.analysis.diagnosticSeverityOverrides": {
-        "reportShadowedImports": "none",
-        "reportUnusedVariable": "warning",
-        "reportUnusedImport": "warning",
-        "reportUnusedClass": "warning",
-        "reportUnusedFunction": "warning",
-        "reportFunctionMemberAccess": "warning",
-        "reportDuplicateImport": "warning",
-        "reportDeprecated": "information",
-        "reportUnnecessaryIsInstance": "warning",
-        "reportUnnecessaryTypeIgnoreComment": "warning",
-    },
     "[python]": {
         "editor.codeActionsOnSave": {
             "source.organizeImports": "always"
         },
         "editor.defaultFormatter": "charliermarsh.ruff",
     },
-    "python.analysis.typeCheckingMode": "off",
     "python.analysis.exclude": [
         "s3ql.old/",
         ".venv/",
@@ -44,4 +31,5 @@
         "src"
     ],
     "mypy-type-checker.reportingScope": "workspace",
+    "python.analysis.generateWithTypeAnnotation": true,
 }

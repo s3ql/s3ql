@@ -85,5 +85,11 @@ jobs:
           # uv/pip need to compile it from source
           sudo apt-get install -y fuse3 libfuse3-dev libsqlite3-dev psmisc
 
+      - name: Build S3QL
+        run: uv sync --frozen
+
       - name: Run mypy type checker
-        run: uv sync --frozen && uv run mypy .
+        run: uv run mypy .
+
+      - name: Run pyright type checker
+        run: uv run pyright .

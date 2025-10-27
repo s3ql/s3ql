@@ -10,7 +10,7 @@ class HashFunction(Protocol):
 class DecompressorProtocol(Protocol):
     """Protocol defining the required interface for a decompressor object."""
 
-    def decompress(self, data: bytes, max_length: int = -1) -> bytes: ...
+    def decompress(self, data: bytes, /, max_length: int = 0) -> bytes: ...
 
     @property
     def unused_data(self) -> bytes: ...
@@ -19,6 +19,10 @@ class DecompressorProtocol(Protocol):
 class CompressorProtocol(Protocol):
     """Protocol defining the required interface for a compressor object."""
 
-    def compress(self, data: bytes) -> bytes: ...
+    def compress(self, data: bytes, /) -> bytes: ...
 
     def flush(self) -> bytes: ...
+
+
+ElementaryT = int | float | str | bytes | complex | bool | None
+BasicMappingT = dict[str, ElementaryT]

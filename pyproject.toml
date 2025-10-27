@@ -42,6 +42,7 @@ dev = [
   "mypy",
   "types-defusedxml>=0.7.0.20240218",
   "types-docutils>=0.21.0.20241128",
+  "pyright>=1.1.407",
 ]
 
 [project.urls]
@@ -108,3 +109,15 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "google_auth_oauthlib.*"
 ignore_missing_imports = true
+
+[tool.pyright]
+# We should really be more restrictive here, but there's too many false
+# positives from old code that predates type-checking.
+typeCheckingMode = "basic"
+reportArgumentType = false
+reportAttributeAccessIssue = false
+reportOptionalCall = false
+reportOptionalMemberAccess = false
+reportOptionalOperand = false
+reportOptionalSubscript = false
+reportShadowedImports = false

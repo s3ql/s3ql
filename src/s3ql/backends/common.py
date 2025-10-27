@@ -19,9 +19,12 @@ import textwrap
 import threading
 import time
 from abc import ABCMeta, abstractmethod
+from collections.abc import Iterator
 from functools import wraps
 from io import BytesIO
 from typing import BinaryIO, Optional
+
+from s3ql.types import BasicMappingT
 
 from ..logging import LOG_ONCE, QuietError
 
@@ -252,7 +255,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryIO) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -265,9 +268,9 @@ class AbstractBackend(metaclass=ABCMeta):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[BasicMappingT] = None,
         len_: Optional[int] = None,
-    ):
+    ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
         The data will be read at the current offset. If *len_* is None, reads until the
@@ -279,7 +282,7 @@ class AbstractBackend(metaclass=ABCMeta):
         '''
         pass
 
-    def fetch(self, key):
+    def fetch(self, key) -> tuple[bytes, BasicMappingT]:
         """Return data stored under `key`.
 
         Returns a tuple with the data and metadata. If only the data itself is
@@ -291,7 +294,7 @@ class AbstractBackend(metaclass=ABCMeta):
         metadata = self.readinto_fh(key, fh)
         return (fh.getvalue(), metadata)
 
-    def store(self, key, val, metadata=None):
+    def store(self, key, val, metadata: Optional[BasicMappingT] = None):
         """Store data under `key`.
 
         `metadata` can be mapping with additional attributes to store with the
@@ -368,7 +371,7 @@ class AbstractBackend(metaclass=ABCMeta):
             keys.pop()
 
     @abstractmethod
-    def list(self, prefix=''):
+    def list(self, prefix='') -> Iterator[str]:
         '''List keys in backend
 
         Returns an iterator over all keys in the backend.

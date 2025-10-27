@@ -20,7 +20,7 @@ from typing import Any, BinaryIO, Dict, Optional
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 
-from s3ql.types import CompressorProtocol, DecompressorProtocol
+from s3ql.types import BasicMappingT, CompressorProtocol, DecompressorProtocol
 
 from .. import BUFSIZE
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
@@ -65,17 +65,17 @@ class ComprencBackend(AbstractBackend):
     backend.
     '''
 
-    def __init__(self, passphrase, compression, backend):
+    def __init__(
+        self, passphrase: Optional[bytes], compression: tuple[str, int], backend: AbstractBackend
+    ):
         super().__init__()
-
-        assert passphrase is None or isinstance(passphrase, (bytes, bytearray, memoryview))
 
         self.passphrase = passphrase
         self.compression = compression
         self.backend = backend
 
         if compression[0] not in ('bzip2', 'lzma', 'zlib', None) or compression[1] not in range(10):
-            raise ValueError('Unsupported compression: %s' % compression)
+            raise ValueError(f'Unsupported compression: {compression}')
 
     @property
     def has_delete_multi(self):
@@ -99,7 +99,7 @@ class ComprencBackend(AbstractBackend):
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
 
-    def _verify_meta(self, key, metadata):
+    def _verify_meta(self, key, metadata) -> tuple[Optional[bytes], BasicMappingT]:
         '''Unwrap and authenticate metadata
 
         If the backend has a password set but the object is not encrypted,

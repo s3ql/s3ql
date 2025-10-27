@@ -27,7 +27,7 @@ from typing import BinaryIO, Callable, Optional
 import pyfuse3
 
 from s3ql.http import HostnameNotResolvable
-from s3ql.types import HashFunction
+from s3ql.types import BasicMappingT, HashFunction
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
@@ -478,7 +478,7 @@ class ThawError(Exception):
         return 'Malformed serialization data'
 
 
-def thaw_basic_mapping(buf):
+def thaw_basic_mapping(buf) -> BasicMappingT:
     '''Reconstruct dict from serialized representation
 
     *buf* must be a bytes-like object as created by
@@ -505,7 +505,7 @@ def thaw_basic_mapping(buf):
     return d
 
 
-def freeze_basic_mapping(d):
+def freeze_basic_mapping(d: BasicMappingT) -> bytes:
     '''Serialize mapping of elementary types
 
     Keys of *d* must be strings. Values of *d* must be of elementary type (i.e.,
