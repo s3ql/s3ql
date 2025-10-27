@@ -302,13 +302,14 @@ async def main_async(options, stdout_log_handler):
         exc_info = setup_exchook()
 
         received_signals = []
-        old_handler = None
 
         def signal_handler(signum, frame, _main_thread=_thread.get_ident()):  # noqa: B008 # auto-added, needs manual check!
             log.debug('Signal %d received', signum)
             if pyfuse3.trio_token is None:
-                log.debug('FUSE loop not running, calling parent handler...')
-                return old_handler(signum, frame)
+                log.debug('FUSE loop not running')
+                if callable(old_handler):
+                    log.debug('Calling parent handler...')
+                    return old_handler(signum, frame)
             log.debug('Calling pyfuse3.terminate()...')
             if _thread.get_ident() == _main_thread:
                 pyfuse3.terminate()

@@ -104,9 +104,11 @@ class FsAttributes:
         d = thaw_basic_mapping(buf)
 
         # seq_no is present in all fs revisions, so this check is safe.
+        assert isinstance(d['seq_no'], int)
         if min_seq is not None and d['seq_no'] < min_seq:
             raise OutdatedData()
 
+        assert isinstance(d['revision'], int)
         if d['revision'] < CURRENT_FS_REV:
             raise QuietError(
                 'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
@@ -115,7 +117,7 @@ class FsAttributes:
             raise QuietError(
                 'File system revision too new, please update your S3QL installation.', exitcode=33
             )
-        return FsAttributes(**d)
+        return FsAttributes(**d)  # type: ignore
 
     def serialize(self):
         return freeze_basic_mapping(dataclasses.asdict(self))

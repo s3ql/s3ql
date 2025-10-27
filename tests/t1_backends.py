@@ -37,6 +37,7 @@ from s3ql.backends.gs import Backend as GSBackend
 from s3ql.backends.local import Backend as LocalBackend
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
 from s3ql.http import ConnectionClosed
+from s3ql.types import BasicMappingT
 
 log = logging.getLogger(__name__)
 empty_set: set[str] = set()
@@ -296,7 +297,7 @@ def assert_not_in_index(backend, keys):
 def test_readinto_write_fh(backend: AbstractBackend):
     key = newname()
     value = newvalue()
-    metadata = {'jimmy': 'jups@42'}
+    metadata: BasicMappingT = {'jimmy': 'jups@42'}
     buf = BytesIO()
 
     assert key not in backend
@@ -317,7 +318,7 @@ def test_readinto_write_fh(backend: AbstractBackend):
 @pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
 def test_write_fh_partial(backend: AbstractBackend):
     key = newname()
-    metadata = {'jimmy': 'jups@42'}
+    metadata: BasicMappingT = {'jimmy': 'jups@42'}
     data = (''.join(str(x) for x in range(100))).encode()
     buf = BytesIO(data)
 
@@ -333,7 +334,7 @@ def test_write_fh_partial(backend: AbstractBackend):
 @pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
 def test_write_fh_off(backend: AbstractBackend):
     key = newname()
-    metadata = {'jimmy': 'jups@42'}
+    metadata: BasicMappingT = {'jimmy': 'jups@42'}
     data = (''.join(str(x) for x in range(100))).encode()
     buf = BytesIO(data)
 

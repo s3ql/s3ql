@@ -841,7 +841,7 @@ def _parse_retry_after(header):
         if date is None:
             log.warning('Unable to parse retry-after value: %s', header)
             return None
-        val = mktime_tz(*date) - time.time()
+        val = mktime_tz(date) - time.time()
 
     val_clamp = min(300, max(1, val))
     if val != val_clamp:

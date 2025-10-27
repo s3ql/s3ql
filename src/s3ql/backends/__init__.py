@@ -21,5 +21,3 @@ prefix_map = {
     'rackspace': rackspace.Backend,
     'b2': B2Backend,
 }
-
-__all__ = ['common', 'pool', 'comprenc'] + list(prefix_map.keys())
