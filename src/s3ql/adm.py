@@ -119,7 +119,7 @@ def main(args=None):
         raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
-        return clear(options)
+        return clear(options)  # pyright: ignore[reportCallIssue]
 
     elif options.action == 'recover-key':
         with get_backend(options, raw=True) as backend:
