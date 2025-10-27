@@ -21,7 +21,7 @@ import time
 from abc import ABCMeta, abstractmethod
 from functools import wraps
 from io import BytesIO
-from typing import Any, BinaryIO, Dict, Optional
+from typing import BinaryIO, Optional
 
 from ..logging import LOG_ONCE, QuietError
 

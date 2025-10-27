@@ -401,16 +401,17 @@ class HTTPConnection:
         #: pending, it is set to a ``(method, path, body_len)`` tuple. *body_len*
         #: is the number of bytes that that still need to send, or
         #: `WAITING_FOR_100c` if we are waiting for a 100 response from the server.
-        self._out_remaining = None
+        self._out_remaining: Optional[tuple[str, str, int | Symbol]] = None
 
         #: Number of remaining bytes of the current response body (or current
         #: chunk), `None` if there is no active response or `READ_UNTIL_EOF` if
         #: we have to read until the connection is closed (i.e., we don't know
         #: the content-length and keep-alive is not active).
-        self._in_remaining = None
+        self._in_remaining: Optional[int | Symbol] = None
 
-        #: Transfer encoding of the active response (if any).
-        self._encoding = None
+        #: Transfer encoding of the active response (if any), or an exception
+        #: instance if the body cannot be read.
+        self._encoding: Optional[Exception | str] = None
 
         #: If a regular `HTTPConnection` method is unable to send or receive data for more than
         #: this period (in ms), it will raise `ConnectionTimedOut`.
@@ -695,17 +696,17 @@ class HTTPConnection:
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
+            except InterruptedError:
+                log.debug('interrupted')
+                # According to send(2), this means that no data has been sent
+                # at all before the interruption, so we just try again.
+                continue
             except OSError as exc:
                 if exc.errno == errno.EINVAL:
                     # Blackhole routing, according to ip(7)
                     raise ConnectionClosed('ip route goes into black hole')
                 else:
                     raise
-            except InterruptedError:
-                log.debug('interrupted')
-                # According to send(2), this means that no data has been sent
-                # at all before the interruption, so we just try again.
-                continue
 
             log.debug('sent %d bytes', len_)
             buf = buf[len_:]
@@ -737,6 +738,7 @@ class HTTPConnection:
         (method, path, remaining) = self._out_remaining
         if remaining is WAITING_FOR_100c:
             raise StateError("can't write when waiting for 100-continue")
+        assert isinstance(remaining, int)
 
         if len(buf) > remaining:
             raise ExcessBodyData(
@@ -1001,6 +1003,7 @@ class HTTPConnection:
         log.debug('start (len=%d)', len_)
 
         if self._in_remaining is RESPONSE_BODY_ERROR:
+            assert isinstance(self._encoding, Exception)
             raise self._encoding
         elif len_ is None:
             return await self.co_readall()
@@ -1107,6 +1110,7 @@ class HTTPConnection:
 
         len_ = min(len_, len(rbuf))
         if self._in_remaining is not READ_UNTIL_EOF:
+            assert isinstance(self._in_remaining, int)
             self._in_remaining -= len_
 
         if len_ < len(rbuf):

@@ -311,9 +311,10 @@ def get_backend_factory(options):
     return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
 
 
-def pretty_print_size(i):
+def pretty_print_size(bytes_: int) -> str:
     '''Return *i* as string with appropriate suffix (MiB, GiB, etc)'''
 
+    i = float(bytes_)
     if i < 1024:
         return '%d bytes' % i
 

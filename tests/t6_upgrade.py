@@ -295,7 +295,7 @@ for backend_name in backends.prefix_map:
         continue
 
     # Plain
-    def setup_method(self, method, backend_name=backend_name):
+    def setup_method(self, method, backend_name=backend_name):  # pyright: ignore[reportRedeclaration]
         RemoteUpgradeTest.setup_method(self, method, backend_name + '-test')
         self.passphrase = None
 

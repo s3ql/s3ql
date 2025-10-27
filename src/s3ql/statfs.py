@@ -55,8 +55,8 @@ def main(args=None):
 
     if options.raw:
 
-        def pprint(x):
-            return '%d bytes' % x
+        def pprint(bytes_: int) -> str:
+            return '%d bytes' % bytes_
     else:
         pprint = pretty_print_size
 

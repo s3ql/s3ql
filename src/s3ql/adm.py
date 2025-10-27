@@ -19,6 +19,7 @@ from datetime import datetime
 from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
+from typing import Any
 
 from s3ql.database import (
     Connection,
@@ -289,7 +290,7 @@ def get_old_rev_msg(rev, prog):
     )
 
 
-def upgrade(backend, options):
+def upgrade(backend, options) -> None:
     '''Upgrade file system to newest revision'''
 
     params_path = options.cachepath + '.params'
@@ -302,7 +303,7 @@ def upgrade(backend, options):
         sys.exit(1)
 
     with open(params_path, 'rb') as fh:
-        local_params = thaw_basic_mapping(fh.read())
+        local_params: dict[str, Any] = thaw_basic_mapping(fh.read())
     remote_params = backend.lookup('s3ql_metadata')
 
     if local_params['seq_no'] < remote_params['seq_no']:

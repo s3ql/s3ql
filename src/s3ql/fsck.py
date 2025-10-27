@@ -1432,7 +1432,7 @@ def verify_metadata_snapshots(backend, count: int = 5, include_most_recent: bool
         d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
         if d['revision'] != CURRENT_FS_REV:
             break
-        params = FsAttributes(**d)
+        params = FsAttributes(**d)  # type: ignore
         assert params.seq_no == seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
         if params.is_mounted:

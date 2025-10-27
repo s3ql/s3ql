@@ -15,7 +15,7 @@ import lzma
 import struct
 import time
 import zlib
-from typing import Any, BinaryIO, Dict, Optional, Union
+from typing import Any, BinaryIO, Dict, Optional
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
@@ -176,6 +176,7 @@ class ComprencBackend(AbstractBackend):
         compr_alg = meta_raw['compression']
         encr_alg = meta_raw['encryption']
         if nonce:
+            assert self.passphrase is not None
             data_key = sha256(self.passphrase + nonce)
 
         # The `payload_offset` key only exists if the storage object was created with on old S3QL
@@ -183,7 +184,9 @@ class ComprencBackend(AbstractBackend):
         # upgrade, the upgrade procedure adds this header to tell us how many bytes at the beginning
         # of the object we have to skip to get to the payload.
         if 'payload_offset' in meta_raw:
-            buf1.seek(meta_raw['payload_offset'])
+            off = meta_raw['payload_offset']
+            assert isinstance(off, int)
+            buf1.seek(off)
         else:
             buf1.seek(0)
 
@@ -198,7 +201,7 @@ class ComprencBackend(AbstractBackend):
         elif encr_alg == 'None':
             copyfh(buf1, buf2)
         else:
-            raise RuntimeError('Unsupported encryption: %s' % encr_alg)
+            raise RuntimeError('Unsupported encryption: %r' % encr_alg)
 
         if compr_alg == 'None':
             assert buf2 is fh
@@ -211,7 +214,7 @@ class ComprencBackend(AbstractBackend):
         elif compr_alg == 'ZLIB':
             decompressor = zlib.decompressobj()
         else:
-            raise RuntimeError('Unsupported compression: %s' % compr_alg)
+            raise RuntimeError('Unsupported compression: %r' % compr_alg)
         assert buf2 is not fh
         buf2.seek(0)
         decompress_fh(buf2, fh, decompressor)
@@ -239,7 +242,7 @@ class ComprencBackend(AbstractBackend):
             metadata = dict()
 
         meta_buf = freeze_basic_mapping(metadata)
-        meta_raw: Dict[str, Union[int, str, bytes]] = dict(format_version=2)
+        meta_raw: BasicMappingT = dict(format_version=2)
 
         if dont_compress or self.compression[0] is None:
             meta_raw['compression'] = 'None'

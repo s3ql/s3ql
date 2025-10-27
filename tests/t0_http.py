@@ -870,7 +870,7 @@ def test_put_separate(conn):
 def test_100cont(conn, monkeypatch):
     path = '/check_this_out'
 
-    def handle_expect_100(self):
+    def handle_expect_100(self):  # pyright: ignore[reportRedeclaration]
         if self.path != path:
             self.send_error(500, 'Assertion error, %s != %s' % (self.path, path))
         else:
