@@ -201,10 +201,6 @@ class Backend(AbstractBackend):
     def __init__(self, options):
         super().__init__()
         self.options = options.backend_options
-        self.hostname = None
-        self.port = None
-        self.container_name = None
-        self.prefix = None
         self.auth_token = None
         self.auth_prefix = None
         self.conn = None
@@ -216,7 +212,31 @@ class Backend(AbstractBackend):
         # because no-ssl applies only to the authentication URL.
         self.ssl_context = get_ssl_context(self.options.get('ssl-ca-path', None))
 
-        self._parse_storage_url(options.storage_url, self.ssl_context)
+        hit = re.match(
+            r'^[a-zA-Z0-9]+://'  # Backend
+            r'([^/:]+)'  # Hostname
+            r'(?::([0-9]+))?'  # Port
+            r'/([^/]+)'  # Bucketname
+            r'(?:/(.*))?$',  # Prefix
+            options.storage_url,
+        )
+        if not hit:
+            raise QuietError('Invalid storage URL', exitcode=2)
+
+        hostname = hit.group(1)
+        if hit.group(2):
+            self.port = int(hit.group(2))
+        elif self.ssl_context:
+            self.port = 443
+        else:
+            self.port = 80
+        containername = hit.group(3)
+        prefix = hit.group(4) or ''
+
+        self.hostname = hostname
+        self.container_name = containername
+        self.prefix = prefix
+
         self.proxy = get_proxy(self.ssl_context is not None)
         self._container_exists()
 
@@ -234,35 +254,6 @@ class Backend(AbstractBackend):
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
             raise
-
-    def _parse_storage_url(self, storage_url, ssl_context):
-        '''Init instance variables from storage url'''
-
-        hit = re.match(
-            r'^[a-zA-Z0-9]+://'  # Backend
-            r'([^/:]+)'  # Hostname
-            r'(?::([0-9]+))?'  # Port
-            r'/([^/]+)'  # Bucketname
-            r'(?:/(.*))?$',  # Prefix
-            storage_url,
-        )
-        if not hit:
-            raise QuietError('Invalid storage URL', exitcode=2)
-
-        hostname = hit.group(1)
-        if hit.group(2):
-            port = int(hit.group(2))
-        elif ssl_context:
-            port = 443
-        else:
-            port = 80
-        containername = hit.group(3)
-        prefix = hit.group(4) or ''
-
-        self.hostname = hostname
-        self.port = port
-        self.container_name = containername
-        self.prefix = prefix
 
     def is_temp_failure(self, exc):  # IGNORE:W0613
         if isinstance(exc, AuthenticationExpired):  # noqa: SIM114 # auto-added, needs manual check!
@@ -803,7 +794,7 @@ class Backend(AbstractBackend):
                 break
 
     @retry
-    def _list_page(self, prefix, page_token=None, batch_size=1000):
+    def _list_page(self, prefix, page_token=None, batch_size=1000) -> tuple:
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
         query_string = {'prefix': prefix, 'limit': str(batch_size), 'format': 'json'}
@@ -818,7 +809,7 @@ class Backend(AbstractBackend):
             raise
 
         if resp.status == 204:
-            return
+            return ([], None)
 
         hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
         if not hit:
