@@ -3,6 +3,7 @@
 * Add release date and new version number to `ChangeLog.rst` 
 * Update version in `src/s3ql/__init__.py`
 * Update version in `pyproject.toml`
+* `uv lock`
 * `set TAG s3ql-A.B.C`
 * When creating non-bugfix release:
   * Create signing key for the next release: `P=s3ql-<A.B+1> signify-openbsd -G -n -p signify/$P.pub -s

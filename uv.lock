@@ -1148,7 +1148,7 @@ wheels = [
 
 [[package]]
 name = "s3ql"
-version = "5.4.0"
+version = "5.4.1"
 source = { editable = "." }
 dependencies = [
     { name = "apsw", version = "3.46.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
