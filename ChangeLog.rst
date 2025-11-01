@@ -1,5 +1,5 @@
-Unreleased Changes
-==================
+S3QL 5.4.1 (2025-11-01)
+=======================
 
 * Running *mount.s3ql* with `--metadata-backup-interval=0` no longer crashes.
 * Fixed an "AttributeError' crash when parsing error responses from Google Storage.
