@@ -25,16 +25,25 @@ from s3ql.database import (
     Connection,
     FsAttributes,
     download_metadata,
+    expire_objects,
     get_available_seq_nos,
     read_remote_params,
     upload_metadata,
     upload_params,
     write_params,
 )
+from s3ql.mount import get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend, handle_on_return, is_mounted, thaw_basic_mapping
+from .common import (
+    AsyncFn,
+    get_backend,
+    handle_on_return,
+    is_mounted,
+    pretty_print_size,
+    thaw_basic_mapping,
+)
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
@@ -76,6 +85,9 @@ def parse_args(args):
     sparser.add_argument("--threads", type=int, default=20, help='Number of threads to use')
     subparsers.add_parser(
         "recover-key", help="Recover master key from offline copy.", parents=[pparser]
+    )
+    subparsers.add_parser(
+        "shrink-db", help="Recover unused space in the metadata database.", parents=[pparser]
     )
     sparser = subparsers.add_parser(
         "upgrade", help="upgrade file system to newest revision", parents=[pparser]
@@ -134,6 +146,12 @@ def main(args=None):
 
         elif options.action == 'upgrade':
             return upgrade(backend, options)
+
+        elif options.action == 'shrink-db':
+            return shrink_db(backend, options)
+
+        else:
+            raise QuietError('Unknown action: %s' % options.action)
 
 
 def change_passphrase(backend):
@@ -288,6 +306,35 @@ def get_old_rev_msg(rev, prog):
         '''
         % {'version': REV_VER_MAP[rev], 'prog': prog}
     )
+
+
+def shrink_db(backend: ComprencBackend, options) -> None:
+    '''Run VACUUM on SQLite database file'''
+
+    cachepath = options.cachepath
+    (param, db) = get_metadata(backend, cachepath)
+    param.seq_no += 1
+    param.is_mounted = True
+    write_params(cachepath, param)
+    upload_params(backend, param)
+
+    old_size = os.path.getsize(db.file)
+    db.execute('VACUUM')
+    db.close()
+    new_size = os.path.getsize(db.file)
+    log.info(
+        'Database size reduced from %s to %s (%.1f%%)',
+        pretty_print_size(old_size),
+        pretty_print_size(new_size),
+        100 * (old_size - new_size) / old_size,
+    )
+
+    param.is_mounted = False
+    param.last_modified = time.time()
+    upload_metadata(backend, db, param)
+    write_params(cachepath, param)
+    upload_params(backend, param)
+    expire_objects(backend)
 
 
 def upgrade(backend, options) -> None:

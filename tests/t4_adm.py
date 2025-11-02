@@ -23,6 +23,7 @@ import unittest
 from argparse import Namespace
 
 import pytest
+from common import populate_dir
 from t4_fuse import TestFuse
 
 from s3ql.backends import local
@@ -225,3 +226,53 @@ class TestMetadataRestore(TestFuse):
         self.mount()
         assert not os.path.exists(self.mnt_dir + '/mount2.txt')
         assert os.path.exists(self.mnt_dir + '/mount1.txt')
+
+
+class TestShrink(TestFuse):
+    def get_db_size(self):
+        return os.path.getsize(self.cachepath + '.db')
+
+    def test(self):
+        testdir = os.path.join(self.mnt_dir, 'testdir')
+        self.mkfs()
+        self.mount()
+        os.mkdir(testdir)
+        populate_dir(testdir, 2000, 1024)
+        populate_dir(self.mnt_dir, 50, 1024)
+        self.umount()
+
+        old_size = self.get_db_size()
+
+        self.mount()
+        shutil.rmtree(testdir)
+        self.umount()
+
+        proc = subprocess.Popen(
+            [
+                's3qladm',
+                '--quiet',
+                '--log',
+                'none',
+                '--authfile',
+                '/dev/null',
+                '--cachedir',
+                self.cache_dir,
+                'shrink-db',
+                self.storage_url,
+            ],
+            universal_newlines=True,
+            stdin=subprocess.PIPE,
+        )
+        if self.backend_login is not None:
+            print(self.backend_login, file=proc.stdin)
+            print(self.backend_passphrase, file=proc.stdin)
+        if self.passphrase is not None:
+            print(self.passphrase, file=proc.stdin)
+        proc.stdin.close()
+        assert proc.wait() == 0
+
+        new_size = self.get_db_size()
+
+        self.fsck()
+
+        assert old_size > new_size

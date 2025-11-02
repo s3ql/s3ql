@@ -29,7 +29,7 @@ from common import RetryTimeoutError, retry, skip_if_no_fusermount
 from pytest import raises as assert_raises
 
 from s3ql import CTRL_NAME
-from s3ql.common import path2bytes
+from s3ql.common import escape, path2bytes
 
 # For debugging
 USE_VALGRIND = False
@@ -57,6 +57,7 @@ class TestFuse:
 
         self.mount_process = None
         self.name_cnt = 0
+        self.cachepath = os.path.join(self.cache_dir, escape(self.storage_url))
 
     def mkfs(self, max_obj_size=500):
         argv = [

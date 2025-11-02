@@ -83,6 +83,15 @@ A file system can be deleted with::
 This physically deletes all the data and file system structures.
 
 
+Recovering unused space
+-----------------------
+
+When deleting files and directories, the corresponding space in the metadata
+database is not immediately reclaimed but marked as free and reused when new
+directory entries are created. To reclaim this space, and reduce the size of
+the metadata file on disk and in the backend, you can run::
+
+  s3qladm shrink-db <storage url>
 
 
 Upgrading the file system
