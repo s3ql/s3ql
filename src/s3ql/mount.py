@@ -352,9 +352,9 @@ async def main_async(options, stdout_log_handler):
     with backend_pool() as backend:
         param.last_modified = time.time()
         upload_metadata(backend, db, param)
+        expire_objects(backend)
         write_params(cachepath, param)
         upload_params(backend, param)
-        expire_objects(backend)
 
     log.info('All done.')
 
