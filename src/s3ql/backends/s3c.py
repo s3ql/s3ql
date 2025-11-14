@@ -335,7 +335,7 @@ class Backend(AbstractBackend):
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKeyError:
             raise NoSuchObject(key)
-        etag = resp.headers['ETag'].strip('"')
+        etag = resp.headers['ETag'].strip('"').lower()
 
         try:
             meta = self._extractmeta(resp, key)
@@ -731,7 +731,7 @@ class Backend(AbstractBackend):
         # it seems to work. If not, we have to somehow pass in the information when this is expected
         # (i.e, when storing an object)
         if resp.status >= 200 and resp.status <= 299 and md5_update is not None:
-            etag = resp.headers['ETag'].strip('"')
+            etag = resp.headers['ETag'].strip('"').lower()
 
             if etag != md5.hexdigest():
                 raise BadDigestError(
