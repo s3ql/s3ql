@@ -26,7 +26,7 @@ from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
-from typing import Deque, Optional, Union
+from typing import Optional, Union
 
 import trio
 
@@ -394,7 +394,7 @@ class HTTPConnection:
         #: after the request header has been sent, and once after the request
         #: body data has been sent. *body_len* is `None`, or the size of the
         #: **request** body that still has to be sent when using 100-continue.
-        self._pending_requests: Deque[PendingRequestT] = deque()
+        self._pending_requests: deque[PendingRequestT] = deque()
 
         #: This attribute is `None` when a request has been sent completely.  If
         #: request headers have been sent, but request body data is still

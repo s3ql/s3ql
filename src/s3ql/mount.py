@@ -24,7 +24,6 @@ import sys
 import threading
 import time
 from contextlib import AsyncExitStack
-from typing import Tuple
 
 import pyfuse3
 import trio
@@ -438,7 +437,7 @@ def determine_threads(options):
         return threads
 
 
-def get_metadata(backend, cachepath) -> Tuple[FsAttributes, Connection]:
+def get_metadata(backend, cachepath) -> tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None

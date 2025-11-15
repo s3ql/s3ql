@@ -15,7 +15,7 @@ import lzma
 import struct
 import time
 import zlib
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
@@ -225,7 +225,7 @@ class ComprencBackend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
         dont_compress: bool = False,
     ):

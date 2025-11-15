@@ -22,7 +22,7 @@ from base64 import b64decode, b64encode
 from email.utils import mktime_tz, parsedate_tz
 from io import BytesIO
 from itertools import count
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from defusedxml import ElementTree
@@ -362,7 +362,7 @@ class Backend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.
@@ -381,7 +381,7 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
         headers = CaseInsensitiveDict()
         headers.update(self._extra_put_headers)
         self._add_meta_headers(headers, metadata)

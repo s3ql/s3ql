@@ -20,7 +20,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 
 from s3ql import BUFSIZE
 from s3ql.backends.common import DanglingStorageURLError
@@ -126,7 +126,7 @@ class MockBackend:
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         cur_off = fh.tell()

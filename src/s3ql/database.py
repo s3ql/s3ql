@@ -21,7 +21,7 @@ import math
 import os
 import re
 import time
-from typing import Dict, List, Optional
+from typing import Optional
 
 import apsw
 
@@ -484,7 +484,7 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
-def get_block_objects(backend: AbstractBackend) -> Dict[int, List[int]]:
+def get_block_objects(backend: AbstractBackend) -> dict[int, list[int]]:
     '''Get list of objects holding versions of each block'''
 
     block_list = collections.defaultdict(list)
@@ -565,7 +565,7 @@ def download_metadata(
     return Connection(db_file, blocksize)
 
 
-def first_le_than(l: List[int], threshold: int):  # noqa: E741 # auto-added, needs manual check!
+def first_le_than(l: list[int], threshold: int):  # noqa: E741 # auto-added, needs manual check!
     '''Return first element of *l* less or equal than *threshold*
 
     Assumes that *l* is sorted in ascending order
@@ -578,7 +578,7 @@ def first_le_than(l: List[int], threshold: int):  # noqa: E741 # auto-added, nee
     raise ValueError('No element below %d in list of length %d' % (threshold, len(l)))
 
 
-def get_available_seq_nos(backend: AbstractBackend) -> List[int]:
+def get_available_seq_nos(backend: AbstractBackend) -> list[int]:
     nos = []
     for obj in backend.list('s3ql_params_'):
         hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)

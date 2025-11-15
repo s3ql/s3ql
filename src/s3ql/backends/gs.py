@@ -17,7 +17,7 @@ import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from itertools import count
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 
 import google.auth as g_auth
 
@@ -162,7 +162,7 @@ class Backend(AbstractBackend):
         super().__init__()
 
         self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
-        self.options = options.backend_options  # type: Dict[str, str]
+        self.options = options.backend_options  # type: dict[str, str]
         self.proxy = get_proxy(ssl=True)  # type: str
         self.login = options.backend_login  # type: str
         self.refresh_token = options.backend_password  # type: str
@@ -398,7 +398,7 @@ class Backend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.
@@ -417,7 +417,7 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
         metadata_s = json.dumps(
             {
                 'metadata': _wrap_user_meta(metadata),

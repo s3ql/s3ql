@@ -17,7 +17,7 @@ import ssl
 import urllib
 from ast import literal_eval
 from itertools import count
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 from urllib.parse import urlparse
 
 from s3ql.common import copyfh
@@ -452,7 +452,7 @@ class B2Backend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.
@@ -471,7 +471,7 @@ class B2Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
         headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()

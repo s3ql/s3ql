@@ -17,7 +17,7 @@ import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from itertools import count
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from s3ql.common import copyfh
@@ -561,7 +561,7 @@ class Backend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.
@@ -583,7 +583,7 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: Dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 

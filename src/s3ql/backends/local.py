@@ -11,7 +11,7 @@ import logging
 import os
 import struct
 from contextlib import ExitStack, suppress
-from typing import Any, BinaryIO, Dict, Optional
+from typing import Any, BinaryIO, Optional
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
@@ -85,7 +85,7 @@ class Backend(AbstractBackend):
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.

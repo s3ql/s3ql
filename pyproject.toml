@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "wheel", "Cython"]
+requires = ["setuptools>=77.0.3", "Cython"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,8 +7,8 @@ name = "s3ql"
 version = "5.4.1"
 description = "A full-featured file system for online data storage"
 readme = "README.rst"
-requires-python = ">=3.8"
-license = { text = "GPL-3.0-only" }
+requires-python = ">=3.9"
+license = "GPL-3.0-only"
 authors = [{ name = "Nikolaus Rath", email = "Nikolaus@rath.org" }]
 
 classifiers = [

@@ -20,7 +20,6 @@ import math
 import os
 import tempfile
 from argparse import Namespace
-from typing import List
 
 import pytest
 from pytest_checklogs import assert_logs
@@ -234,9 +233,9 @@ def test_versioning(backend):
 
 def _test_expiration(
     backend: AbstractBackend,
-    contents_pre: List[List[int]],
-    contents_post: List[List[int]],
-    db_sizes: List[int],
+    contents_pre: list[list[int]],
+    contents_post: list[list[int]],
+    db_sizes: list[int],
     versions_to_keep: int,
 ):
     id_seq_map = {}
