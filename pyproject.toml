@@ -62,6 +62,32 @@ s3qlrm = "s3ql.remove:main"
 s3ql_oauth_client = "s3ql.oauth_client:main"
 s3ql_verify = "s3ql.verify:main"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.data-files]
+"share/man/man1" = ["doc/manpages/*.1"]
+
+[[tool.setuptools.ext-modules]]
+name = "s3ql.sqlite3ext"
+sources = ["src/s3ql/sqlite3ext.pyx"]
+extra-compile-args = [
+  "-Wall", "-Wextra",
+  # Value-changing conversions should always be explicit.
+  "-Wconversion",
+  # Note that (i > -1) is false if i is unsigned (-1 will be converted to
+  # a large positive value). We certainly don't want to do this by
+  # accident.
+  "-Wsign-compare",
+  # These warnings have always been harmless, and have always been due to
+  # issues in Cython code rather than S3QL. Cython itself warns if there
+  # are unused variables in .pyx code.
+  "-Wno-unused-parameter",
+  "-Wno-unused-function",
+]
+language = "c++"
+depends = ["src/s3ql/_sqlite3ext.cpp"]
+
 [tool.ruff]
 line-length = 100
 exclude = [
