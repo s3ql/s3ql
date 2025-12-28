@@ -1,5 +1,5 @@
-Unreleased Changes
-==================
+S3QL 5.4.2 (2025-12-28)
+=======================
 
 * There is a new `s3qladm shrink-db` command that reclaims unused space in the
   metadata database (both on disk and in the backend storage).
