@@ -6,6 +6,9 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
+import argparse
 import atexit
 import logging
 import os
@@ -14,6 +17,7 @@ import stat
 import sys
 import time
 from base64 import b64encode
+from collections.abc import Sequence
 from getpass import getpass
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
@@ -31,10 +35,10 @@ from .database import (
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def parse_args(args):
+def parse_args(args: Sequence[str]) -> argparse.Namespace:
     parser = ArgumentParser(description="Initializes an S3QL file system")
 
     parser.add_cachedir()
@@ -80,7 +84,7 @@ def parse_args(args):
     return options
 
 
-def init_tables(conn):
+def init_tables(conn: Connection) -> None:
     # Insert root directory
     now_ns = time_ns()
     conn.execute(
@@ -133,7 +137,7 @@ def init_tables(conn):
     )
 
 
-def main(args=None):
+def main(args: Sequence[str] | None = None) -> None:
     if args is None:
         args = sys.argv[1:]
 
@@ -161,6 +165,7 @@ def main(args=None):
             "Refusing to overwrite existing file system! (use `s3qladm clear` to delete)"
         )
 
+    data_pw: bytes | None
     if not options.plain:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")
@@ -168,14 +173,14 @@ def main(args=None):
                 raise QuietError("Passwords don't match.")
         else:
             wrap_pw = sys.stdin.readline().rstrip()
-        wrap_pw = wrap_pw.encode('utf-8')
+        wrap_pw_bytes = wrap_pw.encode('utf-8')
 
         # Generate data encryption passphrase
         log.info('Generating random encryption key...')
         with open('/dev/urandom', "rb", 0) as fh:  # No buffering
             data_pw = fh.read(32)
 
-        backend = ComprencBackend(wrap_pw, ('lzma', 2), plain_backend)
+        backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), plain_backend)
         backend['s3ql_passphrase'] = data_pw
         backend['s3ql_passphrase_bak1'] = data_pw
         backend['s3ql_passphrase_bak2'] = data_pw
@@ -219,12 +224,13 @@ def main(args=None):
         shutil.rmtree(cachepath + '-cache')
 
     if data_pw is not None:
+        data_pw_groups = split_by_n(b64encode(data_pw).decode(), 4)
         print(
             'Please store the following master key in a safe location. It allows ',
             'decryption of the S3QL file system in case the storage objects holding ',
             'this information get corrupted:',
             '---BEGIN MASTER KEY---',
-            ' '.join(split_by_n(b64encode(data_pw).decode(), 4)),
+            ' '.join(data_pw_groups),
             '---END MASTER KEY---',
             sep='\n',
         )

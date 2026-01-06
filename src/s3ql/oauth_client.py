@@ -6,9 +6,13 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
+import argparse
 import logging
 import sys
 import textwrap
+from collections.abc import Sequence
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
@@ -16,10 +20,10 @@ from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from .logging import setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def parse_args(args):
+def parse_args(args: Sequence[str]) -> argparse.Namespace:
     '''Parse command line'''
 
     parser = ArgumentParser(
@@ -38,7 +42,7 @@ def parse_args(args):
     return parser.parse_args(args)
 
 
-def main(args=None):
+def main(args: Sequence[str] | None = None) -> None:
     if args is None:
         args = sys.argv[1:]
 

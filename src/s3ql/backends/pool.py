@@ -6,9 +6,14 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
 import threading
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
+
+from .common import AbstractBackend
 
 log = logging.getLogger(__name__)
 
@@ -21,7 +26,11 @@ class BackendPool:
     threads.
     '''
 
-    def __init__(self, factory):
+    factory: Callable[[], AbstractBackend]
+    pool: list[AbstractBackend]
+    lock: threading.Lock
+
+    def __init__(self, factory: Callable[[], AbstractBackend]) -> None:
         '''Init pool
 
         *factory* should be a callable that provides new
@@ -32,7 +41,7 @@ class BackendPool:
         self.pool = []
         self.lock = threading.Lock()
 
-    def pop_conn(self):
+    def pop_conn(self) -> AbstractBackend:
         '''Pop connection from pool'''
 
         with self.lock:
@@ -41,14 +50,14 @@ class BackendPool:
             else:
                 return self.factory()
 
-    def push_conn(self, conn):
+    def push_conn(self, conn: AbstractBackend) -> None:
         '''Push connection back into pool'''
 
         conn.reset()
         with self.lock:
             self.pool.append(conn)
 
-    def flush(self):
+    def flush(self) -> None:
         '''Close all backends in pool
 
         This method calls the `close` method on all backends
@@ -59,7 +68,7 @@ class BackendPool:
                 self.pool.pop().close()
 
     @contextmanager
-    def __call__(self, close=False):
+    def __call__(self, close: bool = False) -> Generator[AbstractBackend, None, None]:
         '''Provide connection from pool (context manager)
 
         If *close* is True, the backend's close method is automatically called

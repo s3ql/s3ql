@@ -6,12 +6,16 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
 import sys
+from typing import cast
 
 import pyfuse3
+from pyfuse3 import InodeT
 
-from .database import NoSuchRowError
+from .database import Connection, NoSuchRowError
 
 log = logging.getLogger(__name__)
 
@@ -50,12 +54,26 @@ class _Inode:
 
     __slots__ = ATTRIBUTES + ('dirty', 'generation')
 
-    def __init__(self, generation):
+    mode: int
+    refcount: int
+    uid: int
+    gid: int
+    size: int
+    locked: bool
+    rdev: int
+    atime_ns: int
+    mtime_ns: int
+    ctime_ns: int
+    id: InodeT
+    dirty: bool
+    generation: int
+
+    def __init__(self, generation: int) -> None:
         super().__init__()
         self.dirty = False
         self.generation = generation
 
-    def entry_attributes(self):
+    def entry_attributes(self) -> pyfuse3.EntryAttributes:
         attr = pyfuse3.EntryAttributes()
         attr.st_nlink = self.refcount
         attr.st_blocks = (self.size + 511) // 512
@@ -88,10 +106,10 @@ class _Inode:
         # Maybe we should we raise an Exception in that case?
         return NotImplemented
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return self.id
 
-    def copy(self):
+    def copy(self) -> _Inode:
         copy = _Inode(self.generation)
 
         for attr in ATTRIBUTES:
@@ -99,12 +117,12 @@ class _Inode:
 
         return copy
 
-    def __setattr__(self, name, value):
+    def __setattr__(self, name: str, value) -> None:
         if name != 'dirty':
             object.__setattr__(self, 'dirty', True)
         object.__setattr__(self, name, value)
 
-    def __del__(self):
+    def __del__(self) -> None:
         if not self.dirty:
             return
 
@@ -155,7 +173,13 @@ class InodeCache:
     to the effects of the current method call.
     '''
 
-    def __init__(self, db, inode_gen):
+    attrs: dict[InodeT, _Inode]
+    cached_rows: list[InodeT | None]
+    db: Connection
+    generation: int
+    pos: int
+
+    def __init__(self, db: Connection, inode_gen: int) -> None:
         self.attrs = dict()
         self.cached_rows = list()
         self.db = db
@@ -168,14 +192,14 @@ class InodeCache:
 
         self.pos = 0
 
-    def __delitem__(self, inode):
+    def __delitem__(self, inode: InodeT) -> None:
         if self.db.execute('DELETE FROM inodes WHERE id=?', (inode,)) != 1:
             raise KeyError('No such inode')
-        inode = self.attrs.pop(inode, None)
-        if inode is not None:
-            inode.dirty = False
+        inode_obj = self.attrs.pop(inode, None)
+        if inode_obj is not None:
+            inode_obj.dirty = False
 
-    def __getitem__(self, id_):
+    def __getitem__(self, id_: InodeT) -> _Inode:
         try:
             return self.attrs[id_]
         except KeyError:
@@ -199,26 +223,29 @@ class InodeCache:
             self.attrs[id_] = inode
             return inode
 
-    def getattr(self, id_):  # @ReservedAssignment
+    def getattr(self, id_: InodeT) -> _Inode:  # @ReservedAssignment
         attrs = self.db.get_row("SELECT %s FROM inodes WHERE id=? " % ATTRIBUTE_STR, (id_,))
         inode = _Inode(self.generation)
 
-        for i, id_ in enumerate(ATTRIBUTES):
-            setattr(inode, id_, attrs[i])
+        for i, attr_name in enumerate(ATTRIBUTES):
+            setattr(inode, attr_name, attrs[i])
 
         inode.dirty = False
 
         return inode
 
-    def create_inode(self, **kw):
+    def create_inode(self, **kw: object) -> _Inode:
         bindings = tuple(kw[x] for x in ATTRIBUTES if x in kw)
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
 
-        id_ = self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values), bindings)
+        id_ = cast(
+            InodeT,
+            self.db.rowid('INSERT INTO inodes (%s) VALUES(%s)' % (columns, values), bindings),
+        )
         return self[id_]
 
-    def setattr(self, inode):
+    def setattr(self, inode: _Inode) -> None:
         if not inode.dirty:
             return
         inode.dirty = False
@@ -228,11 +255,11 @@ class InodeCache:
             [getattr(inode, x) for x in UPDATE_ATTRS] + [inode.id],
         )
 
-    def flush_id(self, id_):
+    def flush_id(self, id_: InodeT) -> None:
         if id_ in self.attrs:
             self.setattr(self.attrs[id_])
 
-    def destroy(self):
+    def destroy(self) -> None:
         '''Flush all entries and empty cache'''
 
         # Note: this method is currently also used for dropping the cache
@@ -252,7 +279,7 @@ class InodeCache:
 
         assert len(self.attrs) == 0
 
-    def flush(self):
+    def flush(self) -> None:
         '''Flush all entries to database'''
 
         # We don't want to use dict.itervalues() since
@@ -268,12 +295,12 @@ class InodeCache:
                 else:
                     self.setattr(inode)
 
-    def drop(self):
+    def drop(self) -> None:
         '''Drop cache (after flushing)'''
 
         self.destroy()
 
-    def __del__(self):
+    def __del__(self) -> None:
         if len(self.attrs) == 0:
             return
 

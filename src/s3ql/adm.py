@@ -6,6 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
+import argparse
+import contextlib
 import logging
 import os
 import re
@@ -15,11 +19,11 @@ import tempfile
 import textwrap
 import time
 from base64 import b64decode
+from collections.abc import Sequence
 from datetime import datetime
 from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
-from typing import Any
 
 from s3ql.database import (
     Connection,
@@ -35,6 +39,7 @@ from s3ql.database import (
 from s3ql.mount import get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
+from .backends.common import AbstractBackend
 from .backends.comprenc import ComprencBackend
 from .common import (
     AsyncFn,
@@ -46,11 +51,12 @@ from .common import (
 )
 from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
+from .types import BasicMappingT
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def parse_args(args):
+def parse_args(args: Sequence[str]) -> argparse.Namespace:
     '''Parse command line'''
 
     parser = ArgumentParser(
@@ -115,7 +121,7 @@ def parse_args(args):
     return options
 
 
-def main(args=None):
+def main(args: Sequence[str] | None = None) -> None:
     '''Change or show S3QL file system parameters'''
 
     if args is None:
@@ -131,36 +137,40 @@ def main(args=None):
         raise QuietError('Can not work on mounted file system.')
 
     if options.action == 'clear':
-        return clear(options)  # pyright: ignore[reportCallIssue]
+        clear(options)  # pyright: ignore[reportCallIssue]
+        return
 
     elif options.action == 'recover-key':
         with get_backend(options, raw=True) as backend:
-            return recover(backend, options)
+            recover(backend, options)
+            return
 
     with get_backend(options) as backend:
+        assert isinstance(backend, ComprencBackend)
         if options.action == 'passphrase':
-            return change_passphrase(backend)
+            change_passphrase(backend)
 
         elif options.action == 'restore-metadata':
-            return restore_metadata_cmd(backend, options)
+            restore_metadata_cmd(backend, options)
 
         elif options.action == 'upgrade':
-            return upgrade(backend, options)
+            upgrade(backend, options)
 
         elif options.action == 'shrink-db':
-            return shrink_db(backend, options)
+            shrink_db(backend, options)
 
         else:
             raise QuietError('Unknown action: %s' % options.action)
 
 
-def change_passphrase(backend):
+def change_passphrase(backend: ComprencBackend) -> None:
     '''Change file system passphrase'''
 
     if not isinstance(backend, ComprencBackend) and backend.passphrase:
         raise QuietError('File system is not encrypted.')
 
     data_pw = backend.passphrase
+    assert data_pw is not None
 
     print(
         textwrap.dedent(
@@ -177,9 +187,9 @@ def change_passphrase(backend):
             raise QuietError("Passwords don't match")
     else:
         wrap_pw = sys.stdin.readline().rstrip()
-    wrap_pw = wrap_pw.encode('utf-8')
+    wrap_pw_bytes = wrap_pw.encode('utf-8')
 
-    backend.passphrase = wrap_pw
+    backend.passphrase = wrap_pw_bytes
     backend['s3ql_passphrase'] = data_pw
     backend['s3ql_passphrase_bak1'] = data_pw
     backend['s3ql_passphrase_bak2'] = data_pw
@@ -187,12 +197,12 @@ def change_passphrase(backend):
     backend.passphrase = data_pw
 
 
-def recover(backend, options):
+def recover(backend: AbstractBackend, options: argparse.Namespace) -> None:
     print("Enter master key (should be 11 blocks of 4 characters each): ")
-    data_pw = sys.stdin.readline()
-    data_pw = re.sub(r'\s+', '', data_pw)
+    data_pw_str = sys.stdin.readline()
+    data_pw_str = re.sub(r'\s+', '', data_pw_str)
     try:
-        data_pw = b64decode(data_pw)
+        data_pw = b64decode(data_pw_str)
     except ValueError:
         raise QuietError("Malformed master key. Expected valid base64.")
 
@@ -205,18 +215,18 @@ def recover(backend, options):
             raise QuietError("Passwords don't match")
     else:
         wrap_pw = sys.stdin.readline().rstrip()
-    wrap_pw = wrap_pw.encode('utf-8')
+    wrap_pw_bytes = wrap_pw.encode('utf-8')
 
-    backend = ComprencBackend(wrap_pw, ('lzma', 2), backend)
-    backend['s3ql_passphrase'] = data_pw
-    backend['s3ql_passphrase_bak1'] = data_pw
-    backend['s3ql_passphrase_bak2'] = data_pw
-    backend['s3ql_passphrase_bak3'] = data_pw
+    comprenc_backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), backend)
+    comprenc_backend['s3ql_passphrase'] = data_pw
+    comprenc_backend['s3ql_passphrase_bak1'] = data_pw
+    comprenc_backend['s3ql_passphrase_bak2'] = data_pw
+    comprenc_backend['s3ql_passphrase_bak3'] = data_pw
 
 
 @handle_on_return
-def clear(options, on_return):
-    def backend_factory():
+def clear(options: argparse.Namespace, on_return: contextlib.ExitStack) -> None:
+    def backend_factory() -> AbstractBackend:
         return options.backend_class(options)
 
     backend = on_return.enter_context(backend_factory())
@@ -247,9 +257,9 @@ def clear(options, on_return):
     if os.path.exists(name):
         shutil.rmtree(name)
 
-    queue = Queue(maxsize=options.threads)
+    queue: Queue[str | None] = Queue(maxsize=options.threads)
 
-    def removal_loop():
+    def removal_loop() -> None:
         with backend_factory() as backend:
             while True:
                 key = queue.get()
@@ -293,7 +303,7 @@ def clear(options, on_return):
     log.info('All visible objects deleted.')
 
 
-def get_old_rev_msg(rev, prog):
+def get_old_rev_msg(rev: int, prog: str) -> str:
     return textwrap.dedent(
         '''\
         The last S3QL version that supported this file system revision
@@ -337,7 +347,7 @@ def shrink_db(backend: ComprencBackend, options) -> None:
     expire_objects(backend)
 
 
-def upgrade(backend, options) -> None:
+def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
     '''Upgrade file system to newest revision'''
 
     params_path = options.cachepath + '.params'
@@ -350,10 +360,16 @@ def upgrade(backend, options) -> None:
         sys.exit(1)
 
     with open(params_path, 'rb') as fh:
-        local_params: dict[str, Any] = thaw_basic_mapping(fh.read())
+        local_params: BasicMappingT = thaw_basic_mapping(fh.read())
     remote_params = backend.lookup('s3ql_metadata')
 
-    if local_params['seq_no'] < remote_params['seq_no']:
+    local_seq_no = local_params['seq_no']
+    remote_seq_no = remote_params['seq_no']
+    local_revision = local_params['revision']
+    assert isinstance(local_seq_no, int) and isinstance(remote_seq_no, int)
+    assert isinstance(local_revision, int)
+
+    if local_seq_no < remote_seq_no:
         print(
             'Local metadata copy is not up-to-date. To upgrade the filesystem, first download',
             'file system metadata using the previous  version of S3QL (eg. by running fsck.s3ql)',
@@ -361,16 +377,16 @@ def upgrade(backend, options) -> None:
         )
         sys.exit(1)
 
-    elif local_params['seq_no'] > remote_params['seq_no'] or local_params['needs_fsck']:
+    elif local_seq_no > remote_seq_no or local_params['needs_fsck']:
         print(
             'Filesystem was not cleanly unmounted. Check file system using fsck.s3ql',
             'from the previous version of S3QL.',
-            get_old_rev_msg(local_params['revision'], 'fsck.s3ql'),
+            get_old_rev_msg(local_revision, 'fsck.s3ql'),
             sep='\n',
         )
         sys.exit(30)
 
-    if local_params['revision'] < CURRENT_FS_REV - 1:
+    if local_revision < CURRENT_FS_REV - 1:
         print(
             textwrap.dedent(
                 '''\
@@ -381,10 +397,10 @@ def upgrade(backend, options) -> None:
             '''
             )
         )
-        print(get_old_rev_msg(local_params['revision'] + 1, 's3qladm'))
+        print(get_old_rev_msg(local_revision + 1, 's3qladm'))
         raise QuietError()
 
-    elif local_params['revision'] >= CURRENT_FS_REV:
+    elif local_revision >= CURRENT_FS_REV:
         print('File system already at most-recent revision')
         return
 
@@ -412,9 +428,9 @@ def upgrade(backend, options) -> None:
     if sys.stdin.readline().strip().lower() != 'yes':
         raise QuietError()
 
-    log.info('Upgrading from revision %d to %d...', local_params['revision'], CURRENT_FS_REV)
+    log.info('Upgrading from revision %d to %d...', local_revision, CURRENT_FS_REV)
 
-    new_params = {k.replace('-', '_'): v for k, v in local_params.items()}
+    new_params: BasicMappingT = {k.replace('-', '_'): v for k, v in local_params.items()}
     new_params['data_block_size'] = new_params['max_obj_size']
     new_params['metadata_block_size'] = options.metadata_block_size * 1024
     new_params['revision'] = CURRENT_FS_REV
@@ -423,7 +439,7 @@ def upgrade(backend, options) -> None:
     for k in list(new_params.keys()):
         if k not in valid_keys:
             del new_params[k]
-    params = FsAttributes(**new_params)
+    params = FsAttributes(**new_params)  # type: ignore[arg-type]
 
     db = Connection(options.cachepath + '.db', options.metadata_block_size * 1024)
 
@@ -438,7 +454,7 @@ def upgrade(backend, options) -> None:
     # re-mount the filesystem with an older S3QL version.
     log.info('Backing up old metadata...')
     local_params['revision'] = CURRENT_FS_REV
-    local_params['seq_no'] += 1
+    local_params['seq_no'] = local_seq_no + 1
     with tempfile.TemporaryFile() as tmpfh:
         backend.readinto_fh('s3ql_metadata', tmpfh)
         tmpfh.seek(0)
@@ -447,7 +463,7 @@ def upgrade(backend, options) -> None:
     print('File system upgrade complete.')
 
 
-def restore_metadata_cmd(backend, options):
+def restore_metadata_cmd(backend: ComprencBackend, options: argparse.Namespace) -> None:
     backups = sorted(get_available_seq_nos(backend))
 
     if not backups:
@@ -455,17 +471,17 @@ def restore_metadata_cmd(backend, options):
 
     print('The following backups are available:')
     print('Idx    Seq No: Last Modified:')
-    for i, seq_no in enumerate(backups):
+    for i, backup_seq_no in enumerate(backups):
         # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
         # filesystem revisions.
-        d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
+        d = thaw_basic_mapping(backend['s3ql_params_%010x' % backup_seq_no])
         if d['revision'] != CURRENT_FS_REV:
-            print(f'{i:3d} {seq_no:010x} (unsupported revision)')
+            print(f'{i:3d} {backup_seq_no:010x} (unsupported revision)')
             continue
-        params = FsAttributes(**d)
-        assert params.seq_no == seq_no
+        params = FsAttributes(**d)  # type: ignore[arg-type]
+        assert params.seq_no == backup_seq_no
         date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
-        print(f'{i:3d} {seq_no:010x} {date}')
+        print(f'{i:3d} {backup_seq_no:010x} {date}')
 
     print(
         'Restoring a metadata backup will almost always result in partial data loss and',
@@ -473,7 +489,7 @@ def restore_metadata_cmd(backend, options):
         sep='\n',
     )
 
-    seq_no = None
+    seq_no: int | None = None
     while seq_no is None:
         buf = input('Enter index to revert to: ')
         try:

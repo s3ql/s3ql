@@ -9,11 +9,13 @@ This work can be distributed under the terms of the GNU GPLv3.
 # (We must not import s3ql.logging.logging as s3ql.logging,
 # otherwise future imports of s3ql.logging will incorrectly
 # use s3ql.logging.logging).
+from typing import cast
+
 from . import logging
 
 assert logging.LOG_ONCE  # prevent warnings about unused module
 
-from pyfuse3 import ROOT_INODE  # noqa: E402 # auto-added, needs manual check!
+from pyfuse3 import ROOT_INODE, InodeT  # noqa: E402 # auto-added, needs manual check!
 
 VERSION = '5.4.2'
 RELEASE = '%s' % VERSION
@@ -27,7 +29,7 @@ BUFSIZE = 256 * 1024
 
 # Name and inode of the special s3ql control file
 CTRL_NAME = b'.__s3ql__ctrl__'
-CTRL_INODE = ROOT_INODE + 1
+CTRL_INODE = cast(InodeT, ROOT_INODE + 1)
 
 # Maps file system revisions to the last S3QL version that
 # supported this revision.

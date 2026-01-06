@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import hashlib
 import hmac
 import inspect
@@ -19,14 +21,19 @@ import textwrap
 import threading
 import time
 from abc import ABCMeta, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from functools import wraps
 from io import BytesIO
-from typing import BinaryIO, Optional
+from typing import TYPE_CHECKING, Literal, TypeVar
 
-from s3ql.types import BasicMappingT
+from s3ql.logging import LOG_ONCE, QuietError
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
-from ..logging import LOG_ONCE, QuietError
+if TYPE_CHECKING:
+    from hmac import HMAC
+
+F = TypeVar('F', bound=Callable[..., object])
+
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +44,12 @@ class RateTracker:
     window. The rate is computed with one second resolution.
     '''
 
-    def __init__(self, window_length):
+    buckets: list[int]
+    window_length: int
+    last_update: int
+    lock: threading.Lock
+
+    def __init__(self, window_length: int) -> None:
         if not isinstance(window_length, int):
             raise ValueError('only integer window lengths are supported')
 
@@ -46,7 +58,7 @@ class RateTracker:
         self.last_update = int(time.monotonic())
         self.lock = threading.Lock()
 
-    def register(self, _not_really=False):
+    def register(self, _not_really: bool = False) -> None:
         '''Register occurrence of an event.
 
         The keyword argument is for class-internal use only.
@@ -67,13 +79,13 @@ class RateTracker:
             buckets[now % bucket_count] += 1
             self.last_update = now
 
-    def get_rate(self):
+    def get_rate(self) -> float:
         '''Return average rate of event occurrence'''
 
         self.register(_not_really=True)
         return sum(self.buckets) / len(self.buckets)
 
-    def get_count(self):
+    def get_count(self) -> int:
         '''Return total number of events in window'''
 
         self.register(_not_really=True)
@@ -85,10 +97,10 @@ class RateTracker:
 # use a relatively large window to prevent bogus spikes if
 # multiple threads all have to retry after a long period of
 # inactivity.
-RETRY_TIMEOUT = 60 * 60 * 24
+RETRY_TIMEOUT: int = 60 * 60 * 24
 
 
-def retry(method, _tracker=RateTracker(60)):  # noqa: B008 # auto-added, needs manual check!
+def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B008 # auto-added, needs manual check!
     '''Wrap *method* for retrying on some exceptions
 
     If *method* raises an exception for which the instance's `is_temp_failure(exc)` method is true,
@@ -177,10 +189,10 @@ def retry(method, _tracker=RateTracker(60)):  # noqa: B008 # auto-added, needs m
         '`is_temp_failure` method returns True.',
     )
 
-    return wrapped
+    return wrapped  # type: ignore[return-value]
 
 
-def extend_docstring(fun, s):
+def extend_docstring(fun: Callable[..., object], s: str) -> None:
     '''Append *s* to *fun*'s docstring with proper wrapping and indentation'''
 
     if fun.__doc__ is None:
@@ -208,42 +220,49 @@ class AbstractBackend(metaclass=ABCMeta):
     needs_login = True
     known_options: set[str] = set()
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> bytes:
         return self.fetch(key)[0]
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: bytes) -> None:
         self.store(key, value)
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: str) -> None:
         self.delete(key)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[str]:
         return self.list()
 
-    def __contains__(self, key):
+    def __contains__(self, key: object) -> bool:
+        if not isinstance(key, str):
+            return False
         return self.contains(key)
 
-    def __enter__(self):
+    def __enter__(self) -> AbstractBackend:
         return self
 
-    def __exit__(self, exc_type, exc_value, tb):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        tb: object,
+    ) -> Literal[False]:
         self.close()
         return False
 
-    def iteritems(self):
+    def iteritems(self) -> Iterator[tuple[str, bytes]]:
         for key in self.list():
             yield (key, self[key])
 
     @property
-    def has_delete_multi(self):
+    def has_delete_multi(self) -> bool:
         '''True if the backend supports `delete_multi`.'''
 
         return False
 
-    def reset(self):  # noqa: B027 # auto-added, needs manual check!
+    def reset(self) -> None:  # noqa: B027 # auto-added, needs manual check!
         '''Reset backend
 
         This resets the backend and ensures that it is ready to process requests. In most cases,
@@ -255,7 +274,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def readinto_fh(self, key: str, fh: BinaryIO) -> BasicMappingT:
+    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -267,9 +286,9 @@ class AbstractBackend(metaclass=ABCMeta):
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
-        metadata: Optional[BasicMappingT] = None,
-        len_: Optional[int] = None,
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
     ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
@@ -282,7 +301,7 @@ class AbstractBackend(metaclass=ABCMeta):
         '''
         pass
 
-    def fetch(self, key) -> tuple[bytes, BasicMappingT]:
+    def fetch(self, key: str) -> tuple[bytes, BasicMappingT]:
         """Return data stored under `key`.
 
         Returns a tuple with the data and metadata. If only the data itself is
@@ -294,7 +313,7 @@ class AbstractBackend(metaclass=ABCMeta):
         metadata = self.readinto_fh(key, fh)
         return (fh.getvalue(), metadata)
 
-    def store(self, key, val, metadata: Optional[BasicMappingT] = None):
+    def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
         """Store data under `key`.
 
         `metadata` can be mapping with additional attributes to store with the
@@ -309,7 +328,7 @@ class AbstractBackend(metaclass=ABCMeta):
         return self.write_fh(key, BytesIO(val), metadata)
 
     @abstractmethod
-    def is_temp_failure(self, exc):
+    def is_temp_failure(self, exc: BaseException) -> bool:
         '''Return true if exc indicates a temporary error
 
         Return true if the given exception indicates a temporary problem. Most
@@ -325,7 +344,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def lookup(self, key):
+    def lookup(self, key: str) -> BasicMappingT:
         """Return metadata for given key.
 
         If the key does not exist, `NoSuchObject` is raised.
@@ -334,11 +353,11 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def get_size(self, key):
+    def get_size(self, key: str) -> int:
         '''Return size of object stored under *key*'''
         pass
 
-    def contains(self, key):
+    def contains(self, key: str) -> bool:
         '''Check if `key` is in backend'''
 
         try:
@@ -349,14 +368,14 @@ class AbstractBackend(metaclass=ABCMeta):
             return True
 
     @abstractmethod
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         """Delete object stored under `key`
 
         Attempts to delete non-existing objects will silently succeed.
         """
         pass
 
-    def delete_multi(self, keys):
+    def delete_multi(self, keys: list[str]) -> None:
         """Delete objects stored under `keys`
 
         Deleted objects are removed from the *keys* list, so that the caller can
@@ -371,14 +390,14 @@ class AbstractBackend(metaclass=ABCMeta):
             keys.pop()
 
     @abstractmethod
-    def list(self, prefix='') -> Iterator[str]:
+    def list(self, prefix: str = '') -> Iterator[str]:
         '''List keys in backend
 
         Returns an iterator over all keys in the backend.
         '''
         pass
 
-    def close(self):  # noqa: B027 # auto-added, needs manual check!
+    def close(self) -> None:  # noqa: B027 # auto-added, needs manual check!
         '''Close any opened resources
 
         This method closes any resources allocated by the backend (e.g. network
@@ -394,23 +413,28 @@ class AbstractBackend(metaclass=ABCMeta):
 class NoSuchObject(Exception):
     '''Raised if the requested object does not exist in the backend'''
 
-    def __init__(self, key):
+    key: str
+
+    def __init__(self, key: str) -> None:
         super().__init__()
         self.key = key
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Backend does not have anything stored under key %r' % self.key
 
 
 class DanglingStorageURLError(Exception):
     '''Raised if the backend can't store data at the given location'''
 
-    def __init__(self, loc, msg=None):
+    loc: str
+    msg: str | None
+
+    def __init__(self, loc: str, msg: str | None = None) -> None:
         super().__init__()
         self.loc = loc
         self.msg = msg
 
-    def __str__(self):
+    def __str__(self) -> str:
         if self.msg is None:
             return '%r does not exist' % self.loc
         else:
@@ -420,22 +444,26 @@ class DanglingStorageURLError(Exception):
 class AuthorizationError(Exception):
     '''Raised if the credentials don't give access to the requested backend'''
 
-    def __init__(self, msg):
+    msg: str
+
+    def __init__(self, msg: str) -> None:
         super().__init__()
         self.msg = msg
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Access denied. Server said: %s' % self.msg
 
 
 class AuthenticationError(Exception):
     '''Raised if the credentials are invalid'''
 
-    def __init__(self, msg):
+    msg: str
+
+    def __init__(self, msg: str) -> None:
         super().__init__()
         self.msg = msg
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Access denied. Server said: %s' % self.msg
 
 
@@ -447,15 +475,15 @@ class CorruptedObjectError(Exception):
     if a transmission error has been detected.
     """
 
-    def __init__(self, str_):
+    def __init__(self, str_: str) -> None:
         super().__init__()
-        self.str = str_
+        self.str: str = str_
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.str
 
 
-def get_ssl_context(path):
+def get_ssl_context(path: str | None) -> ssl.SSLContext:
     '''Construct SSLContext object'''
 
     # Best practice according to http://docs.python.org/3/library/ssl.html#protocol-versions
@@ -476,7 +504,7 @@ def get_ssl_context(path):
     return context
 
 
-def get_proxy(ssl):
+def get_proxy(ssl: bool) -> tuple[str, int] | None:
     '''Read system proxy settings
 
     Returns either `None`, or a tuple ``(host, port)``.
@@ -490,11 +518,11 @@ def get_proxy(ssl):
         proxy_env = 'http_proxy'
 
     if proxy_env in os.environ:
-        proxy = os.environ[proxy_env]
-        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy)
+        proxy_str = os.environ[proxy_env]
+        hit = re.match(r'^(https?://)?([a-zA-Z0-9.-]+)(:[0-9]+)?/?$', proxy_str)
         if not hit:
             raise QuietError(
-                'Unable to parse proxy setting %s=%r' % (proxy_env, proxy), exitcode=13
+                'Unable to parse proxy setting %s=%r' % (proxy_env, proxy_str), exitcode=13
             )
 
         if hit.group(1) == 'https://':
@@ -511,14 +539,12 @@ def get_proxy(ssl):
 
         proxy_host = hit.group(2)
         log.info('Using proxy %s:%d', proxy_host, proxy_port, extra=LOG_ONCE)
-        proxy = (proxy_host, proxy_port)
+        return (proxy_host, proxy_port)
     else:
-        proxy = None
-
-    return proxy
+        return None
 
 
-def checksum_basic_mapping(metadata, key=None):
+def checksum_basic_mapping(metadata: BasicMappingT, key: bytes | None = None) -> bytes:
     '''Compute checksum for mapping of elementary types
 
     Keys of *d* must be strings. Values of *d* must be of elementary
@@ -535,6 +561,7 @@ def checksum_basic_mapping(metadata, key=None):
     # is theoretically reversible, or there is a potential for collision
     # attacks.
 
+    chk: hashlib._Hash | HMAC
     if key is None:
         chk = hashlib.md5()
     else:

@@ -6,27 +6,36 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
 import os
 import re
 import sys
 import threading
 import time
-from argparse import Namespace
 from collections import OrderedDict
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from io import BufferedRandom
 from queue import Empty as QueueEmpty
 from queue import Full as QueueFull
 from queue import Queue
-from typing import Optional
+from typing import TYPE_CHECKING, cast
 
 import trio
+from pyfuse3 import InodeT
 
 from s3ql.common import sha256_fh
+from s3ql.fs import Operations
 
 from .backends.common import NoSuchObject
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
+
+if TYPE_CHECKING:
+    from .backends.pool import BackendPool
+    from .database import Connection
 
 # standard logger for this module
 log = logging.getLogger(__name__)
@@ -61,12 +70,20 @@ class CacheEntry:
 
     __slots__ = ['dirty', 'inode', 'blockno', 'last_write', 'size', 'pos', 'fh', 'removed']
 
-    def __init__(self, inode, blockno, filename, mode='w+b'):
+    dirty: bool
+    inode: InodeT
+    blockno: int
+    last_write: float
+    size: int
+    pos: int
+    fh: BufferedRandom
+
+    def __init__(self, inode: InodeT, blockno: int, filename: str, mode: str = 'w+b') -> None:
         super().__init__()
         # Writing 100MB in 128k chunks takes 90ms unbuffered and
         # 116ms with 1 MB buffer. Reading time does not depend on
         # buffer size.
-        self.fh = open(filename, mode, 0)  # noqa: SIM115
+        self.fh = open(filename, mode, 0)  # type: ignore[assignment]  # noqa: SIM115
         self.dirty = False
         self.inode = inode
         self.blockno = blockno
@@ -74,26 +91,27 @@ class CacheEntry:
         self.pos = self.fh.tell()
         self.size = os.fstat(self.fh.fileno()).st_size
 
-    def read(self, size=None):
+    def read(self, size: int | None = None) -> bytes:
         buf = self.fh.read(size)
         self.pos += len(buf)
         return buf
 
-    def flush(self):
+    def flush(self) -> None:
         self.fh.flush()
 
-    def seek(self, off, whence=None):
-        if whence is not None:
+    def seek(self, off: int, whence: int = 0) -> int:
+        if whence != 0:
             self.fh.seek(off, whence)
             self.pos = self.fh.tell()
         elif self.pos != off:
             self.fh.seek(off)
             self.pos = off
-
-    def tell(self):
         return self.pos
 
-    def truncate(self, size=None):
+    def tell(self) -> int:
+        return self.pos
+
+    def truncate(self, size: int | None = None) -> None:
         self.dirty = True
         self.fh.truncate(size)
         if size is None:
@@ -101,20 +119,20 @@ class CacheEntry:
         else:
             self.size = size
 
-    def write(self, buf):
+    def write(self, buf: bytes) -> None:
         self.dirty = True
         self.fh.write(buf)
         self.pos += len(buf)
         self.size = max(self.pos, self.size)
         self.last_write = time.time()
 
-    def close(self):
+    def close(self) -> None:
         self.fh.close()
 
-    def unlink(self):
+    def unlink(self) -> None:
         os.unlink(self.fh.name)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return '<%sCacheEntry, inode=%d, blockno=%d>' % (
             'Dirty ' if self.dirty else '',
             self.inode,
@@ -122,7 +140,7 @@ class CacheEntry:
         )
 
 
-class CacheDict(OrderedDict):
+class CacheDict(OrderedDict[tuple[InodeT, int], CacheEntry]):
     '''
     An ordered dictionary designed to store CacheEntries.
 
@@ -133,13 +151,17 @@ class CacheDict(OrderedDict):
     :size: current size of all entries together
     '''
 
-    def __init__(self, max_size, max_entries):
+    max_size: int
+    max_entries: int
+    size: int
+
+    def __init__(self, max_size: int, max_entries: int) -> None:
         super().__init__()
         self.max_size = max_size
         self.max_entries = max_entries
         self.size = 0
 
-    def remove(self, key, unlink=True):
+    def remove(self, key: tuple[InodeT, int], unlink: bool = True) -> None:
         '''Remove *key* from disk and cache, update size'''
 
         el = self.pop(key)
@@ -148,7 +170,7 @@ class CacheDict(OrderedDict):
         if unlink:
             el.unlink()
 
-    def is_full(self):
+    def is_full(self) -> bool:
         return self.size > self.max_size or len(self) > self.max_entries
 
 
@@ -174,7 +196,34 @@ class BlockCache:
     :backend_pool: BackendPool instance
     """
 
-    def __init__(self, backend_pool, db, cachedir, max_size, max_entries=768):
+    path: str
+    db: Connection
+    backend_pool: BackendPool
+    cache: CacheDict
+    mlock: MultiLock
+    in_transit: set[CacheEntry]
+    upload_threads: list[threading.Thread]
+    removal_threads: list[threading.Thread]
+    transfer_completed: trio.Condition
+    to_upload: (
+        tuple[
+            trio.MemorySendChannel[tuple[CacheEntry, int] | object],
+            trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
+        ]
+        | None
+    )
+    to_remove: Queue[int | object] | None
+    trio_token: trio.lowlevel.TrioToken | None
+    fs: Operations | None
+
+    def __init__(
+        self,
+        backend_pool: BackendPool,
+        db: Connection,
+        cachedir: str,
+        max_size: int,
+        max_entries: int = 768,
+    ) -> None:
         log.debug('Initializing')
 
         self.path = cachedir
@@ -200,27 +249,27 @@ class BlockCache:
 
         # Initialized from the outside to prevent cyclic dependency,
         # used only to set failsafe attribute
-        self.fs = Namespace()
+        self.fs = None
 
-    def load_cache(self):
+    def load_cache(self) -> None:
         '''Initialize cache from disk'''
 
         for filename in os.listdir(self.path):
             match = re.match('^(\\d+)-(\\d+)$', filename)
             if not match:
                 continue
-            inode = int(match.group(1))
+            inode = cast(InodeT, int(match.group(1)))
             blockno = int(match.group(2))
 
             el = CacheEntry(inode, blockno, os.path.join(self.path, filename), mode='r+b')
             self.cache[(inode, blockno)] = el
             self.cache.size += el.size
 
-    def __len__(self):
+    def __len__(self) -> int:
         '''Get number of objects in cache'''
         return len(self.cache)
 
-    def init(self, threads=1):
+    def init(self, threads: int = 1) -> None:
         '''Start worker threads'''
 
         self.trio_token = trio.lowlevel.current_trio_token()
@@ -246,7 +295,7 @@ class BlockCache:
                 t.start()
                 self.removal_threads.append(t)
 
-    async def destroy(self, keep_cache=False):
+    async def destroy(self, keep_cache: bool = False) -> None:
         '''Clean up and stop worker threads'''
 
         log.debug('Flushing cache...')
@@ -307,7 +356,7 @@ class BlockCache:
 
         log.debug('cleanup done.')
 
-    def _upload_loop(self):
+    def _upload_loop(self) -> None:
         '''Process upload queue.
 
         This method runs in a separate thread outside the trio event loop.
@@ -315,6 +364,7 @@ class BlockCache:
 
         while True:
             log.debug('reading from upload queue...')
+            assert self.to_upload is not None
             tmp = trio.from_thread.run(self.to_upload[1].receive, trio_token=self.trio_token)
 
             if tmp is QuitSentinel:
@@ -322,9 +372,10 @@ class BlockCache:
                 break
             log.debug('got work')
 
-            self._do_upload(*tmp)
+            assert isinstance(tmp, tuple)
+            self._do_upload(tmp[0], tmp[1])
 
-    def _do_upload(self, el, obj_id):
+    def _do_upload(self, el: CacheEntry, obj_id: int) -> None:
         '''Upload object.
 
         This method runs in a separate thread outside the trio event loop.
@@ -332,7 +383,9 @@ class BlockCache:
 
         success = False
 
-        async def with_event_loop(exc_info):
+        async def with_event_loop(
+            exc_info: tuple[type[BaseException], BaseException, object] | tuple[None, None, None],
+        ) -> None:
             if success:
                 self.db.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
@@ -383,7 +436,7 @@ class BlockCache:
             self.in_transit.remove(el)
             trio.from_thread.run(with_event_loop, sys.exc_info(), trio_token=self.trio_token)
 
-    async def wait(self):
+    async def wait(self) -> None:
         '''Wait until an object has been uploaded
 
         If there are no objects in transit, return immediately.
@@ -400,7 +453,7 @@ class BlockCache:
                     await self.transfer_completed.wait()
                     return
 
-    async def upload_if_dirty(self, el):
+    async def upload_if_dirty(self, el: CacheEntry) -> bool:
         '''Upload cache entry asynchronously
 
         Return True if the object is actually scheduled for upload.
@@ -445,7 +498,7 @@ class BlockCache:
         obj_lock_taken = False
         try:
             try:
-                old_obj_id = self.db.get_val(
+                old_obj_id: int | None = self.db.get_int_val(
                     'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                     (el.inode, el.blockno),
                 )
@@ -453,7 +506,7 @@ class BlockCache:
                 old_obj_id = None
 
             try:
-                obj_id = self.db.get_val('SELECT id FROM objects WHERE hash=?', (hash_,))
+                obj_id = self.db.get_int_val('SELECT id FROM objects WHERE hash=?', (hash_,))
 
             # No object with same hash
             except NoSuchRowError:
@@ -508,9 +561,10 @@ class BlockCache:
 
         return obj_lock_taken
 
-    async def _queue_upload(self, obj):
+    async def _queue_upload(self, obj: tuple[CacheEntry, int] | object) -> None:
         '''Put *obj* into upload queue'''
 
+        assert self.to_upload is not None
         while True:
             with trio.move_on_after(5):
                 await self.to_upload[0].send(obj)
@@ -521,9 +575,10 @@ class BlockCache:
             else:
                 raise NoWorkerThreads('no upload threads')
 
-    def _queue_removal(self, obj):
+    def _queue_removal(self, obj: int | object) -> None:
         '''Put *obj* into removal queue'''
 
+        assert self.to_remove is not None
         while True:
             try:
                 self.to_remove.put(obj, timeout=5)
@@ -538,14 +593,14 @@ class BlockCache:
             else:
                 raise NoWorkerThreads('no removal threads')
 
-    async def _deref_obj(self, obj_id):
+    async def _deref_obj(self, obj_id: int) -> None:
         '''Decrease reference count for *obj_id*
 
         If reference counter drops to zero, remove object.
         '''
 
-        (refcount, size) = self.db.get_row(
-            'SELECT refcount, phys_size FROM objects WHERE id=?', (obj_id,)
+        (refcount, size) = self.db.get_row_typed(
+            (int, int), 'SELECT refcount, phys_size FROM objects WHERE id=?', (obj_id,)
         )
         if refcount > 1:
             log.debug('decreased refcount for object: %d', obj_id)
@@ -570,17 +625,18 @@ class BlockCache:
             # this object would just give us another error.
             return
 
+        assert self.to_remove is not None
         try:
             self.to_remove.put(obj_id, block=False)
         except QueueFull:
             await trio.to_thread.run_sync(self._queue_removal, obj_id)
 
-    def transfer_in_progress(self):
+    def transfer_in_progress(self) -> bool:
         '''Return True if there are any cache entries being uploaded'''
 
         return len(self.in_transit) > 0
 
-    def _removal_loop_multi(self):
+    def _removal_loop_multi(self) -> None:
         '''Process removal queue.
 
         This method runs in a separate thread outside the trio event loop.
@@ -590,7 +646,8 @@ class BlockCache:
         # that we read as many objects from the queue as we can without
         # blocking, and then hand them over to the backend all at once.
 
-        ids = []
+        assert self.to_remove is not None
+        ids: list[int] = []
         while True:
             try:
                 log.debug('reading from queue (blocking=%s)', len(ids) == 0)
@@ -605,34 +662,38 @@ class BlockCache:
                         backend.delete_multi(['s3ql_data_%d' % i for i in ids])
                 except NoSuchObject:
                     log.warning('Backend lost object s3ql_data_%d' % ids.pop(0))
-                    self.fs.failsafe = True
+                    self.fs.failsafe = True  # type: ignore[union-attr]
                 ids = []
-            else:
+            elif isinstance(tmp, int):
                 ids.append(tmp)
 
             if tmp is QuitSentinel:
                 break
 
-    def _removal_loop_simple(self):
+    def _removal_loop_simple(self) -> None:
         '''Process removal queue.
 
         This method runs in a separate thread outside the trio event loop.
         '''
 
+        assert self.to_remove is not None
         while True:
             log.debug('reading from queue..')
             id_ = self.to_remove.get()
             if id_ is QuitSentinel:
                 break
+            assert isinstance(id_, int)
             with self.backend_pool() as backend:
                 try:
                     backend.delete('s3ql_data_%d' % id_)
                 except NoSuchObject:
                     log.warning('Backend lost object s3ql_data_%d' % id_)
-                    self.fs.failsafe = True
+                    self.fs.failsafe = True  # type: ignore[union-attr]
 
     @asynccontextmanager
-    async def get(self, inode, blockno, max_write: Optional[int] = None):
+    async def get(
+        self, inode: InodeT, blockno: int, max_write: int | None = None
+    ) -> AsyncIterator[CacheEntry]:
         """Get file handle for block `blockno` of `inode`
 
         If *max_write* is not None, caller promises not to write into the
@@ -676,7 +737,7 @@ class BlockCache:
 
         # log.debug('finished')
 
-    async def _get_entry(self, inode, blockno):
+    async def _get_entry(self, inode: InodeT, blockno: int) -> CacheEntry:
         '''Get cache entry for `blockno` of `inode`
 
         Assume that cache entry lock has been acquired.
@@ -690,7 +751,7 @@ class BlockCache:
         except KeyError:
             filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
             try:
-                obj_id = self.db.get_val(
+                obj_id = self.db.get_int_val(
                     'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                     (inode, blockno),
                 )
@@ -738,7 +799,7 @@ class BlockCache:
 
         return el
 
-    async def expire(self):
+    async def expire(self) -> None:
         """Perform cache expiry."""
 
         # Note that we have to make sure that the cache entry is written into
@@ -788,7 +849,7 @@ class BlockCache:
 
         log.debug('finished')
 
-    async def remove(self, inode, start_no, end_no=None):
+    async def remove(self, inode: InodeT, start_no: int, end_no: int | None = None) -> None:
         """Remove blocks for `inode`
 
         If `end_no` is not specified, remove just the `start_no` block.
@@ -821,7 +882,7 @@ class BlockCache:
                         self.cache.remove((inode, blockno))
 
                     try:
-                        obj_id = self.db.get_val(
+                        obj_id = self.db.get_int_val(
                             'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
                             (inode, blockno),
                         )
@@ -842,7 +903,7 @@ class BlockCache:
 
         log.debug('finished')
 
-    def flush_local(self, inode, blockno):
+    def flush_local(self, inode: InodeT, blockno: int) -> None:
         """Flush buffers for given block"""
 
         try:
@@ -852,7 +913,7 @@ class BlockCache:
 
         el.flush()
 
-    async def start_flush(self, inode=None):
+    async def start_flush(self, inode: InodeT | None = None) -> None:
         """Initiate upload of all dirty blocks
 
         When the method returns, all blocks have been registered
@@ -871,7 +932,7 @@ class BlockCache:
         for el in to_flush:
             await self.upload_if_dirty(el)
 
-    async def flush(self):
+    async def flush(self) -> None:
         """Upload all dirty blocks."""
 
         log.debug('started')
@@ -894,7 +955,7 @@ class BlockCache:
 
         log.debug('finished')
 
-    async def drop(self):
+    async def drop(self) -> None:
         """Drop cache."""
 
         log.debug('started')
@@ -904,7 +965,7 @@ class BlockCache:
         self.cache.max_entries = bak
         log.debug('finished')
 
-    def get_usage(self):
+    def get_usage(self) -> tuple[int, int, int, int, int]:
         '''Get cache usage information.
 
         Return a tuple of
@@ -934,9 +995,9 @@ class BlockCache:
 
         return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 
-    def __del__(self):
+    def __del__(self) -> None:
         # break reference loop
-        self.fs = None
+        self.fs = None  # type: ignore[assignment]
 
         for el in self.cache.values():
             if el.dirty:

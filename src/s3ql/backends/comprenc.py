@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import bz2
 import hashlib
 import hmac
@@ -15,16 +17,26 @@ import lzma
 import struct
 import time
 import zlib
-from typing import Any, BinaryIO, Optional
+from collections.abc import Iterator
+from typing import TYPE_CHECKING, cast
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 
-from s3ql.types import BasicMappingT, CompressorProtocol, DecompressorProtocol
+from s3ql.types import (
+    BasicMappingT,
+    BinaryInput,
+    BinaryOutput,
+    CompressorProtocol,
+    DecompressorProtocol,
+)
 
 from .. import BUFSIZE
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
+
+if TYPE_CHECKING:
+    from cryptography.hazmat.primitives.ciphers import CipherContext
 
 log = logging.getLogger(__name__)
 
@@ -37,7 +49,7 @@ def sha256(s: bytes) -> bytes:
     return hashlib.sha256(s).digest()
 
 
-def aes_encryptor(key):
+def aes_encryptor(key: bytes) -> CipherContext:
     '''Return AES cipher in CTR mode for *key*'''
 
     cipher = crypto_ciphers.Cipher(
@@ -48,7 +60,7 @@ def aes_encryptor(key):
     return cipher.encryptor()
 
 
-def aes_decryptor(key):
+def aes_decryptor(key: bytes) -> CipherContext:
     '''Return AES cipher in CTR mode for *key*'''
 
     cipher = crypto_ciphers.Cipher(
@@ -65,9 +77,16 @@ class ComprencBackend(AbstractBackend):
     backend.
     '''
 
+    passphrase: bytes | None
+    compression: tuple[str | None, int]
+    backend: AbstractBackend
+
     def __init__(
-        self, passphrase: Optional[bytes], compression: tuple[str, int], backend: AbstractBackend
-    ):
+        self,
+        passphrase: bytes | None,
+        compression: tuple[str | None, int],
+        backend: AbstractBackend,
+    ) -> None:
         super().__init__()
 
         self.passphrase = passphrase
@@ -78,17 +97,17 @@ class ComprencBackend(AbstractBackend):
             raise ValueError(f'Unsupported compression: {compression}')
 
     @property
-    def has_delete_multi(self):
+    def has_delete_multi(self) -> bool:
         return self.backend.has_delete_multi
 
-    def reset(self):
+    def reset(self) -> None:
         self.backend.reset()
 
-    def lookup(self, key):
+    def lookup(self, key: str) -> BasicMappingT:
         meta_raw = self.backend.lookup(key)
         return self._verify_meta(key, meta_raw)[1]
 
-    def get_size(self, key):
+    def get_size(self, key: str) -> int:
         '''
         This method returns the compressed size, i.e. the storage space
         that's actually occupied by the object.
@@ -96,10 +115,10 @@ class ComprencBackend(AbstractBackend):
 
         return self.backend.get_size(key)
 
-    def is_temp_failure(self, exc):
+    def is_temp_failure(self, exc: BaseException) -> bool:
         return self.backend.is_temp_failure(exc)
 
-    def _verify_meta(self, key, metadata) -> tuple[Optional[bytes], BasicMappingT]:
+    def _verify_meta(self, key: str, metadata: BasicMappingT) -> tuple[bytes | None, BasicMappingT]:
         '''Unwrap and authenticate metadata
 
         If the backend has a password set but the object is not encrypted,
@@ -112,7 +131,7 @@ class ComprencBackend(AbstractBackend):
 
         format_version = metadata.get('format_version', 0)
         if format_version != 2:
-            raise CorruptedObjectError('format_version %s unsupported' % format_version)
+            raise CorruptedObjectError('format_version %r unsupported' % format_version)
 
         for mkey in ('encryption', 'compression', 'data'):
             if mkey not in metadata:
@@ -128,6 +147,8 @@ class ComprencBackend(AbstractBackend):
             raise ObjectNotEncrypted()
 
         meta_buf = metadata['data']
+        if not isinstance(meta_buf, bytes):
+            raise CorruptedObjectError('meta data should be bytes, not %s' % type(meta_buf))
         if not encrypted:
             try:
                 meta = thaw_basic_mapping(meta_buf)
@@ -141,10 +162,18 @@ class ComprencBackend(AbstractBackend):
                 raise CorruptedObjectError('meta key %s is missing' % mkey)
 
         nonce = metadata['nonce']
+        if not isinstance(nonce, bytes):
+            raise CorruptedObjectError('nonce should be bytes')
         stored_key = metadata['object_id']
+        if not isinstance(stored_key, str):
+            raise CorruptedObjectError('object_id should be str')
+        signature = metadata['signature']
+        if not isinstance(signature, bytes):
+            raise CorruptedObjectError('signature should be bytes')
+        assert self.passphrase is not None
         meta_key = sha256(self.passphrase + nonce + b'meta')
         meta_sig = checksum_basic_mapping(metadata, meta_key)
-        if not hmac.compare_digest(metadata['signature'], meta_sig):
+        if not hmac.compare_digest(signature, meta_sig):
             raise CorruptedObjectError('HMAC mismatch')
 
         if stored_key != key:
@@ -160,7 +189,7 @@ class ComprencBackend(AbstractBackend):
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -192,7 +221,7 @@ class ComprencBackend(AbstractBackend):
 
         # If not compressed, decrypt directly into `fh`. Otherwise, use intermediate buffer.
         if compr_alg == 'None':
-            buf2 = fh
+            buf2: BinaryOutput = fh
         else:
             buf2 = io.BytesIO()
 
@@ -217,18 +246,18 @@ class ComprencBackend(AbstractBackend):
             raise RuntimeError('Unsupported compression: %r' % compr_alg)
         assert buf2 is not fh
         buf2.seek(0)
-        decompress_fh(buf2, fh, decompressor)
+        decompress_fh(cast(io.BytesIO, buf2), fh, decompressor)
 
         return meta
 
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
-        metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
         dont_compress: bool = False,
-    ):
+    ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
         The data will be read at the current offset. If *len_* is None, reads until the
@@ -283,23 +312,25 @@ class ComprencBackend(AbstractBackend):
 
         return self.backend.write_fh(key, fh, meta_raw, len_=len_)
 
-    def contains(self, key):
+    def contains(self, key: str) -> bool:
         return self.backend.contains(key)
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         return self.backend.delete(key)
 
-    def delete_multi(self, keys):
+    def delete_multi(self, keys: list[str]) -> None:
         return self.backend.delete_multi(keys)
 
-    def list(self, prefix=''):
+    def list(self, prefix: str = '') -> Iterator[str]:
         return self.backend.list(prefix)
 
-    def close(self):
+    def close(self) -> None:
         self.backend.close()
 
 
-def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr, len_: Optional[int] = None):
+def compress_fh(
+    ifh: BinaryInput, ofh: BinaryOutput, compr: CompressorProtocol, len_: int | None = None
+) -> None:
     '''Compress *len_* bytes from *ifh* into *ofh* using *compr*'''
 
     while len_ is None or len_ > 0:
@@ -318,7 +349,7 @@ def compress_fh(ifh: BinaryIO, ofh: BinaryIO, compr, len_: Optional[int] = None)
         ofh.write(buf)
 
 
-def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes, len_: Optional[int] = None):
+def encrypt_fh(ifh: BinaryInput, ofh: BinaryOutput, key: bytes, len_: int | None = None) -> None:
     '''Encrypt contents of *ifh* into *ofh*'''
 
     encryptor = aes_encryptor(key)
@@ -346,7 +377,7 @@ def encrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes, len_: Optional[int] = N
     ofh.write(encryptor.update(hmac_.digest()))
 
 
-def decompress_fh(ifh: BinaryIO, ofh: BinaryIO, decompressor):
+def decompress_fh(ifh: BinaryInput, ofh: BinaryOutput, decompressor: DecompressorProtocol) -> None:
     '''Decompress contents of *ifh* into *ofh*'''
 
     while True:
@@ -363,7 +394,7 @@ def decompress_fh(ifh: BinaryIO, ofh: BinaryIO, decompressor):
         raise CorruptedObjectError('Data after end of compressed stream')
 
 
-def decrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes):
+def decrypt_fh(ifh: BinaryInput, ofh: BinaryOutput, key: bytes) -> None:
     '''Decrypt contents of *ifh* into *ofh*'''
 
     off_size = struct.calcsize(b'<I')
@@ -398,7 +429,7 @@ def decrypt_fh(ifh: BinaryIO, ofh: BinaryIO, key: bytes):
         raise CorruptedObjectError('HMAC mismatch')
 
 
-def decompress_buf(decomp, buf):
+def decompress_buf(decomp: DecompressorProtocol, buf: bytes) -> bytes:
     '''Decompress *buf* using *decomp*
 
     This method encapsulates exception handling for different

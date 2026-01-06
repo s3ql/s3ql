@@ -6,6 +6,9 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
+import builtins
 import hashlib
 import json
 import logging
@@ -16,8 +19,8 @@ import threading
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
+from collections.abc import Iterator
 from itertools import count
-from typing import Any, BinaryIO, Optional
 
 import google.auth as g_auth
 
@@ -30,6 +33,7 @@ from s3ql.http import (
     UnsupportedResponse,
     is_temp_network_error,
 )
+from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, copyfh
 from ..logging import QuietError
@@ -56,11 +60,11 @@ class ServerResponseError(Exception):
     not be expected to have any specific format).
     '''
 
-    def __init__(self, resp: HTTPResponse, error: str):
+    def __init__(self, resp: HTTPResponse, error: str) -> None:
         self.resp = resp
         self.error = error
 
-    def __str__(self):
+    def __str__(self) -> str:
         return '<ServerResponseError: %s>' % self.error
 
 
@@ -70,8 +74,8 @@ class RequestError(Exception):
     '''
 
     def __init__(
-        self, code: int, reason: str, message: Optional[str] = None, body: Optional[str] = None
-    ):
+        self, code: int, reason: str, message: str | None = None, body: str | None = None
+    ) -> None:
         super().__init__()
         self.code = code
         self.reason = reason
@@ -97,7 +101,7 @@ class AccessTokenExpired(Exception):
     '''
 
 
-def _parse_error_response(resp, body: bytes) -> RequestError:
+def _parse_error_response(resp: HTTPResponse, body: bytes) -> RequestError:
     '''Return exception corresponding to server response.'''
 
     try:
@@ -108,7 +112,11 @@ def _parse_error_response(resp, body: bytes) -> RequestError:
         return RequestError(code=resp.status, reason=resp.reason)
 
     try:
-        message = json_resp['error']['message']
+        error_obj = json_resp.get('error')
+        if isinstance(error_obj, dict):
+            message = str(error_obj.get('message', ''))
+        else:
+            raise KeyError('error')
     except KeyError:
         log.warning('Did not find error.message element in JSON error response.')
         message = str(json_resp)
@@ -116,7 +124,7 @@ def _parse_error_response(resp, body: bytes) -> RequestError:
     return RequestError(code=resp.status, reason=resp.reason, message=message)
 
 
-def _parse_json_response(resp, body: bytes):
+def _parse_json_response(resp: HTTPResponse, body: bytes) -> dict[str, object]:
     # Note that even though the final server backend may guarantee to always deliver a JSON document
     # body with a detailed error message, we may also get errors from intermediate proxies.
     content_type = resp.headers.get('Content-Type', None)
@@ -137,7 +145,7 @@ def _parse_json_response(resp, body: bytes):
         raise ServerResponseError(resp, error=str(exc))
 
     try:
-        resp_json = json.loads(body_text)
+        resp_json: dict[str, object] = json.loads(body_text)
     except json.JSONDecodeError as exc:
         log.warning('Unable to decode JSON response (%s)', str(exc))
         raise ServerResponseError(resp, error=str(exc))
@@ -148,24 +156,38 @@ def _parse_json_response(resp, body: bytes):
 class Backend(AbstractBackend):
     """A backend to store data in Google Storage"""
 
-    known_options = {'ssl-ca-path', 'tcp-timeout'}
+    known_options: set[str] = {'ssl-ca-path', 'tcp-timeout'}
 
     # We don't want to request an access token for each instance,
     # because there is a limit on the total number of valid tokens.
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
     access_token: dict[str, str] = dict()
-    _refresh_lock = threading.Lock()
-    adc = None
+    _refresh_lock: threading.Lock = threading.Lock()
+    adc: tuple[object, object] | None = None
 
-    def __init__(self, options) -> None:
+    ssl_context: ssl.SSLContext
+    options: dict[str, str]
+    proxy: tuple[str, int] | None
+    login: str
+    refresh_token: str
+    hostname: str
+    port: int
+    bucket_name: str
+    prefix: str
+    conn: HTTPConnection
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
         super().__init__()
 
-        self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
-        self.options = options.backend_options  # type: dict[str, str]
-        self.proxy = get_proxy(ssl=True)  # type: str
-        self.login = options.backend_login  # type: str
-        self.refresh_token = options.backend_password  # type: str
+        ssl_ca_path = options.backend_options.get('ssl-ca-path', None)
+        self.ssl_context = get_ssl_context(
+            ssl_ca_path if isinstance(ssl_ca_path, str) or ssl_ca_path is None else None
+        )
+        self.options = options.backend_options  # type: ignore[assignment]
+        self.proxy = get_proxy(ssl=True)
+        self.login = options.backend_login
+        self.refresh_token = options.backend_password
 
         if self.login == 'adc':
             if self.adc is None:
@@ -214,7 +236,7 @@ class Backend(AbstractBackend):
         self._check_bucket()
 
     @retry
-    def _check_bucket(self):
+    def _check_bucket(self) -> None:
         '''Check if bucket exists and/or credentials are correct.'''
 
         path = '/storage/v1/b/' + urllib.parse.quote(self.bucket_name, safe='')
@@ -223,18 +245,18 @@ class Backend(AbstractBackend):
         except RequestError as exc:
             if exc.code == 404:
                 raise DanglingStorageURLError("Bucket '%s' does not exist" % self.bucket_name)
-            exc = _map_request_error(exc, None)
-            if exc:
-                raise exc
+            mapped_exc = _map_request_error(exc, None)
+            if mapped_exc:
+                raise mapped_exc
             raise
         _parse_json_response(resp, self.conn.readall())
 
-    def reset(self):
+    def reset(self) -> None:
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
-    def _get_conn(self):
+    def _get_conn(self) -> HTTPConnection:
         '''Return connection to server'''
 
         conn = HTTPConnection(
@@ -243,7 +265,7 @@ class Backend(AbstractBackend):
         conn.timeout = int(self.options.get('tcp-timeout', 20))
         return conn
 
-    def is_temp_failure(self, exc):  # IGNORE:W0613
+    def is_temp_failure(self, exc: BaseException) -> bool:
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so disconnect (can't use reset, since
             # this would immediately attempt to reconnect, circumventing retry logic)
@@ -267,7 +289,7 @@ class Backend(AbstractBackend):
 
         return False
 
-    def _assert_empty_response(self, resp):
+    def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
         buf = self.conn.read(2048)
@@ -285,7 +307,7 @@ class Backend(AbstractBackend):
         raise ServerResponseError(resp, error='expected empty response')
 
     @retry
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         log.debug('started with %s', key)
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
@@ -295,30 +317,34 @@ class Backend(AbstractBackend):
             resp = self._do_request('DELETE', path)
             self._assert_empty_response(resp)
         except RequestError as exc:
-            exc = _map_request_error(exc, key)
-            if isinstance(exc, NoSuchObject):
+            mapped_exc = _map_request_error(exc, key)
+            if isinstance(mapped_exc, NoSuchObject):
                 pass
-            elif exc:
-                raise exc
+            elif mapped_exc:
+                raise mapped_exc
             else:
                 raise
 
-    def list(self, prefix=''):
-        prefix = self.prefix + prefix
+    def list(self, prefix: str = '') -> Iterator[str]:
+        full_prefix = self.prefix + prefix
         strip = len(self.prefix)
-        page_token = None
+        page_token: str | None = None
         while True:
-            (els, page_token) = self._list_page(prefix, page_token)
+            result = self._list_page(full_prefix, page_token)
+            els: builtins.list[str] = result[0]
+            page_token = result[1]
             for el in els:
                 yield el[strip:]
             if page_token is None:
                 break
 
     @retry
-    def _list_page(self, prefix, page_token=None, batch_size=1000):
+    def _list_page(
+        self, prefix: str, page_token: str | None = None, batch_size: int = 1000
+    ) -> tuple[builtins.list[str], str | None]:
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
-        query_string = {'prefix': prefix, 'maxResults': str(batch_size)}
+        query_string: dict[str, str] = {'prefix': prefix, 'maxResults': str(batch_size)}
         if page_token:
             query_string['pageToken'] = page_token
 
@@ -327,25 +353,28 @@ class Backend(AbstractBackend):
         try:
             resp = self._do_request('GET', path, query_string=query_string)
         except RequestError as exc:
-            exc = _map_request_error(exc, None)
-            if exc:
-                raise exc
+            mapped_exc = _map_request_error(exc, None)
+            if mapped_exc:
+                raise mapped_exc
             raise
         json_resp = _parse_json_response(resp, self.conn.readall())
-        page_token = json_resp.get('nextPageToken', None)
+        next_token_obj = json_resp.get('nextPageToken', None)
+        next_token: str | None = str(next_token_obj) if next_token_obj is not None else None
 
         if 'items' not in json_resp:
-            assert page_token is None
-            return ((), None)
+            assert next_token is None
+            return ([], None)
 
-        return ([x['name'] for x in json_resp['items']], page_token)
+        items = json_resp['items']
+        assert isinstance(items, list)
+        return ([str(x['name']) for x in items], next_token)  # type: ignore[index]
 
     @retry
-    def lookup(self, key):
+    def lookup(self, key: str) -> BasicMappingT:
         log.debug('started with %s', key)
         return _unwrap_user_meta(self._get_gs_meta(key))
 
-    def _get_gs_meta(self, key):
+    def _get_gs_meta(self, key: str) -> dict[str, object]:
         path = '/storage/v1/b/%s/o/%s' % (
             urllib.parse.quote(self.bucket_name, safe=''),
             urllib.parse.quote(self.prefix + key, safe=''),
@@ -353,18 +382,18 @@ class Backend(AbstractBackend):
         try:
             resp = self._do_request('GET', path)
         except RequestError as exc:
-            exc = _map_request_error(exc, key)
-            if exc:
-                raise exc
+            mapped_exc = _map_request_error(exc, key)
+            if mapped_exc:
+                raise mapped_exc
             raise
         return _parse_json_response(resp, self.conn.readall())
 
     @retry
-    def get_size(self, key):
+    def get_size(self, key: str) -> int:
         json_resp = self._get_gs_meta(key)
-        return json_resp['size']
+        return json_resp['size']  # type: ignore[return-value]
 
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -374,7 +403,7 @@ class Backend(AbstractBackend):
         return self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
+    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int) -> BasicMappingT:
         gs_meta = self._get_gs_meta(key)
         metadata = _unwrap_user_meta(gs_meta)
 
@@ -385,22 +414,22 @@ class Backend(AbstractBackend):
         try:
             self._do_request('GET', path, query_string={'alt': 'media'})
         except RequestError as exc:
-            exc = _map_request_error(exc, key)
-            if exc:
-                raise exc
+            mapped_exc = _map_request_error(exc, key)
+            if mapped_exc:
+                raise mapped_exc
             raise
 
-        copyfh(self.conn, fh)
+        copyfh(self.conn, fh)  # type: ignore[arg-type]
 
         return metadata
 
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
-        metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
-    ):
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
+    ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
         The data will be read at the current offset. If *len_* is None, reads until the
@@ -417,7 +446,9 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
+    def _write_fh(
+        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: BasicMappingT
+    ) -> int:
         metadata_s = json.dumps(
             {
                 'metadata': _wrap_user_meta(metadata),
@@ -458,9 +489,9 @@ class Backend(AbstractBackend):
                 body=BodyFollowing(body_size),
             )
         except RequestError as exc:
-            exc = _map_request_error(exc, key)
-            if exc:
-                raise exc
+            mapped_exc = _map_request_error(exc, key)
+            if mapped_exc:
+                raise mapped_exc
             raise
 
         assert resp.status == 100
@@ -468,7 +499,7 @@ class Backend(AbstractBackend):
 
         try:
             self.conn.write(body_prefix)
-            copyfh(fh, self.conn, len_)
+            copyfh(fh, self.conn, len_)  # type: ignore[arg-type]
             self.conn.write(body_suffix)
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
@@ -498,10 +529,10 @@ class Backend(AbstractBackend):
 
         return body_size
 
-    def close(self):
+    def close(self) -> None:
         self.conn.disconnect()
 
-    def __str__(self):
+    def __str__(self) -> str:
         return '<gs.Backend, name=%s, prefix=%s>' % (self.bucket_name, self.prefix)
 
     # This method uses a different HTTP connection than its callers, but shares
@@ -509,15 +540,15 @@ class Backend(AbstractBackend):
     # connection cause the other connection to be reset - but this should not
     # be a problem, because there can't be a pending request if we don't have
     # a valid access token.
-    def _get_access_token(self):
+    def _get_access_token(self) -> None:
         log.info('Requesting new access token')
 
         if self.adc:
             try:
-                self.adc[0].refresh(self.adc[1])
+                self.adc[0].refresh(self.adc[1])  # type: ignore[attr-defined]
             except g_auth.exceptions.RefreshError as exc:
                 raise AuthenticationError('Failed to refresh credentials: ' + str(exc))
-            self.access_token[self.refresh_token] = self.adc[0].token
+            self.access_token[self.refresh_token] = self.adc[0].token  # type: ignore[attr-defined]
             return
 
         headers = CaseInsensitiveDict()
@@ -543,13 +574,13 @@ class Backend(AbstractBackend):
             if resp.status > 299 or resp.status < 200:
                 assert 'error' in json_resp
             if 'error' in json_resp:
-                raise AuthenticationError(json_resp['error'])
+                raise AuthenticationError(str(json_resp['error']))
             else:
-                self.access_token[self.refresh_token] = json_resp['access_token']
+                self.access_token[self.refresh_token] = str(json_resp['access_token'])
         finally:
             conn.disconnect()
 
-    def _dump_body(self, resp):
+    def _dump_body(self, resp: HTTPResponse) -> str:
         '''Return truncated string representation of response body.'''
 
         is_truncated = False
@@ -576,7 +607,14 @@ class Backend(AbstractBackend):
 
         return body
 
-    def _do_request(self, method, path, query_string=None, headers=None, body=None):
+    def _do_request(
+        self,
+        method: str,
+        path: str,
+        query_string: dict[str, str] | None = None,
+        headers: CaseInsensitiveDict | None = None,
+        body: bytes | BodyFollowing | None = None,
+    ) -> HTTPResponse:
         '''Send request, read and return response object'''
 
         log.debug('started with %s %s, qs=%s', method, path, query_string)
@@ -624,7 +662,7 @@ class Backend(AbstractBackend):
             raise _parse_error_response(resp, self.conn.readall())
 
 
-def _map_request_error(exc: RequestError, key: str):
+def _map_request_error(exc: RequestError, key: str | None) -> Exception | None:
     '''Map RequestError to more general exception if possible'''
 
     if exc.code == 404 and key:
@@ -637,8 +675,8 @@ def _map_request_error(exc: RequestError, key: str):
     return None
 
 
-def _wrap_user_meta(user_meta):
-    obj_meta = dict()
+def _wrap_user_meta(user_meta: BasicMappingT) -> dict[str, str]:
+    obj_meta: dict[str, str] = dict()
     for key, val in user_meta.items():
         if not isinstance(key, str):
             raise TypeError('metadata keys must be str, not %s' % type(key))
@@ -652,27 +690,30 @@ def _wrap_user_meta(user_meta):
     return obj_meta
 
 
-def _unwrap_user_meta(json_resp):
+def _unwrap_user_meta(json_resp: dict[str, object]) -> BasicMappingT:
     '''Extract user metadata from JSON object metadata'''
 
-    meta_raw = json_resp.get('metadata', None)
-    if meta_raw is None:
+    meta_raw_obj = json_resp.get('metadata')
+    if meta_raw_obj is None:
         return {}
+
+    assert isinstance(meta_raw_obj, dict)
+    meta_raw: dict[str, str] = meta_raw_obj  # type: ignore[assignment]
 
     # Detect Legacy format.
     if (
-        meta_raw.get('format', None) == 'raw2'
+        meta_raw.get('format') == 'raw2'
         and 'md5' in meta_raw
         and all(key in ('format', 'md5') or re.match(r'^\d\d\d$', key) for key in meta_raw)
     ):
-        parts = []
+        parts: list[str] = []
         for i in count():
             part = meta_raw.get('%03d' % i, None)
             if part is None:
                 break
             parts.append(part)
         buf = ''.join(parts)
-        meta = literal_eval('{ %s }' % buf)
+        meta: BasicMappingT = literal_eval('{ %s }' % buf)
         for k, v in meta.items():
             if isinstance(v, bytes):
                 meta[k] = b64decode(v)
@@ -693,7 +734,7 @@ def _unwrap_user_meta(json_resp):
     return meta
 
 
-def md5sum_b64(buf):
+def md5sum_b64(buf: bytes) -> str:
     '''Return base64 encoded MD5 sum'''
 
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')

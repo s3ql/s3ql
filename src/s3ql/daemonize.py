@@ -26,14 +26,17 @@ a shell or some other process)". In this case the user will have to live with
 that.
 '''
 
+from __future__ import annotations
+
 import logging
 import os
 import sys
+from typing import IO
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def daemonize(workdir='/'):
+def daemonize(workdir: str = '/') -> None:
     '''Daemonize the process'''
 
     os.chdir(workdir)
@@ -45,7 +48,7 @@ def daemonize(workdir='/'):
     redirect_stream(sys.stderr, None)
 
 
-def detach_process_context():
+def detach_process_context() -> None:
     '''Detach the process context from parent and session.
 
     Detach from the parent process and session group, allowing the parent to
@@ -70,7 +73,7 @@ def detach_process_context():
         os._exit(0)
 
 
-def redirect_stream(system_stream, target_stream):
+def redirect_stream(system_stream: IO[str], target_stream: IO[str] | None) -> None:
     '''Redirect *system_stream* to *target_stream*
 
     `system_stream` is a standard system stream such as

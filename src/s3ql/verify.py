@@ -6,6 +6,8 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import argparse
 import atexit
 import faulthandler
@@ -15,19 +17,22 @@ import os
 import signal
 import sys
 import textwrap
+from collections.abc import Callable, Sequence
 from queue import Full as QueueFull
 from queue import Queue
+from typing import IO
 
-from .backends.common import CorruptedObjectError, NoSuchObject
+from .backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
 from .common import AsyncFn, get_backend_factory, pretty_print_size, sha256_fh
+from .database import Connection
 from .logging import delay_eval, setup_logging, setup_warnings
 from .mount import get_metadata
 from .parse_args import ArgumentParser
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def _new_file_type(s, encoding='utf-8'):
+def _new_file_type(s: str, encoding: str = 'utf-8') -> IO[str]:
     '''An argparse type for a file that does not yet exist'''
 
     if os.path.exists(s) and os.stat(s).st_size != 0:
@@ -39,7 +44,7 @@ def _new_file_type(s, encoding='utf-8'):
     return fh
 
 
-def parse_args(args):
+def parse_args(args: Sequence[str]) -> argparse.Namespace:
     '''Parse command line'''
 
     parser = ArgumentParser(
@@ -103,7 +108,7 @@ def parse_args(args):
     return options
 
 
-def main(args=None):
+def main(args: Sequence[str] | None = None) -> None:
     faulthandler.enable()
     faulthandler.register(signal.SIGUSR1)
 
@@ -139,14 +144,20 @@ def main(args=None):
 
 
 def retrieve_objects(
-    db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=False, offset=0
-):
+    db: Connection,
+    backend_factory: Callable[[], AbstractBackend],
+    corrupted_fh: IO[str],
+    missing_fh: IO[str],
+    thread_count: int = 1,
+    full: bool = False,
+    offset: int = 0,
+) -> None:
     """Attempt to retrieve every object"""
 
     log.info('Reading all objects...')
 
-    queue = Queue(thread_count)
-    threads = []
+    queue: Queue[tuple[int, bytes | None, int] | None] = Queue(thread_count)
+    threads: list[AsyncFn] = []
     for _ in range(thread_count):
         t = AsyncFn(_retrieve_loop, queue, backend_factory, corrupted_fh, missing_fh, full)
         # Don't wait for worker threads, gives deadlock if main thread
@@ -155,26 +166,44 @@ def retrieve_objects(
         t.start()
         threads.append(t)
 
-    total_size = db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0')
-    total_count = db.get_val('SELECT COUNT(id) FROM objects')
+    total_size_raw = db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0')
+    total_count_raw = db.get_val('SELECT COUNT(id) FROM objects')
+    assert total_size_raw is None or isinstance(total_size_raw, int)
+    assert total_count_raw is None or isinstance(total_count_raw, int)
+    total_size: int = total_size_raw if total_size_raw is not None else 0
+    total_count: int = total_count_raw if total_count_raw is not None else 0
     size_acc = 0
 
     sql = 'SELECT id, phys_size, hash, length FROM objects ORDER BY id'
     i = 0  # Make sure this is set if there are zero objects
+
+    # Can't use query_typed because hash_ may be None
     for i, (obj_id, obj_size, hash_, block_size) in enumerate(db.query(sql)):
+        assert isinstance(obj_id, int)
+        assert isinstance(obj_size, int)
+        assert isinstance(block_size, int)
+
+        # TODO: Check if we're handling None correctly here
+        assert hash_ is None or isinstance(hash_, bytes)
+
         i += 1  # start at 1
         extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
         if full:
             log.info(
                 'Checked %d objects (%.2f%%) / %s (%.2f%%)',
                 i,
-                i / total_count * 100,
+                i / total_count * 100 if total_count else 0,
                 delay_eval(pretty_print_size, size_acc),
-                size_acc / total_size * 100,
+                size_acc / total_size * 100 if total_size else 0,
                 extra=extra,
             )
         else:
-            log.info('Checked %d objects (%.2f%%)', i, i / total_count * 100, extra=extra)
+            log.info(
+                'Checked %d objects (%.2f%%)',
+                i,
+                i / total_count * 100 if total_count else 0,
+                extra=extra,
+            )
 
         size_acc += obj_size
         if i < offset:
@@ -202,7 +231,13 @@ def retrieve_objects(
     log.info('Verified all %d storage objects.', i)
 
 
-def _retrieve_loop(queue, backend_factory, corrupted_fh, missing_fh, full=False):
+def _retrieve_loop(
+    queue: Queue[tuple[int, bytes, int] | None],
+    backend_factory: Callable[[], AbstractBackend],
+    corrupted_fh: IO[str],
+    missing_fh: IO[str],
+    full: bool = False,
+) -> None:
     '''Retrieve object ids arriving in *queue* from *backend*
 
     If *full* is False, lookup and read metadata. If *full* is True,

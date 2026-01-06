@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
 import logging.handlers
 import os.path
@@ -25,14 +27,12 @@ class QuietError(Exception):
     string containing sufficient information about the problem.
     '''
 
-    def __init__(self, msg='', exitcode=1):
+    def __init__(self, msg: str = '', exitcode: int = 1) -> None:
         super().__init__()
         self.msg = msg
-
-        #: Exit code to use when terminating process
         self.exitcode = exitcode
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.msg
 
 
@@ -46,7 +46,7 @@ SYSTEMD_LOG_LEVEL_MAP = {
 
 
 class SystemdFormatter(logging.Formatter):
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         s = super().format(record)
         prefix = SYSTEMD_LOG_LEVEL_MAP.get(record.levelno, None)
         if prefix:
@@ -57,7 +57,7 @@ class SystemdFormatter(logging.Formatter):
 class MyFormatter(logging.Formatter):
     '''Prepend severity to log message if it exceeds threshold'''
 
-    def format(self, record):
+    def format(self, record: logging.LogRecord) -> str:
         s = super().format(record)
         if record.levelno > logging.INFO:
             s = '%s: %s' % (record.levelname, s)
@@ -72,9 +72,9 @@ class ConsoleHandler(logging.StreamHandler):
     interspersed. Adding *is_last* ensures that the next log message is printed on a new line.
     """
 
-    def __init__(self):
-        super().__init__(sys.stderr)
-        self.last_msg = None
+    def __init__(self) -> None:
+        super().__init__(sys.stderr)  # type: ignore[arg-type]
+        self.last_msg: int | None = None
         self.is_console = sys.stderr.isatty()
 
     def emit(self, record: logging.LogRecord):
@@ -100,11 +100,11 @@ class ConsoleHandler(logging.StreamHandler):
             super().emit(record)
 
 
-def create_handler(target):
+def create_handler(target: str) -> logging.Handler:
     '''Create logging handler for given target'''
 
     if target.lower() == 'syslog':
-        handler = logging.handlers.SysLogHandler('/dev/log')
+        handler: logging.Handler = logging.handlers.SysLogHandler('/dev/log')
         formatter = logging.Formatter(
             os.path.basename(sys.argv[0])
             + '[%(process)s:%(threadName)s] '
@@ -136,7 +136,7 @@ def create_handler(target):
     return handler
 
 
-def setup_logging(options):
+def setup_logging(options) -> ConsoleHandler | None:
     # We want to be able to detect warnings and higher severities
     # in the captured test output. 'critical' has too many potential
     # false positives, so we rename this level to "FATAL".
@@ -145,7 +145,7 @@ def setup_logging(options):
     root_logger = logging.getLogger()
     if root_logger.handlers:
         root_logger.debug("Logging already initialized.")
-        return
+        return None
 
     filter = LogFilter()
 
@@ -184,7 +184,7 @@ def setup_logging(options):
     return stdout_handler
 
 
-def setup_warnings():
+def setup_warnings() -> None:
     # Always redirect warnings to logs so that they don't get lost
     logging.captureWarnings(capture=True)
 
@@ -200,14 +200,17 @@ def setup_warnings():
     warnings.filterwarnings(action='default', append=True)
 
 
-def setup_excepthook():
+def setup_excepthook() -> None:
     '''Modify sys.excepthook to log exceptions
 
     Also makes sure that exceptions derived from `QuietException`
     do not result in stacktraces.
     '''
+    import types
 
-    def excepthook(type_, val, tb):
+    def excepthook(
+        type_: type[BaseException], val: BaseException, tb: types.TracebackType | None
+    ) -> None:
         log = logging.getLogger('__main__')
 
         if isinstance(val, QuietError):
@@ -221,11 +224,12 @@ def setup_excepthook():
     sys.excepthook = excepthook
 
 
-def add_stdout_logging(quiet=False, systemd=False):
+def add_stdout_logging(quiet: bool = False, systemd: bool = False) -> ConsoleHandler:
     '''Add stdout logging handler to root logger'''
 
     root_logger = logging.getLogger()
     handler = ConsoleHandler()
+    formatter: logging.Formatter
     if systemd:
         formatter = SystemdFormatter('%(message)s')
     else:
@@ -249,12 +253,12 @@ class LogFilter:
     an *is_last* attribute.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.log_once_cache = set()
-        self.rl_cache = dict()
+        self.log_once_cache: set[int] = set()
+        self.rl_cache: dict[int, float] = dict()
 
-    def filter(self, record):
+    def filter(self, record: logging.LogRecord) -> bool:
         if getattr(record, 'log_once', False):
             id_ = hash((record.name, record.levelno, record.msg, record.args, record.exc_info))
             if id_ in self.log_once_cache:

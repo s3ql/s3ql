@@ -30,9 +30,10 @@ are:
 
 '''
 
+from __future__ import annotations
+
 # Pylint really gets confused by this module
 # pylint: disable-all
-
 import argparse
 import configparser
 import logging
@@ -41,18 +42,25 @@ import re
 import stat
 import sys
 from argparse import ArgumentError, ArgumentTypeError
+from collections.abc import Sequence
 from getpass import getpass
 
 from . import RELEASE
 from .backends import prefix_map
 from .common import escape
 
-DEFAULT_USAGE = object()
-log = logging.getLogger(__name__)
+DEFAULT_USAGE: object = object()
+log: logging.Logger = logging.getLogger(__name__)
 
 
 class HelpFormatter(argparse.HelpFormatter):
-    def _format_usage(self, usage, actions, groups, prefix):
+    def _format_usage(  # type: ignore[override]
+        self,
+        usage: str | list[str | object] | None,
+        actions: list[argparse.Action],
+        groups: list[argparse._MutuallyExclusiveGroup],
+        prefix: str | None,
+    ) -> str:
         '''Special handling for usage lists
 
         If usage is a list object, its elements will be printed on
@@ -64,7 +72,7 @@ class HelpFormatter(argparse.HelpFormatter):
         if isinstance(usage, list):
             # Omit help argument
             actions = [x for x in actions if not isinstance(x, argparse._HelpAction)]
-            res = []
+            res: list[str] = []
             for s in usage:
                 if not res:
                     res.append('usage: ')
@@ -73,6 +81,7 @@ class HelpFormatter(argparse.HelpFormatter):
                 if s is DEFAULT_USAGE:
                     res.append(super()._format_usage(None, actions, groups, '')[:-1])
                 else:
+                    assert isinstance(s, str)
                     res.append(s % dict(prog=self._prog))
                     res.append('\n')
 
@@ -81,9 +90,10 @@ class HelpFormatter(argparse.HelpFormatter):
         elif usage is DEFAULT_USAGE:
             return super()._format_usage(None, actions, groups, prefix)
         else:
+            assert isinstance(usage, str) or usage is None
             return super()._format_usage(usage, actions, groups, prefix)
 
-    def format_help(self):
+    def format_help(self) -> str:
         help_ = super().format_help()
         if help_.count('\n') > 2:
             return help_ + '\n'
@@ -91,15 +101,17 @@ class HelpFormatter(argparse.HelpFormatter):
             return help_
 
 
-class SubParsersAction(argparse._SubParsersAction):
+class SubParsersAction(argparse._SubParsersAction):  # type: ignore[type-arg]
     '''A replacement for _SubParsersAction that keeps
     track of the parent parser'''
 
-    def __init__(self, **kw):
-        self.parent = kw.pop('parent')
-        super().__init__(**kw)
+    parent: ArgumentParser
 
-    def add_parser(self, *a, **kwargs):
+    def __init__(self, **kw: object) -> None:
+        self.parent = kw.pop('parent')  # type: ignore[assignment]
+        super().__init__(**kw)  # type: ignore[arg-type]
+
+    def add_parser(self, *a: str, **kwargs: object) -> argparse.ArgumentParser:
         '''Pass parent usage and add_help attributes to new parser'''
 
         if 'usage' not in kwargs:
@@ -109,32 +121,37 @@ class SubParsersAction(argparse._SubParsersAction):
             if isinstance(usage, list):
                 usage = [(x % repl if isinstance(x, str) else x) for x in usage]
             elif usage:
+                assert isinstance(usage, str)
                 usage = usage % repl
             kwargs['usage'] = usage
 
         if 'help' in kwargs:
-            kwargs.setdefault('description', kwargs['help'].capitalize() + '.')
+            help_text = kwargs['help']
+            assert isinstance(help_text, str)
+            kwargs.setdefault('description', help_text.capitalize() + '.')
 
         kwargs.setdefault('add_help', self.parent.add_help)
         kwargs.setdefault('formatter_class', self.parent.formatter_class)
 
         if 'parents' in kwargs:
-            for p in kwargs['parents']:
+            parents = kwargs['parents']
+            assert isinstance(parents, list)
+            for p in parents:
                 if p.epilog:
                     kwargs.setdefault('epilog', p.epilog % dict(prog=self.parent.prog))
 
-        return super().add_parser(*a, **kwargs)
+        return super().add_parser(*a, **kwargs)  # type: ignore[arg-type]
 
 
 class ArgumentParser(argparse.ArgumentParser):
-    def __init__(self, *a, **kw):
+    def __init__(self, *a: object, **kw: object) -> None:
         if 'formatter_class' not in kw:
             kw['formatter_class'] = HelpFormatter
 
-        super().__init__(*a, **kw)
+        super().__init__(*a, **kw)  # type: ignore[arg-type]
         self.register('action', 'parsers', SubParsersAction)
 
-    def add_version(self):
+    def add_version(self) -> None:
         self.add_argument(
             '--version',
             action='version',
@@ -142,10 +159,10 @@ class ArgumentParser(argparse.ArgumentParser):
             version='S3QL %s' % RELEASE,
         )
 
-    def add_quiet(self):
+    def add_quiet(self) -> None:
         self.add_argument("--quiet", action="store_true", default=False, help="be really quiet")
 
-    def add_backend_options(self):
+    def add_backend_options(self) -> None:
         self.add_argument(
             "--backend-options",
             default={},
@@ -155,7 +172,7 @@ class ArgumentParser(argparse.ArgumentParser):
             "backend documentation for available options.",
         )
 
-    def add_debug(self):
+    def add_debug(self) -> None:
         destnote = 'Debug messages will be written to the target specified by the ``--log`` option.'
         self.add_argument(
             "--debug-modules",
@@ -172,7 +189,7 @@ class ArgumentParser(argparse.ArgumentParser):
             help="Activate debugging output from all S3QL modules. " + destnote,
         )
 
-    def add_cachedir(self):
+    def add_cachedir(self) -> None:
         self.add_argument(
             "--cachedir",
             type=str,
@@ -181,7 +198,7 @@ class ArgumentParser(argparse.ArgumentParser):
             help='Store cached data in this directory (default: `~/.s3ql)`',
         )
 
-    def add_log(self, default=None):
+    def add_log(self, default: str | None = None) -> None:
         self.add_argument(
             "--log",
             type=str_or_None_type,
@@ -194,7 +211,7 @@ class ArgumentParser(argparse.ArgumentParser):
             'files will be kept. Default: ``%(default)s``',
         )
 
-    def add_storage_url(self):
+    def add_storage_url(self) -> None:
         self.add_argument(
             "storage_url",
             metavar='<storage-url>',
@@ -209,19 +226,19 @@ class ArgumentParser(argparse.ArgumentParser):
             help='Read authentication credentials from this file (default: `~/.s3ql/authinfo2)`',
         )
 
-    def add_compress(self):
-        def compression_type(s):
+    def add_compress(self) -> None:
+        def compression_type(s: str) -> tuple[str | None, int]:
             hit = re.match(r'^([a-z0-9]+)(?:-([0-9]))?$', s)
             if not hit:
                 raise argparse.ArgumentTypeError('%s is not a valid --compress value' % s)
-            alg = hit.group(1)
-            lvl = hit.group(2)
+            alg: str | None = hit.group(1)
+            lvl_str = hit.group(2)
             if alg not in ('none', 'zlib', 'bzip2', 'lzma'):
                 raise argparse.ArgumentTypeError('Invalid compression algorithm: %s' % alg)
-            if lvl is None:
+            if lvl_str is None:
                 lvl = 6
             else:
-                lvl = int(lvl)
+                lvl = int(lvl_str)
             if alg == 'none':
                 alg = None
             return (alg, lvl)
@@ -238,7 +255,9 @@ class ArgumentParser(argparse.ArgumentParser):
             "to 9 (slowest). Default: `%(default)s`",
         )
 
-    def add_subparsers(self, **kw):
+    def add_subparsers(  # type: ignore[override]
+        self, **kw: object
+    ) -> argparse._SubParsersAction[argparse.ArgumentParser]:
         '''Pass parent and set prog to default usage message'''
         kw.setdefault('parser_class', argparse.ArgumentParser)
 
@@ -253,9 +272,9 @@ class ArgumentParser(argparse.ArgumentParser):
             formatter.add_usage(None, positionals, groups, '')
             kw['prog'] = formatter.format_help().strip()
 
-        return super().add_subparsers(**kw)
+        return super().add_subparsers(**kw)  # type: ignore[call-overload]
 
-    def _read_authinfo(self, path, storage_url):
+    def _read_authinfo(self, path: str, storage_url: str) -> dict[str, str]:
         ini_config = configparser.ConfigParser()
         if os.path.isfile(path):
             mode = os.stat(path).st_mode
@@ -263,7 +282,7 @@ class ArgumentParser(argparse.ArgumentParser):
                 self.exit(12, "%s has insecure permissions, aborting." % path)
             ini_config.read(path)
 
-        merged = dict()
+        merged: dict[str, str] = dict()
         for section in ini_config.sections():
             pattern = ini_config[section].get('storage-url', None)
             if not pattern or not storage_url.startswith(pattern):
@@ -274,11 +293,17 @@ class ArgumentParser(argparse.ArgumentParser):
                     merged[key] = val
         return merged
 
-    def parse_args(self, *args, **kwargs):
+    def parse_args(  # type: ignore[override]
+        self,
+        args: Sequence[str] | None = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> argparse.Namespace:
         try:
-            options = super().parse_args(*args, **kwargs)
+            options = super().parse_args(args, namespace)
+            assert options is not None
         except ArgumentError as exc:
             self.error(str(exc))
+            raise  # unreachable, but helps type checkers
 
         if hasattr(options, 'authfile'):
             storage_url = getattr(options, 'storage_url', '')
@@ -299,7 +324,8 @@ class ArgumentParser(argparse.ArgumentParser):
                 k.replace('-', '_'): v for (k, v) in ini_config.items() if k != 'storage_url'
             }
             self.set_defaults(**defaults)
-            options = super().parse_args(*args, **kwargs)
+            options = super().parse_args(args, namespace)
+            assert options is not None
 
         if hasattr(options, 'storage_url'):
             self._init_backend_factory(options)
@@ -321,7 +347,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         return options
 
-    def _init_backend_factory(self, options):
+    def _init_backend_factory(self, options: argparse.Namespace) -> None:
         storage_url = options.storage_url
         hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
         if not hit:
@@ -353,7 +379,7 @@ class ArgumentParser(argparse.ArgumentParser):
         options.backend_class = backend_class
 
 
-def storage_url_type(s):
+def storage_url_type(s: str) -> str:
     '''Validate and canonicalize storage url'''
 
     if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', s):
@@ -380,13 +406,13 @@ def storage_url_type(s):
     return s
 
 
-def str_or_None_type(s):
+def str_or_None_type(s: str) -> str | None:
     if s.lower() == 'none':
         return None
     return s
 
 
-def suboptions_type(s):
+def suboptions_type(s: str) -> dict[str, str | bool]:
     '''An argument converter for suboptions
 
     A suboption takes a comma separated list of additional
@@ -395,13 +421,12 @@ def suboptions_type(s):
 
     assert isinstance(s, str)
 
-    opts = dict()
+    opts: dict[str, str | bool] = dict()
     for opt in s.split(','):
         if '=' in opt:
             (key, val) = opt.split('=', 1)
+            opts[key] = val
         else:
-            key = opt
-            val = True
-        opts[key] = val
+            opts[opt] = True
 
     return opts

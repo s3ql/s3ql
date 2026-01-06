@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import binascii
 import contextlib
 import errno
@@ -21,18 +23,30 @@ import time
 import traceback
 from ast import literal_eval
 from base64 import b64decode, b64encode
+from collections.abc import Callable, Iterator, Sequence
 from getpass import getpass
-from typing import BinaryIO, Callable, Optional
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, Literal, NewType, TypeVar, overload
 
 import pyfuse3
+from pyfuse3 import InodeT
 
 from s3ql.http import HostnameNotResolvable
-from s3ql.types import BasicMappingT, HashFunction
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput, HashFunction
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
 
+if TYPE_CHECKING:
+    from .backends.common import AbstractBackend
+    from .backends.comprenc import ComprencBackend
+    from .database import Connection
+
 log = logging.getLogger(__name__)
+
+T = TypeVar('T')
+T1 = TypeVar('T1')
+T2 = TypeVar('T2')
 
 # S3QL client id and client secret for Google APIs.
 # Don't get your hopes up, this isn't truly secret.
@@ -42,15 +56,15 @@ OAUTH_CLIENT_SECRET = 'HGl8fJeVML-gZ-1HSZRNZPz_'
 file_system_encoding = sys.getfilesystemencoding()
 
 
-def path2bytes(s):
+def path2bytes(s: str) -> bytes:
     return s.encode(file_system_encoding, 'surrogateescape')
 
 
-def bytes2path(s):
+def bytes2path(s: bytes) -> str:
     return s.decode(file_system_encoding, 'surrogateescape')
 
 
-def is_mounted(storage_url):
+def is_mounted(storage_url: str) -> bool:
     '''Try to determine if *storage_url* is mounted
 
     Note that the result may be wrong.. this is really just
@@ -77,7 +91,7 @@ def is_mounted(storage_url):
     return False
 
 
-def inode_for_path(path, conn):
+def inode_for_path(path: bytes, conn: Connection) -> InodeT:
     """Return inode of directory entry at `path`
 
     Raises `KeyError` if the path does not exist.
@@ -94,16 +108,16 @@ def inode_for_path(path, conn):
     inode = ROOT_INODE
     for el in path.split(b'/'):
         try:
-            inode = conn.get_val(
+            inode = conn.get_inode_val(
                 "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (el, inode)
             )
         except NoSuchRowError:
-            raise KeyError('Path %s does not exist' % path)
+            raise KeyError('Path %r does not exist' % path)
 
     return inode
 
 
-def get_path(id_, conn, name=None):
+def get_path(id_: InodeT, conn: Connection, name: bytes | None = None) -> bytes:
     """Return a full path for inode `id_`.
 
     If `name` is specified, it is appended at the very end of the
@@ -112,7 +126,7 @@ def get_path(id_, conn, name=None):
     """
 
     if name is None:
-        path = list()
+        path: list[bytes] = list()
     else:
         if not isinstance(name, bytes):
             raise TypeError('name must be of type bytes')
@@ -121,8 +135,10 @@ def get_path(id_, conn, name=None):
     maxdepth = 255
     while id_ != ROOT_INODE:
         # This can be ambiguous if directories are hardlinked
-        (name2, id_) = conn.get_row(
-            "SELECT name, parent_inode FROM contents_v WHERE inode=? LIMIT 1", (id_,)
+        (name2, id_) = conn.get_row_typed(
+            (bytes, InodeT),
+            "SELECT name, parent_inode FROM contents_v WHERE inode=? LIMIT 1",
+            (id_,),
         )
         path.append(name2)
         maxdepth -= 1
@@ -135,7 +151,7 @@ def get_path(id_, conn, name=None):
     return b'/'.join(path)
 
 
-def escape(s):
+def escape(s: str) -> str:
     '''Escape '/', '=' and '\0' in s'''
 
     s = s.replace('=', '=3D')
@@ -145,7 +161,7 @@ def escape(s):
     return s
 
 
-def sha256_fh(fh: BinaryIO) -> HashFunction:
+def sha256_fh(fh: BinaryInput) -> HashFunction:
     sha = hashlib.sha256()
     fh.seek(0)
     while True:
@@ -156,7 +172,7 @@ def sha256_fh(fh: BinaryIO) -> HashFunction:
     return sha
 
 
-def assert_s3ql_fs(path: str):
+def assert_s3ql_fs(path: str) -> str:
     '''Raise `QuietError` if *path* is not on an S3QL file system
 
     Returns name of the S3QL control file.
@@ -178,7 +194,7 @@ def assert_s3ql_fs(path: str):
     return ctrlfile
 
 
-def assert_fs_owner(path, mountpoint=False):
+def assert_fs_owner(path: str, mountpoint: bool = False) -> str:
     '''Raise `QuietError` if user is not owner of S3QL fs at *path*
 
     Implicitly calls `assert_s3ql_fs` first. Returns name of the
@@ -201,7 +217,7 @@ def assert_fs_owner(path, mountpoint=False):
     return ctrlfile
 
 
-def assert_s3ql_mountpoint(mountpoint):
+def assert_s3ql_mountpoint(mountpoint: str) -> str:
     '''Raise QuietError if *mountpoint* is not an S3QL mountpoint
 
     Implicitly calls `assert_s3ql_fs` first. Returns name of the
@@ -215,7 +231,15 @@ def assert_s3ql_mountpoint(mountpoint):
     return ctrlfile
 
 
-def get_backend(options, raw=False):
+@overload
+def get_backend(options, raw: Literal[True]) -> AbstractBackend: ...
+
+
+@overload
+def get_backend(options, raw: Literal[False] = ...) -> ComprencBackend: ...
+
+
+def get_backend(options, raw: bool = False) -> ComprencBackend | AbstractBackend:
     '''Return backend for given storage-url
 
     If *raw* is true, don't attempt to unlock and don't wrap into
@@ -228,7 +252,7 @@ def get_backend(options, raw=False):
         return get_backend_factory(options)()
 
 
-def get_backend_factory(options):
+def get_backend_factory(options) -> Callable[[], ComprencBackend]:
     '''Return factory producing backend objects'''
 
     from .backends.common import (
@@ -278,7 +302,7 @@ def get_backend_factory(options):
 
     if encrypted and not hasattr(options, 'fs_passphrase'):
         if sys.stdin.isatty():
-            fs_passphrase = getpass("Enter file system encryption passphrase: ")
+            fs_passphrase: str | None = getpass("Enter file system encryption passphrase: ")
         else:
             fs_passphrase = sys.stdin.readline().rstrip()
     elif not encrypted:
@@ -286,13 +310,17 @@ def get_backend_factory(options):
     else:
         fs_passphrase = options.fs_passphrase
 
+    fs_passphrase_bytes: bytes | None
     if fs_passphrase is not None:
-        fs_passphrase = fs_passphrase.encode('utf-8')
-    options.fs_passphrase = fs_passphrase
+        fs_passphrase_bytes = fs_passphrase.encode('utf-8')
+    else:
+        fs_passphrase_bytes = None
+    options.fs_passphrase = fs_passphrase_bytes
 
     compress = getattr(options, 'compress', ('lzma', 2))
 
-    with ComprencBackend(fs_passphrase, compress, backend) as tmp_backend:
+    assert backend is not None
+    with ComprencBackend(fs_passphrase_bytes, compress, backend) as tmp_backend:
         if encrypted:
             try:
                 data_pw = tmp_backend['s3ql_passphrase']
@@ -344,29 +372,32 @@ def pretty_print_size(bytes_: int) -> str:
     return form % (i, unit)
 
 
+ExcInfoT = tuple[type[BaseException], BaseException, TracebackType]
+
+
 class ExceptionStoringThread(threading.Thread):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self._exc_info = None
+        self._exc_info: ExcInfoT | None = None
         self._joined = False
 
-    def run_protected(self):
+    def run_protected(self) -> None:
         pass
 
-    def run(self):
+    def run(self) -> None:
         try:
             self.run_protected()
         except:  # noqa: E722 # auto-added, needs manual check!
             # This creates a circular reference chain
-            self._exc_info = sys.exc_info()
+            self._exc_info = sys.exc_info()  # type: ignore[assignment]
             log.exception('Thread %s terminated with exception', self.name)
 
-    def join_get_exc(self):
+    def join_get_exc(self) -> ExcInfoT | None:
         self._joined = True
         self.join()
         return self._exc_info
 
-    def join_and_raise(self, timeout=None):
+    def join_and_raise(self, timeout: float | None = None) -> None:
         '''Wait for the thread to finish, raise any occurred exceptions'''
 
         self._joined = True
@@ -379,7 +410,7 @@ class ExceptionStoringThread(threading.Thread):
             self._exc_info = None
             raise EmbeddedException(exc_info, self.name)
 
-    def __del__(self):
+    def __del__(self) -> None:
         if not self._joined:
             raise RuntimeError(
                 "ExceptionStoringThread instance was destroyed without calling join_and_raise()!"
@@ -389,12 +420,12 @@ class ExceptionStoringThread(threading.Thread):
 class EmbeddedException(Exception):
     '''Encapsulates an exception that happened in a different thread'''
 
-    def __init__(self, exc_info, threadname):
+    def __init__(self, exc_info: ExcInfoT, threadname: str) -> None:
         super().__init__()
         self.exc_info = exc_info
         self.threadname = threadname
 
-    def __str__(self):
+    def __str__(self) -> str:
         return ''.join(
             [
                 'caused by an exception in thread %s.\n' % self.threadname,
@@ -405,17 +436,23 @@ class EmbeddedException(Exception):
 
 
 class AsyncFn(ExceptionStoringThread):
-    def __init__(self, fn, *args, **kwargs):
+    def __init__(self, fn: Callable, *args, **kwargs) -> None:
         super().__init__()
         self.target = fn
         self.args = args
         self.kwargs = kwargs
 
-    def run_protected(self):
+    def run_protected(self) -> None:
         self.target(*self.args, **self.kwargs)
 
 
-def split_by_n(seq, n):
+@overload
+def split_by_n(seq: str, n: int) -> Iterator[str]: ...
+@overload
+def split_by_n(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]: ...
+
+
+def split_by_n(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
     '''Yield elements in iterable *seq* in groups of *n*'''
 
     while seq:
@@ -423,11 +460,11 @@ def split_by_n(seq, n):
         seq = seq[n:]
 
 
-def handle_on_return(fn):
+def handle_on_return(fn: Callable[..., T]) -> Callable[..., T]:
     '''Provide fresh ExitStack instance in `on_return` argument'''
 
     @functools.wraps(fn)
-    def wrapper(*a, **kw):
+    def wrapper(*a, **kw) -> T:
         assert 'on_return' not in kw
         with contextlib.ExitStack() as on_return:
             kw['on_return'] = on_return
@@ -436,20 +473,32 @@ def handle_on_return(fn):
     return wrapper
 
 
-def parse_literal(buf, type_spec):
+def _get_actual_type(type_spec: type | NewType) -> type:
+    '''Get the actual type, handling NewType objects.'''
+    if isinstance(type_spec, type):
+        return type_spec
+    else:
+        t = type_spec.__supertype__
+        # Don't support nested NewType objects
+        assert isinstance(t, type)
+        return t
+
+
+@overload
+def parse_literal(buf: bytes, type_spec: type[InodeT]) -> InodeT: ...
+
+
+@overload
+def parse_literal(buf: bytes, type_spec: type[T]) -> T: ...
+
+
+def parse_literal(buf: bytes, type_spec: type[T]) -> T:
     '''Try to parse *buf* as *type_spec*
 
     Raise `ValueError` if *buf* does not contain a valid
     Python literal, or if the literal does not correspond
     to *type_spec*.
-
-    Example use::
-
-      buf = b'[1, 'a', 3]'
-      parse_literal(buf, [int, str, int])
-
     '''
-
     try:
         obj = literal_eval(buf.decode())
     except UnicodeDecodeError:
@@ -457,28 +506,59 @@ def parse_literal(buf, type_spec):
     except (ValueError, SyntaxError):
         raise ValueError('unable to parse as python literal')
 
-    if (
-        isinstance(type_spec, list)
-        and type(obj) == list  # noqa: E721 # auto-added, needs manual check!
-        and [type(x) for x in obj] == type_spec
-        or (
-            isinstance(type_spec, tuple)
-            and type(obj) == tuple  # noqa: E721 # auto-added, needs manual check!
-            and [type(x) for x in obj] == list(type_spec)
-        )
-        or type(obj) == type_spec  # noqa: E721 # auto-added, needs manual check!
-    ):
+    if type(obj) is _get_actual_type(type_spec):
+        return obj  # type: ignore[return-value]
+
+    raise ValueError('literal has wrong type')
+
+
+@overload
+def parse_literal_tuple(
+    buf: bytes, type_spec: tuple[type[InodeT], type[InodeT]]
+) -> tuple[InodeT, InodeT]: ...
+
+
+@overload
+def parse_literal_tuple(
+    buf: bytes, type_spec: tuple[type[InodeT], type[T2]]
+) -> tuple[InodeT, T2]: ...
+
+
+@overload
+def parse_literal_tuple(buf: bytes, type_spec: tuple[type[T1], type[T2]]) -> tuple[T1, T2]: ...
+
+
+@overload
+def parse_literal_tuple(buf: bytes, type_spec: tuple[type, ...]) -> tuple[Any, ...]: ...
+
+
+def parse_literal_tuple(buf: bytes, type_spec: tuple[type, ...]) -> tuple[Any, ...]:
+    '''Try to parse *buf* as a tuple matching *type_spec*
+
+    Raise `ValueError` if *buf* does not contain a valid
+    Python literal, or if the literal is not a tuple matching
+    the types in *type_spec*.
+    '''
+    try:
+        obj = literal_eval(buf.decode())
+    except UnicodeDecodeError:
+        raise ValueError('unable to decode as utf-8')
+    except (ValueError, SyntaxError):
+        raise ValueError('unable to parse as python literal')
+
+    actual_types = [_get_actual_type(t) for t in type_spec]
+    if type(obj) is tuple and all(type(x) is t for x, t in zip(obj, actual_types)):
         return obj
 
     raise ValueError('literal has wrong type')
 
 
 class ThawError(Exception):
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Malformed serialization data'
 
 
-def thaw_basic_mapping(buf) -> BasicMappingT:
+def thaw_basic_mapping(buf: bytes | bytearray) -> BasicMappingT:
     '''Reconstruct dict from serialized representation
 
     *buf* must be a bytes-like object as created by
@@ -540,13 +620,16 @@ def freeze_basic_mapping(d: BasicMappingT) -> bytes:
     return buf.encode('utf-8')
 
 
-def time_ns():
+def time_ns() -> int:
     return int(time.time() * 1e9)
 
 
 def copyfh(
-    ifh: BinaryIO, ofh: BinaryIO, len_: Optional[int] = None, update: Optional[Callable] = None
-):
+    ifh: BinaryInput,
+    ofh: BinaryOutput,
+    len_: int | None = None,
+    update: Callable[[bytes], None] | None = None,
+) -> None:
     '''Copy up to *len* bytes from ifh to ofh.
 
     If *update* is specified, call it with each block after the block

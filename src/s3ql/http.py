@@ -10,6 +10,8 @@ licensed under the Apache License, Version 2.0
 (http://www.apache.org/licenses/LICENSE-2.0)
 '''
 
+from __future__ import annotations
+
 import email
 import email.policy
 import errno
@@ -26,7 +28,7 @@ from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from inspect import getdoc
-from typing import Optional, Union
+from typing import Optional
 
 import trio
 
@@ -100,7 +102,15 @@ class HTTPResponse:
     has to be read directly from the `HTTPConnection` instance.
     '''
 
-    def __init__(self, method, path, status, reason, headers, length=None):
+    def __init__(
+        self,
+        method: str,
+        path: str,
+        status: int,
+        reason: str,
+        headers: email.message.Message,
+        length: int | None = None,
+    ) -> None:
         #: HTTP Method of the request this was response is associated with
         self.method = method
 
@@ -138,7 +148,7 @@ class BodyFollowing:
 
     __slots__ = 'length'
 
-    def __init__(self, length=None):
+    def __init__(self, length: int | None = None) -> None:
         #: the length of the body data that is going to be send, or `None`
         #: to use chunked encoding.
         self.length = length
@@ -156,11 +166,11 @@ class _ChunkTooLong(Exception):
 class _GeneralError(Exception):
     msg = 'General HTTP Error'
 
-    def __init__(self, msg=None):
+    def __init__(self, msg: str | None = None) -> None:
         if msg:
             self.msg = msg
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.msg
 
 
@@ -173,10 +183,10 @@ class HostnameNotResolvable(Exception):
     can be resolved.
     '''
 
-    def __init__(self, hostname):
+    def __init__(self, hostname: str) -> None:
         self.name = hostname
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Host %s does not have any ip addresses' % self.name
 
 
@@ -188,20 +198,20 @@ class DNSUnavailable(Exception):
     hostnames in `DNS_TEST_HOSTNAMES` can be resolved.
     '''
 
-    def __init__(self, hostname):
+    def __init__(self, hostname: str) -> None:
         self.name = hostname
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Unable to resolve %s, DNS server unavailable.' % self.name
 
 
 class HostnameNotResolvableOrDNSUnavailable(Exception):
     '''Raised if a host name does not resolve or DNS server cannot be reached.'''
 
-    def __init__(self, hostname):
+    def __init__(self, hostname: str) -> None:
         self.name = hostname
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Unable to resolve host %s' % self.name
 
 
@@ -429,7 +439,7 @@ class HTTPConnection:
         return self._timeout_ms / 1000
 
     @timeout.setter
-    def timeout(self, value: Union[int, float, None]) -> None:
+    def timeout(self, value: int | float | None) -> None:
         if value is None:
             self._timeout_ms = 24 * 60 * 60 * 1000
         else:
@@ -1501,7 +1511,7 @@ def create_socket(address):
         raise HostnameNotResolvable(address[0])
 
 
-def is_temp_network_error(exc):
+def is_temp_network_error(exc: BaseException) -> bool:
     '''Return true if *exc* represents a potentially temporary network problem
 
     DNS resolution errors (`socket.gaierror` or `socket.herror`) are considered
@@ -1579,44 +1589,44 @@ class CaseInsensitiveDict(MutableMapping):
     is undefined.
     """
 
-    def __init__(self, data=None, **kwargs):
-        self._store = dict()
+    def __init__(self, data: Mapping[str, str] | None = None, **kwargs: str) -> None:
+        self._store: dict[str, tuple[str, str]] = dict()
         if data is None:
             data = {}
         self.update(data, **kwargs)
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: str) -> None:
         # Use the lowercased key for lookups, but store the actual
         # key alongside the value.
         self._store[key.lower()] = (key, value)
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: str) -> str:
         return self._store[key.lower()][1]
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: str) -> None:
         del self._store[key.lower()]
 
     def __iter__(self):
         return (casedkey for casedkey, _ in self._store.values())
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._store)
 
     def lower_items(self):
         """Like :meth:`!items`, but with all lowercase keys."""
         return ((lowerkey, keyval[1]) for (lowerkey, keyval) in self._store.items())
 
-    def __eq__(self, other):
+    def __eq__(self, other: object) -> bool:
         if isinstance(other, Mapping):
-            other = CaseInsensitiveDict(other)
+            other = CaseInsensitiveDict(other)  # type: ignore[arg-type]
         else:
             return NotImplemented
         # Compare insensitively
         return dict(self.lower_items()) == dict(other.lower_items())
 
     # Copy is required
-    def copy(self):
-        return CaseInsensitiveDict(self._store.values())
+    def copy(self) -> CaseInsensitiveDict:
+        return CaseInsensitiveDict(self._store.values())  # type: ignore[arg-type]
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return '%s(%r)' % (self.__class__.__name__, dict(self.items()))

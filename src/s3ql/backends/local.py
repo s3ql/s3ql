@@ -6,12 +6,16 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import _thread
 import logging
 import os
 import struct
+from collections.abc import Iterator
 from contextlib import ExitStack, suppress
-from typing import Any, BinaryIO, Optional
+
+from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
@@ -25,13 +29,11 @@ class Backend(AbstractBackend):
     '''
 
     needs_login = False
-    known_options = set()
+    known_options: set[str] = set()
+    prefix: str
 
-    def __init__(self, options):
+    def __init__(self, options: BackendOptionsProtocol) -> None:
         '''Initialize local backend'''
-
-        # Unused argument
-        # pylint: disable=W0613
 
         super().__init__()
         self.prefix = options.storage_url[len('local://') :].rstrip('/')
@@ -40,16 +42,16 @@ class Backend(AbstractBackend):
             raise DanglingStorageURLError(self.prefix)
 
     @property
-    def has_delete_multi(self):
+    def has_delete_multi(self) -> bool:
         return True
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'local directory %s' % self.prefix
 
-    def is_temp_failure(self, exc):  # IGNORE:W0613
+    def is_temp_failure(self, exc: BaseException) -> bool:
         return False
 
-    def lookup(self, key):
+    def lookup(self, key: str) -> BasicMappingT:
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
@@ -57,10 +59,10 @@ class Backend(AbstractBackend):
         except FileNotFoundError:
             raise NoSuchObject(key)
 
-    def get_size(self, key):
+    def get_size(self, key: str) -> int:
         return os.path.getsize(self._key_to_path(key))
 
-    def readinto_fh(self, key: str, ofh: BinaryIO):
+    def readinto_fh(self, key: str, ofh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset.
@@ -84,10 +86,10 @@ class Backend(AbstractBackend):
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
-        metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
-    ):
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
+    ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
         The data will be read at the current offset. If *len_* is None, reads until the
@@ -129,7 +131,7 @@ class Backend(AbstractBackend):
 
         return size
 
-    def contains(self, key):
+    def contains(self, key: str) -> bool:
         path = self._key_to_path(key)
         try:
             os.lstat(path)
@@ -137,7 +139,7 @@ class Backend(AbstractBackend):
             return False
         return True
 
-    def delete_multi(self, keys):
+    def delete_multi(self, keys: list[str]) -> None:
         for i, key in enumerate(keys):
             try:
                 self.delete(key)
@@ -147,12 +149,12 @@ class Backend(AbstractBackend):
 
         del keys[:]
 
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         path = self._key_to_path(key)
         with suppress(FileNotFoundError):
             os.unlink(path)
 
-    def list(self, prefix=''):
+    def list(self, prefix: str = '') -> Iterator[str]:
         if prefix:
             base = os.path.dirname(self._key_to_path(prefix))
         else:
@@ -181,7 +183,7 @@ class Backend(AbstractBackend):
                 if not prefix or key.startswith(prefix):
                     yield key
 
-    def _key_to_path(self, key):
+    def _key_to_path(self, key: str) -> str:
         '''Return path for given key'''
 
         # NOTE: We must not split the path in the middle of an
@@ -201,7 +203,7 @@ class Backend(AbstractBackend):
         return os.path.join(*path)
 
 
-def _read_meta(fh):
+def _read_meta(fh: BinaryInput) -> BasicMappingT:
     buf = fh.read(9)
     if not buf.startswith(b's3ql_1\n'):
         raise CorruptedObjectError('Invalid object header: %r' % buf)
@@ -213,7 +215,7 @@ def _read_meta(fh):
         raise CorruptedObjectError('Invalid metadata')
 
 
-def escape(s):
+def escape(s: str) -> str:
     '''Escape '/', '=' and '.' in s'''
 
     s = s.replace('=', '=3D')
@@ -223,7 +225,7 @@ def escape(s):
     return s
 
 
-def unescape(s):
+def unescape(s: str) -> str:
     '''Un-Escape '/', '=' and '.' in s'''
 
     s = s.replace('=2F', '/')

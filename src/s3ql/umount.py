@@ -6,6 +6,9 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
+import argparse
 import logging
 import os
 import platform
@@ -13,6 +16,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from collections.abc import Sequence
 
 import pyfuse3
 
@@ -21,10 +25,10 @@ from .common import assert_s3ql_mountpoint, parse_literal
 from .logging import setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
-log = logging.getLogger(__name__)
+log: logging.Logger = logging.getLogger(__name__)
 
 
-def parse_args(args):
+def parse_args(args: Sequence[str]) -> argparse.Namespace:
     '''Parse command line
 
     This function writes to stdout/stderr and may call `system.exit()` instead
@@ -72,11 +76,11 @@ class UmountError(Exception):
     message = 'internal error'
     exitcode = 3
 
-    def __init__(self, mountpoint):
+    def __init__(self, mountpoint: str) -> None:
         super().__init__()
         self.mountpoint = mountpoint
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.message
 
 
@@ -90,9 +94,10 @@ class MountInUseError(UmountError):
     exitcode = 1
 
 
-def lazy_umount(mountpoint):
+def lazy_umount(mountpoint: str) -> None:
     '''Invoke fusermount -u -z for mountpoint'''
 
+    umount_cmd: tuple[str, ...]
     if os.getuid() == 0 or platform.system() == 'Darwin':
         # MacOS X always uses umount rather than fusermount
         umount_cmd = ('umount', '-l', mountpoint)
@@ -103,7 +108,7 @@ def lazy_umount(mountpoint):
         raise UmountSubError(mountpoint)
 
 
-def get_cmdline(pid):
+def get_cmdline(pid: int) -> str | None:
     '''Return command line for *pid*
 
     If *pid* doesn't exists, return None. If command line
@@ -133,7 +138,7 @@ def get_cmdline(pid):
     return None
 
 
-def blocking_umount(mountpoint):
+def blocking_umount(mountpoint: str) -> None:
     '''Invoke fusermount and wait for daemon to terminate.'''
 
     with open('/dev/null', 'wb') as devnull:
@@ -194,7 +199,7 @@ def blocking_umount(mountpoint):
             step += 0.1
 
 
-def main(args=None):
+def main(args: Sequence[str] | None = None) -> None:
     '''Umount S3QL file system'''
 
     if args is None:

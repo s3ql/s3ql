@@ -6,9 +6,15 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
 import re
+import ssl
 from xml.sax.saxutils import escape as xml_escape
+
+from s3ql.http import CaseInsensitiveDict
+from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import s3c4
@@ -30,19 +36,22 @@ class Backend(s3c4.Backend):
     This class uses standard HTTP connections to connect to S3.
     """
 
-    known_options = (s3c4.Backend.known_options | {'sse', 'rrs', 'ia', 'oia', 'it'}) - {
+    known_options: set[str] = (s3c4.Backend.known_options | {'sse', 'rrs', 'ia', 'oia', 'it'}) - {
         'dumb-copy',
         'disable-expect100',
         'sig-region',
     }
+    region: str
 
-    def __init__(self, options):
-        self.region = None
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        self.region = ''
         super().__init__(options)
         self._set_storage_options(self._extra_put_headers)
         self.sig_region = self.region
 
-    def _parse_storage_url(self, storage_url, ssl_context):
+    def _parse_storage_url(  # type: ignore[override]
+        self, storage_url: str, ssl_context: ssl.SSLContext | None
+    ) -> tuple[str, int, str, str]:
         hit = re.match(r'^s3s?://([^/]+)/([^/]+)(?:/(.*))?$', storage_url)
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
@@ -63,14 +72,14 @@ class Backend(s3c4.Backend):
         port = 443 if ssl_context else 80
         return (hostname, port, bucket_name, prefix)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Amazon S3 bucket %s, prefix %s' % (self.bucket_name, self.prefix)
 
     @property
-    def has_delete_multi(self):
+    def has_delete_multi(self) -> bool:
         return True
 
-    def delete_multi(self, keys):
+    def delete_multi(self, keys: list[str]) -> None:
         log.debug('started with %s', keys)
 
         while len(keys) > 0:
@@ -80,7 +89,7 @@ class Backend(s3c4.Backend):
             finally:
                 keys[:MAX_KEYS] = tmp
 
-    def _set_storage_options(self, headers):
+    def _set_storage_options(self, headers: CaseInsensitiveDict) -> None:
         if 'sse' in self.options:
             headers['x-amz-server-side-encryption'] = 'AES256'
 
@@ -97,14 +106,14 @@ class Backend(s3c4.Backend):
         headers['x-amz-storage-class'] = sc
 
     @retry
-    def _delete_multi(self, keys):
-        body = ['<Delete>']
+    def _delete_multi(self, keys: list[str]) -> None:
+        body_list = ['<Delete>']
         esc_prefix = xml_escape(self.prefix)
         for key in keys:
-            body.append('<Object><Key>%s%s</Key></Object>' % (esc_prefix, xml_escape(key)))
-        body.append('</Delete>')
-        body = '\n'.join(body).encode('utf-8')
-        headers = {'content-type': 'text/xml; charset=utf-8'}
+            body_list.append('<Object><Key>%s%s</Key></Object>' % (esc_prefix, xml_escape(key)))
+        body_list.append('</Delete>')
+        body = '\n'.join(body_list).encode('utf-8')
+        headers = CaseInsensitiveDict({'content-type': 'text/xml; charset=utf-8'})
 
         resp = self._do_request('POST', '/', subres='delete', body=body, headers=headers)
         try:
@@ -121,21 +130,25 @@ class Backend(s3c4.Backend):
             # been deleted and what hasn't
             offset = len(self.prefix)
             for tag in root.findall(ns_p + 'Deleted'):
-                fullkey = tag.find(ns_p + 'Key').text
-                assert fullkey.startswith(self.prefix)
+                key_elem = tag.find(ns_p + 'Key')
+                assert key_elem is not None
+                fullkey = key_elem.text
+                assert fullkey is not None and fullkey.startswith(self.prefix)
                 keys.remove(fullkey[offset:])
 
             if log.isEnabledFor(logging.DEBUG):
                 for errtag in error_tags:
+                    errkey_text = errtag.findtext(ns_p + 'Key')
                     log.debug(
                         'Delete %s failed with %s',
-                        errtag.findtext(ns_p + 'Key')[offset:],
+                        errkey_text[offset:] if errkey_text else None,
                         errtag.findtext(ns_p + 'Code'),
                     )
 
             errcode = error_tags[0].findtext(ns_p + 'Code')
             errmsg = error_tags[0].findtext(ns_p + 'Message')
-            errkey = error_tags[0].findtext(ns_p + 'Key')[offset:]
+            errkey_text = error_tags[0].findtext(ns_p + 'Key')
+            errkey = errkey_text[offset:] if errkey_text else '<unknown>'
 
             if errcode == 'NoSuchKeyError':
                 pass

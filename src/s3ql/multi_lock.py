@@ -6,7 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import logging
+from collections.abc import AsyncIterator, Hashable
 from contextlib import asynccontextmanager
 
 import trio
@@ -14,6 +17,8 @@ import trio
 __all__ = ["MultiLock"]
 
 log = logging.getLogger(__name__)
+
+LockKeyT = tuple[Hashable, ...]
 
 
 class MultiLock:
@@ -30,19 +35,19 @@ class MultiLock:
     been obtained by a different thread. This is not a bug but a feature.
     """
 
-    def __init__(self):
-        self.locked_keys = set()
+    def __init__(self) -> None:
+        self.locked_keys: set[LockKeyT] = set()
         self.cond = trio.Condition()
 
     @asynccontextmanager
-    async def __call__(self, *key):
+    async def __call__(self, *key: Hashable) -> AsyncIterator[None]:
         await self.acquire(*key)
         try:
             yield
         finally:
             await self.release(*key)
 
-    def acquire_nowait(self, *key):
+    def acquire_nowait(self, *key: Hashable) -> bool:
         '''Try to acquire lock for given key.
 
         Return True on success, False on failure.
@@ -62,7 +67,7 @@ class MultiLock:
         finally:
             self.cond.release()
 
-    async def acquire(self, *key):
+    async def acquire(self, *key: Hashable) -> None:
         '''Acquire lock for given key.'''
 
         async with self.cond:
@@ -71,7 +76,7 @@ class MultiLock:
 
             self.locked_keys.add(key)
 
-    async def release(self, *key, noerror=False):
+    async def release(self, *key: Hashable, noerror: bool = False) -> None:
         """Release lock on given key
 
         If noerror is False, do not raise exception if *key* is

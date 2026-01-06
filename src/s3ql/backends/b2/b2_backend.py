@@ -17,7 +17,7 @@ import ssl
 import urllib
 from ast import literal_eval
 from itertools import count
-from typing import Any, BinaryIO, Optional
+from typing import Any, Optional
 from urllib.parse import urlparse
 
 from s3ql.common import copyfh
@@ -29,6 +29,7 @@ from s3ql.http import (
     HTTPConnection,
     is_temp_network_error,
 )
+from s3ql.types import BinaryInput, BinaryOutput
 
 from ...logging import QuietError
 from ..common import (
@@ -407,7 +408,7 @@ class B2Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryOutput):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -417,7 +418,7 @@ class B2Backend(AbstractBackend):
         return self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
+    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
         response = self._do_download_request('GET', key)
 
         try:
@@ -451,7 +452,7 @@ class B2Backend(AbstractBackend):
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
+        fh: BinaryInput,
         metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
@@ -471,7 +472,7 @@ class B2Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]):
         headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
@@ -483,7 +484,7 @@ class B2Backend(AbstractBackend):
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
         headers['Content-Type'] = 'application/octet-stream'
-        headers['Content-Length'] = len_
+        headers['Content-Length'] = str(len_)
         headers['X-Bz-Content-Sha1'] = 'hex_digits_at_end'
         headers['Authorization'] = self.upload_token
 

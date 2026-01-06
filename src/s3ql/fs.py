@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import collections
 import errno
 import logging
@@ -14,16 +16,23 @@ import os
 import stat
 import struct
 import time
+from collections.abc import Sequence
 from io import BytesIO
+from typing import TYPE_CHECKING, cast, overload
 
 import pyfuse3
 import trio
-from pyfuse3 import FUSEError, InodeT
+from pyfuse3 import EntryAttributes, FileHandleT, FUSEError, InodeT, RequestContext
 
 from . import CTRL_INODE, CTRL_NAME
 from .backends.common import CorruptedObjectError, NoSuchObject
-from .common import get_path, parse_literal, time_ns
+from .common import get_path, parse_literal, parse_literal_tuple, time_ns
 from .database import Connection, NoSuchRowError
+
+if TYPE_CHECKING:
+    from .block_cache import BlockCache
+    from .inode_cache import InodeCache, _Inode
+    from .mount import MetadataUploadTask
 
 # standard logger for this module
 log = logging.getLogger(__name__)
@@ -113,29 +122,45 @@ class Operations(pyfuse3.Operations):
     enable_acl = False
     enable_writeback_cache = True
 
-    def __init__(self, block_cache, db: Connection, max_obj_size, inode_cache, upload_task=None):
+    inodes: InodeCache
+    db: Connection
+    upload_task: MetadataUploadTask | None
+    open_inodes: dict[InodeT, int]
+    max_obj_size: int
+    cache: BlockCache
+    failsafe: bool
+    broken_blocks: dict[InodeT, set[int]]
+
+    def __init__(
+        self,
+        block_cache: BlockCache,
+        db: Connection,
+        max_obj_size: int,
+        inode_cache: InodeCache,
+        upload_task: MetadataUploadTask | None = None,
+    ) -> None:
         super().__init__()
 
         self.inodes = inode_cache
         self.db = db
         self.upload_task = upload_task
-        self.open_inodes: dict[InodeT, int] = collections.defaultdict(lambda: 0)
+        self.open_inodes = collections.defaultdict(lambda: 0)
         self.max_obj_size = max_obj_size
         self.cache = block_cache
         self.failsafe = False
-        self.broken_blocks: dict[InodeT, set[int]] = collections.defaultdict(set)
+        self.broken_blocks = collections.defaultdict(set)
 
         # Root inode is always open
         self.open_inodes[pyfuse3.ROOT_INODE] += 1
 
-    async def destroy(self):
+    async def destroy(self) -> None:
         await self.forget(list(self.open_inodes.items()))
         self.inodes.destroy()
 
-    async def lookup(self, id_p, name, ctx):
+    async def lookup(self, id_p: InodeT, name: bytes, ctx: RequestContext) -> EntryAttributes:
         return self._lookup(id_p, name, ctx).entry_attributes()
 
-    def _lookup(self, id_p, name, ctx):
+    def _lookup(self, id_p: InodeT, name: bytes, ctx: RequestContext | None) -> _Inode:
         log.debug('started with %d, %r', id_p, name)
 
         if name == CTRL_NAME:
@@ -150,12 +175,12 @@ class Operations(pyfuse3.Operations):
             inode = self.inodes[id_p]
 
         elif name == '..':
-            id_ = self.db.get_val("SELECT parent_inode FROM contents WHERE inode=?", (id_p,))
+            id_ = self.db.get_inode_val("SELECT parent_inode FROM contents WHERE inode=?", (id_p,))
             inode = self.inodes[id_]
 
         else:
             try:
-                id_ = self.db.get_val(
+                id_ = self.db.get_inode_val(
                     "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (name, id_p)
                 )
             except NoSuchRowError:
@@ -165,7 +190,7 @@ class Operations(pyfuse3.Operations):
         self.open_inodes[inode.id] += 1
         return inode
 
-    async def getattr(self, id_, ctx):
+    async def getattr(self, id_: InodeT, ctx: RequestContext) -> EntryAttributes:
         log.debug('started with %d', id_)
         if id_ == CTRL_INODE:
             # Make sure the control file is only writable by the user
@@ -177,23 +202,24 @@ class Operations(pyfuse3.Operations):
 
         return self.inodes[id_].entry_attributes()
 
-    async def readlink(self, id_, ctx):
+    async def readlink(self, id_: InodeT, ctx: RequestContext) -> bytes:
         log.debug('started with %d', id_)
         now_ns = time_ns()
         inode = self.inodes[id_]
         if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
             inode.atime_ns = now_ns
         try:
-            return self.db.get_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
+            return self.db.get_bytes_val("SELECT target FROM symlink_targets WHERE inode=?", (id_,))
         except NoSuchRowError:
             log.warning('Inode does not have symlink target: %d', id_)
             raise FUSEError(errno.EINVAL)
 
-    async def opendir(self, id_, ctx):
+    async def opendir(self, id_: InodeT, ctx: RequestContext) -> FileHandleT:
         log.debug('started with %d', id_)
-        return id_
+        return FileHandleT(id_)
 
-    async def readdir(self, id_, off, token):
+    async def readdir(self, fh: FileHandleT, off: int, token: pyfuse3.ReaddirToken) -> None:
+        id_ = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
         log.debug('started with %d, %d', id_, off)
         if off == 0:
             off = -1
@@ -209,14 +235,17 @@ class Operations(pyfuse3.Operations):
             'WHERE parent_inode=? AND name_id > ? ORDER BY name_id',
             (id_, off - 3),
         ) as res:
-            for next_, name, cid_ in res:
+            for row in res:
+                next_ = cast(int, row[0])
+                name = cast(bytes, row[1])
+                cid_ = cast(InodeT, row[2])
                 if not pyfuse3.readdir_reply(
                     token, name, self.inodes[cid_].entry_attributes(), next_ + 3
                 ):
                     break
                 self.open_inodes[cid_] += 1
 
-    async def getxattr(self, id_, name, ctx):
+    async def getxattr(self, id_: InodeT, name: bytes, ctx: RequestContext) -> bytes:
         log.debug('started with %d, %r', id_, name)
         # Handle S3QL commands
         if id_ == CTRL_INODE:
@@ -234,21 +263,23 @@ class Operations(pyfuse3.Operations):
 
         else:
             try:
-                value = self.db.get_val(
+                value = self.db.get_bytes_val(
                     'SELECT value FROM ext_attributes_v WHERE inode=? AND name=?', (id_, name)
                 )
             except NoSuchRowError:
                 raise FUSEError(pyfuse3.ENOATTR)
             return value
 
-    async def listxattr(self, id_, ctx):
+    async def listxattr(self, id_: InodeT, ctx: RequestContext) -> list[bytes]:
         log.debug('started with %d', id_)
-        names = list()
-        for (name,) in self.db.query('SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)):
+        names: list[bytes] = list()
+        for (name,) in self.db.query_typed(
+            (bytes,), 'SELECT name FROM ext_attributes_v WHERE inode=?', (id_,)
+        ):
             names.append(name)
         return names
 
-    async def setxattr(self, id_, name, value, ctx):
+    async def setxattr(self, id_: InodeT, name: bytes, value: bytes, ctx: RequestContext) -> None:
         log.debug('started with %d, %r, %r', id_, name, value)
 
         # Handle S3QL commands
@@ -263,11 +294,13 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'copy':
                 try:
-                    tup = parse_literal(value, (int, int))
+                    copy_tup = parse_literal_tuple(  # pyright: ignore[reportCallIssue]
+                        value, (InodeT, InodeT)
+                    )
                 except ValueError:
                     log.warning('Received malformed command via control inode')
-                    raise FUSEError.EINVAL()
-                await self.copy_tree(*tup)
+                    raise FUSEError(errno.EINVAL)
+                await self.copy_tree(copy_tup[0], copy_tup[1])
 
             elif name == b'upload-meta':
                 if self.upload_task is not None:
@@ -278,34 +311,39 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'lock':
                 try:
-                    id_ = parse_literal(value, int)
+                    id_lock = parse_literal(value, InodeT)  # pyright: ignore[reportCallIssue]
                 except ValueError:
                     log.warning('Received malformed command via control inode')
-                    raise FUSEError.EINVAL()
-                await self.lock_tree(id_)
+                    raise FUSEError(errno.EINVAL)
+                await self.lock_tree(id_lock)
 
             elif name == b'rmtree':
                 try:
-                    tup = parse_literal(value, (int, bytes))
+                    rm_tup = parse_literal_tuple(  # pyright: ignore[reportCallIssue]
+                        value, (InodeT, bytes)
+                    )
                 except ValueError:
                     log.warning('Received malformed command via control inode')
-                    raise FUSEError.EINVAL()
-                await self.remove_tree(*tup)
+                    raise FUSEError(errno.EINVAL)
+                await self.remove_tree(rm_tup[0], rm_tup[1])
 
             elif name == b'logging':
                 try:
-                    (lvl, modules) = parse_literal(value, (int, str))
+                    log_result = parse_literal_tuple(value, (int, str))
+                    lvl: int = log_result[0]
+                    modules_str: str = log_result[1]
                 except (ValueError, KeyError):
                     log.warning('Received malformed command via control inode')
-                    raise FUSEError.EINVAL()
-                update_logging(lvl, modules.split(',') if modules else None)
+                    raise FUSEError(errno.EINVAL)
+                update_logging(lvl, modules_str.split(',') if modules_str else None)
 
             elif name == b'cachesize':
                 try:
-                    self.cache.cache.max_size = parse_literal(value, int)
+                    cache_size = parse_literal(value, int)
                 except ValueError:
                     log.warning('Received malformed command via control inode')
-                    raise FUSEError.EINVAL()
+                    raise FUSEError(errno.EINVAL)
+                self.cache.cache.max_size = cache_size
                 log.debug('updated cache size to %d bytes', self.cache.cache.max_size)
 
             else:
@@ -326,7 +364,7 @@ class Operations(pyfuse3.Operations):
             )
             self.inodes[id_].ctime_ns = time_ns()
 
-    async def removexattr(self, id_, name, ctx):
+    async def removexattr(self, id_: InodeT, name: bytes, ctx: RequestContext) -> None:
         log.debug('started with %d, %r', id_, name)
 
         if self.failsafe or self.inodes[id_].locked:
@@ -345,7 +383,7 @@ class Operations(pyfuse3.Operations):
 
         self.inodes[id_].ctime_ns = time_ns()
 
-    async def lock_tree(self, id0):
+    async def lock_tree(self, id0: InodeT) -> None:
         '''Lock directory tree'''
 
         if self.failsafe:
@@ -370,7 +408,9 @@ class Operations(pyfuse3.Operations):
                     'AND name_id > ? ORDER BY name_id',
                     (id_p, off),
                 ) as res:
-                    for name_id, id_ in res:
+                    for row in res:
+                        name_id = cast(int, row[0])
+                        id_ = cast(InodeT, row[1])
                         self.inodes[id_].locked = True
 
                         if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
@@ -391,7 +431,7 @@ class Operations(pyfuse3.Operations):
 
         log.debug('finished')
 
-    async def remove_tree(self, id_p0, name0):
+    async def remove_tree(self, id_p0: InodeT, name0: bytes) -> None:
         '''Remove directory tree'''
 
         if self.failsafe:
@@ -425,7 +465,9 @@ class Operations(pyfuse3.Operations):
                 )
                 reinserted = False
 
-                for name, _, id_ in query_chunk:
+                for row in query_chunk:
+                    name = cast(bytes, row[0])
+                    id_ = cast(InodeT, row[2])
                     if conn.has_val('SELECT 1 FROM contents WHERE parent_inode=?', (id_,)):
                         # First delete subdirectories
                         if not reinserted:
@@ -467,7 +509,7 @@ class Operations(pyfuse3.Operations):
         await self.forget([(id0, 1)])
         log.debug('finished')
 
-    async def copy_tree(self, src_id, target_id):
+    async def copy_tree(self, src_id: InodeT, target_id: InodeT) -> None:
         '''Efficiently copy directory tree'''
 
         if self.failsafe:
@@ -498,7 +540,7 @@ class Operations(pyfuse3.Operations):
         )
 
         queue = [(src_id, tmp.id, -1)]
-        id_cache = dict()
+        id_cache: dict[InodeT, InodeT] = dict()
 
         # Batching updates makes things much faster when using WAL. We don't want to rollback on
         # error, because in that case the database gets out of sync with the inode cache (which
@@ -514,7 +556,9 @@ class Operations(pyfuse3.Operations):
                     'AND name_id > ? ORDER BY name_id',
                     (src_id, off),
                 ) as res:
-                    for name_id, id_ in res:
+                    for row in res:
+                        name_id = cast(int, row[0])
+                        id_ = cast(InodeT, row[1])
                         # Make sure that all blocks are in the database
                         if id_ in self.open_inodes:
                             await self.cache.start_flush(id_)
@@ -602,7 +646,7 @@ class Operations(pyfuse3.Operations):
 
         log.debug('finished')
 
-    async def unlink(self, id_p, name, ctx):
+    async def unlink(self, id_p: InodeT, name: bytes, ctx: RequestContext) -> None:
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -616,7 +660,7 @@ class Operations(pyfuse3.Operations):
 
         await self.forget([(inode.id, 1)])
 
-    async def rmdir(self, id_p, name, ctx):
+    async def rmdir(self, id_p: InodeT, name: bytes, ctx: RequestContext) -> None:
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -633,7 +677,7 @@ class Operations(pyfuse3.Operations):
 
         await self.forget([(inode.id, 1)])
 
-    async def _remove(self, id_p, name, id_, force=False):
+    async def _remove(self, id_p: InodeT, name: bytes, id_: InodeT, force: bool = False) -> None:
         '''Remove entry `name` with parent inode `id_p`
 
         `id_` must be the inode of `name`. If `force` is True, then
@@ -684,7 +728,9 @@ class Operations(pyfuse3.Operations):
 
         log.debug('finished')
 
-    async def symlink(self, id_p, name, target, ctx):
+    async def symlink(
+        self, id_p: InodeT, name: bytes, target: bytes, ctx: RequestContext
+    ) -> EntryAttributes:
         log.debug('started with %d, %r, %r', id_p, name, target)
 
         if self.failsafe:
@@ -715,7 +761,15 @@ class Operations(pyfuse3.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    async def rename(self, id_p_old, name_old, id_p_new, name_new, flags, ctx):
+    async def rename(
+        self,
+        id_p_old: InodeT,
+        name_old: bytes,
+        id_p_new: InodeT,
+        name_new: bytes,
+        flags: int,
+        ctx: RequestContext,
+    ) -> None:
         if flags:
             raise FUSEError(errno.ENOTSUP)
 
@@ -750,29 +804,29 @@ class Operations(pyfuse3.Operations):
             self._rename(id_p_old, name_old, id_p_new, name_new)
             await self.forget([(inode_old.id, 1)])
 
-    def _add_name(self, name):
+    def _add_name(self, name: bytes) -> int:
         '''Get id for *name* and increase refcount
 
         Name is inserted in table if it does not yet exist.
         '''
 
         try:
-            name_id = self.db.get_val('SELECT id FROM names WHERE name=?', (name,))
+            name_id = self.db.get_int_val('SELECT id FROM names WHERE name=?', (name,))
         except NoSuchRowError:
             name_id = self.db.rowid('INSERT INTO names (name, refcount) VALUES(?,?)', (name, 1))
         else:
             self.db.execute('UPDATE names SET refcount=refcount+1 WHERE id=?', (name_id,))
         return name_id
 
-    def _del_name(self, name):
+    def _del_name(self, name: bytes) -> int:
         '''Decrease refcount for *name*
 
         Name is removed from table if refcount drops to zero. Returns the
         (possibly former) id of the name.
         '''
 
-        (name_id, refcount) = self.db.get_row(
-            'SELECT id, refcount FROM names WHERE name=?', (name,)
+        (name_id, refcount) = self.db.get_row_typed(
+            (int, int), 'SELECT id, refcount FROM names WHERE name=?', (name,)
         )
 
         if refcount > 1:
@@ -782,7 +836,7 @@ class Operations(pyfuse3.Operations):
 
         return name_id
 
-    def _rename(self, id_p_old, name_old, id_p_new, name_new):
+    def _rename(self, id_p_old: InodeT, name_old: bytes, id_p_new: InodeT, name_new: bytes) -> None:
         now_ns = time_ns()
 
         name_id_new = self._add_name(name_new)
@@ -801,7 +855,15 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
         inode_p_new.ctime_ns = now_ns
 
-    async def _replace(self, id_p_old, name_old, id_p_new, name_new, id_old, id_new):
+    async def _replace(
+        self,
+        id_p_old: InodeT,
+        name_old: bytes,
+        id_p_new: InodeT,
+        name_new: bytes,
+        id_old: InodeT,
+        id_new: InodeT,
+    ) -> None:
         now_ns = time_ns()
 
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
@@ -812,7 +874,7 @@ class Operations(pyfuse3.Operations):
             raise FUSEError(errno.EINVAL)
 
         # Replace target
-        name_id_new = self.db.get_val('SELECT id FROM names WHERE name=?', (name_new,))
+        name_id_new = self.db.get_int_val('SELECT id FROM names WHERE name=?', (name_new,))
         self.db.execute(
             "UPDATE contents SET inode=? WHERE name_id=? AND parent_inode=?",
             (id_old, name_id_new, id_p_new),
@@ -850,7 +912,9 @@ class Operations(pyfuse3.Operations):
             self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_new,))
             del self.inodes[id_new]
 
-    async def link(self, id_, new_id_p, new_name, ctx):
+    async def link(
+        self, id_: InodeT, new_id_p: InodeT, new_name: bytes, ctx: RequestContext
+    ) -> EntryAttributes:
         log.debug('started with %d, %d, %r', id_, new_id_p, new_name)
 
         if new_name == CTRL_NAME or id_ == CTRL_INODE:
@@ -883,11 +947,19 @@ class Operations(pyfuse3.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    async def setattr(self, id_, attr, fields, fh, ctx):
+    async def setattr(
+        self,
+        id_: InodeT,
+        attr: EntryAttributes,
+        fields: pyfuse3.SetattrFields,
+        fh: FileHandleT | None,
+        ctx: RequestContext,
+    ) -> EntryAttributes:
         """Handles FUSE setattr() requests"""
         inode = self.inodes[id_]
         if fh is not None:
-            assert fh == id_
+            fh_inode = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
+            assert fh_inode == id_
         now_ns = time_ns()
 
         if self.failsafe or inode.locked:
@@ -933,8 +1005,8 @@ class Operations(pyfuse3.Operations):
             else:
                 await self.cache.remove(id_, last_block + 1, total_blocks)
                 try:
-                    async with self.cache.get(id_, last_block) as fh:
-                        fh.truncate(cutoff)
+                    async with self.cache.get(id_, last_block) as cache_entry:
+                        cache_entry.truncate(cutoff)
                 except NoSuchObject as exc:
                     log.warning(
                         'Backend lost block %d of inode %d (id %s)!', last_block, id_, exc.key
@@ -954,7 +1026,9 @@ class Operations(pyfuse3.Operations):
 
         return inode.entry_attributes()
 
-    async def mknod(self, id_p, name, mode, rdev, ctx):
+    async def mknod(
+        self, id_p: InodeT, name: bytes, mode: int, rdev: int, ctx: RequestContext
+    ) -> EntryAttributes:
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -962,7 +1036,9 @@ class Operations(pyfuse3.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    async def mkdir(self, id_p, name, mode, ctx):
+    async def mkdir(
+        self, id_p: InodeT, name: bytes, mode: int, ctx: RequestContext
+    ) -> EntryAttributes:
         log.debug('started with %d, %r', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
@@ -970,7 +1046,7 @@ class Operations(pyfuse3.Operations):
         self.open_inodes[inode.id] += 1
         return inode.entry_attributes()
 
-    def extstat(self):
+    def extstat(self) -> bytes:
         '''Return extended file system statistics'''
 
         log.debug('started')
@@ -999,7 +1075,11 @@ class Operations(pyfuse3.Operations):
             *self.cache.get_usage(),
         )
 
-    async def statfs(self, ctx, _cache=[]):  # noqa: B006
+    async def statfs(
+        self,
+        ctx: RequestContext,
+        _cache: list[int | float] = [],  # noqa: B006
+    ) -> pyfuse3.StatvfsData:
         log.debug('started')
 
         stat_ = pyfuse3.StatvfsData()
@@ -1008,15 +1088,14 @@ class Operations(pyfuse3.Operations):
         # queries need to iterate over the full database, this is very expensive and slows other
         # filesystem users down. To avoid that, we cache results for a short time.
         if _cache and time.time() - _cache[3] < 30:
-            (objects, inodes, size) = _cache[:3]
+            objects = int(_cache[0])
+            inodes = int(_cache[1])
+            size = int(_cache[2])
         else:
-            objects = self.db.get_val("SELECT COUNT(id) FROM objects")
-            inodes = self.db.get_val("SELECT COUNT(id) FROM inodes")
-            size = self.db.get_val('SELECT SUM(length) FROM objects')
-            _cache[:] = (objects, inodes, size, time.time())
-
-        if size is None:
-            size = 0
+            objects = self.db.get_int_val("SELECT COUNT(id) FROM objects")
+            inodes = self.db.get_int_val("SELECT COUNT(id) FROM inodes")
+            size = self.db.get_int_val_or_none('SELECT SUM(length) FROM objects') or 0
+            _cache[:] = [objects, inodes, size, time.time()]
 
         # file system block size, i.e. the minimum amount of space that can
         # be allocated. This doesn't make much sense for S3QL, so we just
@@ -1045,7 +1124,7 @@ class Operations(pyfuse3.Operations):
 
         return stat_
 
-    async def open(self, id_, flags, ctx):
+    async def open(self, id_: InodeT, flags: int, ctx: RequestContext) -> pyfuse3.FileInfo:
         log.debug('started with %d', id_)
         if (flags & os.O_RDWR or flags & os.O_WRONLY) and (
             self.failsafe or self.inodes[id_].locked
@@ -1060,7 +1139,10 @@ class Operations(pyfuse3.Operations):
             if stat.S_ISREG(attr.st_mode):
                 attr.st_mtime_ns = time_ns()
                 attr.st_size = 0
-                await self.setattr(id_, attr, _TruncSetattrFields, None, ctx)
+                # _TruncSetattrFields implements only what we need from SetattrFields
+                await self.setattr(
+                    id_, attr, cast(pyfuse3.SetattrFields, _TruncSetattrFields), None, ctx
+                )
             elif stat.S_ISFIFO(attr.st_mode) or stat.S_ISBLK(attr.st_mode):
                 #  silently ignore O_TRUNC when FIFO or terminal block device
                 pass
@@ -1068,9 +1150,10 @@ class Operations(pyfuse3.Operations):
                 #  behaviour is not defined in POSIX, we opt for an error
                 raise FUSEError(errno.EINVAL)
 
-        return pyfuse3.FileInfo(fh=id_, keep_cache=True)
+        # Re-use inode number as file handle
+        return pyfuse3.FileInfo(fh=cast(FileHandleT, id_), keep_cache=True)
 
-    async def access(self, id_, mode, ctx):
+    async def access(self, id_: InodeT, mode: int, ctx: RequestContext) -> bool:
         '''Check if requesting process has `mode` rights on `inode`.
 
         This method always returns true, since it should only be called
@@ -1083,13 +1166,15 @@ class Operations(pyfuse3.Operations):
         log.debug('started with %d', id_)
         return True
 
-    async def create(self, id_p, name, mode, flags, ctx):
+    async def create(
+        self, id_p: InodeT, name: bytes, mode: int, flags: int, ctx: RequestContext
+    ) -> tuple[pyfuse3.FileInfo, EntryAttributes]:
         log.debug('started with id_p=%d, %s', id_p, name)
         if self.failsafe:
             raise FUSEError(errno.EPERM)
 
         try:
-            id_ = self.db.get_val(
+            id_ = self.db.get_inode_val(
                 "SELECT inode FROM contents_v WHERE name=? AND parent_inode=?", (name, id_p)
             )
         except NoSuchRowError:
@@ -1099,9 +1184,19 @@ class Operations(pyfuse3.Operations):
             inode = self.inodes[id_]
 
         self.open_inodes[inode.id] += 1
-        return (pyfuse3.FileInfo(fh=inode.id), inode.entry_attributes())
 
-    def _create(self, id_p, name, mode, ctx, rdev=0, size=0):
+        # Re-use inode number as file handle
+        return (pyfuse3.FileInfo(fh=cast(FileHandleT, inode.id)), inode.entry_attributes())
+
+    def _create(
+        self,
+        id_p: InodeT,
+        name: bytes,
+        mode: int,
+        ctx: RequestContext,
+        rdev: int = 0,
+        size: int = 0,
+    ) -> _Inode:
         if name == CTRL_NAME:
             log.warning(
                 'Attempted to create s3ql control file at %s', get_path(id_p, self.db, name)
@@ -1145,14 +1240,15 @@ class Operations(pyfuse3.Operations):
 
         return inode
 
-    async def read(self, fh, offset, length):
+    async def read(self, fh: FileHandleT, offset: int, length: int) -> bytes:
         '''Read `size` bytes from `fh` at position `off`
 
         Unless EOF is reached, returns exactly `size` bytes.
         '''
+        inode_id = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
         # log.debug('started with %d, %d, %d', fh, offset, length)
         buf = BytesIO()
-        inode = self.inodes[fh]
+        inode = self.inodes[inode_id]
 
         # Make sure that we don't read beyond the file size. This
         # should not happen unless direct_io is activated, but it's
@@ -1161,31 +1257,32 @@ class Operations(pyfuse3.Operations):
         length = min(size - offset, length)
 
         while length > 0:
-            tmp = await self._readwrite(fh, offset, length=length)
+            tmp = await self._readwrite(inode_id, offset, length=length)
             buf.write(tmp)
             length -= len(tmp)
             offset += len(tmp)
 
         # Inode may have expired from cache
-        inode = self.inodes[fh]
+        inode = self.inodes[inode_id]
 
         if inode.atime_ns < inode.ctime_ns or inode.atime_ns < inode.mtime_ns:
             inode.atime_ns = time_ns()
 
         return buf.getvalue()
 
-    async def write(self, fh, offset, buf):
+    async def write(self, fh: FileHandleT, offset: int, buf: bytes) -> int:
         '''Handle FUSE write requests.'''
+        inode_id = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
 
         # log.debug('started with %d, %d, datalen=%d', fh, offset, len(buf))
 
-        if self.failsafe or self.inodes[fh].locked:
+        if self.failsafe or self.inodes[inode_id].locked:
             raise FUSEError(errno.EPERM)
 
         total = len(buf)
         minsize = offset + total
         while buf:
-            written = await self._readwrite(fh, offset, buf=buf)
+            written = await self._readwrite(inode_id, offset, buf=buf)
             offset += written
             buf = buf[written:]
 
@@ -1194,14 +1291,26 @@ class Operations(pyfuse3.Operations):
         # so we have to be careful not to undo a size extension made by
         # a concurrent write.
         now_ns = time_ns()
-        inode = self.inodes[fh]
+        inode = self.inodes[inode_id]
         inode.size = max(inode.size, minsize)
         inode.mtime_ns = now_ns
         inode.ctime_ns = now_ns
 
         return total
 
-    async def _readwrite(self, id_, offset, *, buf=None, length=None):
+    @overload
+    async def _readwrite(
+        self, id_: InodeT, offset: int, *, buf: bytes, length: None = None
+    ) -> int: ...
+
+    @overload
+    async def _readwrite(
+        self, id_: InodeT, offset: int, *, buf: None = None, length: int
+    ) -> bytes: ...
+
+    async def _readwrite(
+        self, id_: InodeT, offset: int, *, buf: bytes | None = None, length: int | None = None
+    ) -> bytes | int:
         """Read or write as much as we can.
 
         If *buf* is None, read and return up to *length* bytes.
@@ -1221,10 +1330,11 @@ class Operations(pyfuse3.Operations):
 
         if length is None:
             write = True
+            assert buf is not None
             length = len(buf)
         elif buf is None:
             write = False
-            max_write = None
+            max_write: int | None = None
         else:
             raise TypeError("Don't know what to do!")
 
@@ -1242,6 +1352,7 @@ class Operations(pyfuse3.Operations):
             async with self.cache.get(id_, blockno, max_write=max_write) as fh:
                 fh.seek(offset_rel)
                 if write:
+                    assert buf is not None
                     fh.write(buf[:length])
                 else:
                     buf = fh.read(length)
@@ -1262,21 +1373,24 @@ class Operations(pyfuse3.Operations):
 
         if write:
             return length
-        elif len(buf) == length:
-            return buf
         else:
-            # If we can't read enough, add null bytes
-            return buf + b"\0" * (length - len(buf))
+            assert buf is not None
+            if len(buf) == length:
+                return buf
+            else:
+                # If we can't read enough, add null bytes
+                return buf + b"\0" * (length - len(buf))
 
-    async def fsync(self, fh, datasync):
+    async def fsync(self, fh: FileHandleT, datasync: bool) -> None:
+        inode_id = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
         log.debug('started with %d, %s', fh, datasync)
         if not datasync:
-            self.inodes.flush_id(fh)
+            self.inodes.flush_id(inode_id)
 
-        for blockno in range(0, self.inodes[fh].size // self.max_obj_size + 1):
-            self.cache.flush_local(fh, blockno)
+        for blockno in range(0, self.inodes[inode_id].size // self.max_obj_size + 1):
+            self.cache.flush_local(inode_id, blockno)
 
-    async def forget(self, forget_list):
+    async def forget(self, forget_list: Sequence[tuple[InodeT, int]]) -> None:
         log.debug('started with %s', forget_list)
 
         for id_, nlookup in forget_list:
@@ -1307,29 +1421,30 @@ class Operations(pyfuse3.Operations):
                     self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
                     del self.inodes[id_]
 
-    async def fsyncdir(self, fh, datasync):
+    async def fsyncdir(self, fh: FileHandleT, datasync: bool) -> None:
+        inode_id = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
         log.debug('started with %d, %s', fh, datasync)
         if not datasync:
-            self.inodes.flush_id(fh)
+            self.inodes.flush_id(inode_id)
 
-    async def releasedir(self, fh):
+    async def releasedir(self, fh: FileHandleT) -> None:
         log.debug('started with %d', fh)
 
-    async def release(self, fh):
+    async def release(self, fh: FileHandleT) -> None:
         log.debug('started with %d', fh)
 
-    async def flush(self, fh):
+    async def flush(self, fh: FileHandleT) -> None:
         log.debug('started with %d', fh)
 
 
-def update_logging(level, modules):
+def update_logging(level: int, modules: list[str] | None) -> None:
     root_logger = logging.getLogger()
     root_logger.setLevel(logging.INFO)
     if level == logging.DEBUG:
         logging.disable(logging.NOTSET)
-        if 'all' in modules:
+        if modules is not None and 'all' in modules:
             root_logger.setLevel(logging.DEBUG)
-        else:
+        elif modules is not None:
             for module in modules:
                 logging.getLogger(module).setLevel(logging.DEBUG)
 

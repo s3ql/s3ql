@@ -13,6 +13,8 @@ Module Attributes:
                connection is created.
 '''
 
+from __future__ import annotations
+
 import collections
 import copy
 import dataclasses
@@ -21,16 +23,35 @@ import math
 import os
 import re
 import time
-from typing import Optional
+from collections.abc import Callable, Iterator
+from types import TracebackType
+from typing import TYPE_CHECKING, Any, NewType, TypeVar, overload
 
 import apsw
+from pyfuse3 import InodeT
 
 from . import CURRENT_FS_REV, sqlite3ext
 from .backends.common import AbstractBackend, NoSuchObject
 from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
 from .logging import QuietError
 
+if TYPE_CHECKING:
+    from s3ql.sqlite3ext import WriteTracker
+
 log = logging.getLogger(__name__)
+
+SqlRowT = tuple[object, ...]
+
+T = TypeVar("T")
+Constructor = Callable[[Any], T]
+
+
+# Type variables for generic typed accessors
+T1 = TypeVar('T1')
+T2 = TypeVar('T2')
+T3 = TypeVar('T3')
+T4 = TypeVar('T4')
+T5 = TypeVar('T5')
 
 # Format for metadata object names. Block number and seq no need
 # to be interpolated.
@@ -43,7 +64,7 @@ if sqlite_ver < (3, 7, 0):
     raise QuietError('SQLite version too old, must be 3.7.0 or newer!\n')
 
 
-def sqlite3_log(errcode, message):
+def sqlite3_log(errcode: int, message: str) -> None:
     if errcode == apsw.SQLITE_NOTICE:
         log.debug('sqlite3: %s', message)
     elif errcode == apsw.SQLITE_WARNING:
@@ -90,11 +111,11 @@ class FsAttributes:
     last_modified: float = 0
     db_md5: str = ''
 
-    def copy(self):
+    def copy(self) -> FsAttributes:
         return copy.copy(self)
 
     @staticmethod
-    def deserialize(buf: bytes, min_seq: Optional[int] = None):
+    def deserialize(buf: bytes, min_seq: int | None = None) -> FsAttributes:
         '''De-serialize *buf* into a `FsAttributes` instance.
 
         If *min_seq* is specified and the buffer has a sequence number lower than
@@ -119,7 +140,7 @@ class FsAttributes:
             )
         return FsAttributes(**d)  # type: ignore
 
-    def serialize(self):
+    def serialize(self) -> bytes:
         return freeze_basic_mapping(dataclasses.asdict(self))
 
 
@@ -146,7 +167,8 @@ class Connection:
     :conn:     apsw connection object
     '''
 
-    def __init__(self, file_: str, blocksize: Optional[int] = None):
+    def __init__(self, file_: str, blocksize: int | None = None) -> None:
+        self.dirty_blocks: WriteTracker
         if blocksize:
             sqlite3ext.set_blocksize(blocksize)
 
@@ -166,6 +188,7 @@ class Connection:
 
         cur.execute('PRAGMA locking_mode = EXCLUSIVE')
         res = self.get_val('PRAGMA journal_mode = WAL')
+        assert isinstance(res, str)
         if res.lower() != 'wal':
             raise RuntimeError(f'Unable to set WAL journaling mode, got: {res}')
 
@@ -198,13 +221,13 @@ class Connection:
         else:
             self.fixes = {'dbf': ''}
 
-    def close(self):
+    def close(self) -> None:
         # As recommended in https://www.sqlite.org/lang_analyze.html
         self.execute('PRAGMA analysis_limit=0')
         self.execute('PRAGMA optimize')
         self.conn.close()
 
-    def get_size(self):
+    def get_size(self) -> int:
         '''Return size of database file'''
 
         if self.file is not None and self.file not in ('', ':memory:'):
@@ -212,7 +235,7 @@ class Connection:
         else:
             return 0
 
-    def query(self, *a, **kw):
+    def query(self, *a, **kw) -> ResultSet:
         '''Return iterator over results of given SQL statement
 
         If the caller does not retrieve all rows the iterator's close() method
@@ -223,19 +246,19 @@ class Connection:
 
         return ResultSet(self.conn.cursor().execute(*a, **kw))
 
-    def execute(self, *a, **kw):
+    def execute(self, *a, **kw) -> int:
         '''Execute the given SQL statement. Return number of affected rows'''
 
         self.conn.cursor().execute(*a, **kw)
         return self.changes()
 
-    def rowid(self, *a, **kw):
+    def rowid(self, *a, **kw) -> int:
         """Execute SQL statement and return last inserted rowid"""
 
         self.conn.cursor().execute(*a, **kw)
         return self.conn.last_insert_rowid()
 
-    def has_val(self, *a, **kw):
+    def has_val(self, *a, **kw) -> bool:
         '''Execute statement and check if it gives result rows'''
 
         res = self.conn.cursor().execute(*a, **kw)
@@ -248,7 +271,7 @@ class Connection:
             res.close()
             return True
 
-    def checkpoint(self):
+    def checkpoint(self) -> None:
         '''Checkpoint the WAL'''
 
         try:
@@ -262,10 +285,10 @@ class Connection:
         else:
             log.debug('checkpoint: wrote %d/%d pages to db file', row[2], row[1])
 
-    def batch(self, dt_target: float):
+    def batch(self, dt_target: float) -> BatchedTransactionManager:
         return BatchedTransactionManager(self, dt_target)
 
-    def get_val(self, *a, **kw):
+    def get_val(self, *a, **kw) -> object:
         """Execute statement and return first element of first result row.
 
         If there is no result row, raises `NoSuchRowError`. If there is more
@@ -274,12 +297,12 @@ class Connection:
 
         return self.get_row(*a, **kw)[0]
 
-    def get_list(self, *a, **kw):
+    def get_list(self, *a, **kw) -> list[SqlRowT]:
         """Execute select statement and returns result list"""
 
         return list(self.query(*a, **kw))
 
-    def get_row(self, *a, **kw):
+    def get_row(self, *a, **kw) -> SqlRowT:
         """Execute select statement and return first row.
 
         If there are no result rows, raises `NoSuchRowError`. If there is more
@@ -303,12 +326,191 @@ class Connection:
 
         return row
 
-    def last_rowid(self):
+    # =========================================================================
+    # Typed single-value accessors
+    # =========================================================================
+    #
+    # These methods exist to reduce the amount of boilerplate that is needed
+    # to make static type checkers happy. They do *not* add any extra type
+    # safety, they merely make it easier to assert to the type checker
+    # that we know what we are doing.
+    #
+    # (The assertions are active when Python is not run with -O flag, and
+    # intended to raise error closer to the source of the problem rather
+    # than later on, when the value of the unexpected type is used).
+
+    def get_int_val(self, *a, **kw) -> int:
+        """Execute statement and return first element as int."""
+        val = self.get_val(*a, **kw)
+        assert isinstance(val, int)
+        return val
+
+    def get_int_val_or_none(self, *a, **kw) -> int | None:
+        """Execute statement and return first element as int or None."""
+        val = self.get_val(*a, **kw)
+        assert val is None or isinstance(val, int)
+        return val
+
+    def get_bytes_val(self, *a, **kw) -> bytes:
+        """Execute statement and return first element as bytes."""
+        val = self.get_val(*a, **kw)
+        assert isinstance(val, bytes)
+        return val
+
+    def get_bytes_val_or_none(self, *a, **kw) -> bytes | None:
+        """Execute statement and return first element as bytes or None."""
+        val = self.get_val(*a, **kw)
+        assert val is None or isinstance(val, bytes)
+        return val
+
+    def get_bool_val(self, *a, **kw) -> bool:
+        """Execute statement and return first element as bool."""
+        val = self.get_val(*a, **kw)
+        # SQLite stores booleans as 0/1 integers
+        assert isinstance(val, int)
+        return bool(val)
+
+    def get_bool_val_or_none(self, *a, **kw) -> bool | None:
+        """Execute statement and return first element as bool or None."""
+        val = self.get_val(*a, **kw)
+        if val is None:
+            return None
+        assert isinstance(val, int)
+        return bool(val)
+
+    def get_inode_val(self, *a, **kw) -> InodeT:
+        """Execute statement and return first element as InodeT."""
+        val = self.get_val(*a, **kw)
+        assert isinstance(val, int)
+        return InodeT(val)
+
+    def get_inode_val_or_none(self, *a, **kw) -> InodeT | None:
+        """Execute statement and return first element as InodeT or None."""
+        val = self.get_val(*a, **kw)
+        if val is None:
+            return None
+        assert isinstance(val, int)
+        return InodeT(val)
+
+    # =========================================================================
+    # Typed row accessors for complex queries
+    # =========================================================================
+    #
+    # Just like the single-value accessor methods above, these methods exist to
+    # reduce the amount of boilerplate that is needed to make static type
+    # checkers happy. They do *not* add any extra type safety, they merely make
+    # it easier to assert to the type checker that we know what we are doing.
+    #
+    # These methods are for queries that don't map directly to a single table
+    # (e.g., JOIN queries with specific column selections). The caller provides
+    # the expected types as a tuple, and the method returns a properly typed
+    # tuple.
+
+    @overload
+    def get_row_typed(
+        self, types: tuple[Constructor[T1], Constructor[T2]], *a, **kw
+    ) -> tuple[T1, T2]: ...
+    @overload
+    def get_row_typed(
+        self, types: tuple[Constructor[T1], Constructor[T2], Constructor[T3]], *a, **kw
+    ) -> tuple[T1, T2, T3]: ...
+    @overload
+    def get_row_typed(
+        self,
+        types: tuple[Constructor[T1], Constructor[T2], Constructor[T3], Constructor[T4]],
+        *a,
+        **kw,
+    ) -> tuple[T1, T2, T3, T4]: ...
+    @overload
+    def get_row_typed(
+        self,
+        types: tuple[
+            Constructor[T1], Constructor[T2], Constructor[T3], Constructor[T4], Constructor[T5]
+        ],
+        *a,
+        **kw,
+    ) -> tuple[T1, T2, T3, T4, T5]: ...
+
+    def get_row_typed(self, types: tuple, *a, **kw) -> tuple:
+        """Execute select statement and return first row with type validation.
+
+        The *types* parameter is a tuple of types that the row elements should
+        match. In debug mode, each element is validated against its expected
+        type.
+        """
+        row = self.get_row(*a, **kw)
+        if __debug__:
+            if len(row) != len(types):
+                raise TypeError(f'Row has {len(row)} columns but {len(types)} types were specified')
+            for i, (val, expected) in enumerate(zip(row, types)):
+                # `types` may not be an actual type (it could be something declared with `NewType`,
+                # so we can't do an unconditional isinstance() check here.
+                if isinstance(expected, NewType):
+                    expected = expected.__supertype__
+                if not isinstance(val, expected):
+                    raise TypeError(
+                        f'Column {i + 1}: expected {expected.__name__}, got {type(val).__name__}'
+                    )
+        return row
+
+    @overload
+    def query_typed(self, types: tuple[Constructor[T1]], *a, **kw) -> Iterator[tuple[T1]]: ...
+    @overload
+    def query_typed(
+        self, types: tuple[Constructor[T1], Constructor[T2]], *a, **kw
+    ) -> Iterator[tuple[T1, T2]]: ...
+    @overload
+    def query_typed(
+        self, types: tuple[Constructor[T1], Constructor[T2], Constructor[T3]], *a, **kw
+    ) -> Iterator[tuple[T1, T2, T3]]: ...
+    @overload
+    def query_typed(
+        self,
+        types: tuple[Constructor[T1], Constructor[T2], Constructor[T3], Constructor[T4]],
+        *a,
+        **kw,
+    ) -> Iterator[tuple[T1, T2, T3, T4]]: ...
+    @overload
+    def query_typed(
+        self,
+        types: tuple[
+            Constructor[T1], Constructor[T2], Constructor[T3], Constructor[T4], Constructor[T5]
+        ],
+        *a,
+        **kw,
+    ) -> Iterator[tuple[T1, T2, T3, T4, T5]]: ...
+
+    def query_typed(self, types: tuple, *a, **kw) -> Iterator[tuple]:
+        """Execute select and iterate over results with type validation.
+
+        The *types* parameter is a tuple of types that row elements should
+        match. In debug mode, each element is validated against its expected
+        type.
+        """
+        for row in self.query(*a, **kw):
+            if __debug__:
+                if len(row) != len(types):
+                    raise TypeError(
+                        f'Row has {len(row)} columns but {len(types)} types were specified'
+                    )
+                for i, (val, expected) in enumerate(zip(row, types)):
+                    # `types` may not be an actual type (it could be something declared with
+                    # `NewType`), so we can't do an unconditional isinstance() check here.
+                    if isinstance(expected, NewType):
+                        expected = expected.__supertype__
+                    if not isinstance(val, expected):
+                        raise TypeError(
+                            f'Column {i + 1}: expected {expected.__name__}, '
+                            f'got {type(val).__name__}'
+                        )
+            yield row
+
+    def last_rowid(self) -> int:
         """Return rowid most recently inserted in the current thread"""
 
         return self.conn.last_insert_rowid()
 
-    def changes(self):
+    def changes(self) -> int:
         """Return number of rows affected by most recent sql statement"""
 
         return self.conn.changes()
@@ -322,21 +524,26 @@ class BatchedTransactionManager:
         self.stamp = 0.0
         self.batch_size = 100
 
-    def __enter__(self):
+    def __enter__(self) -> BatchedTransactionManager:
         self.start_batch()
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         if self.in_tx:
             self.conn.execute('COMMIT')
             self.in_tx = False
 
-    def start_batch(self):
+    def start_batch(self) -> None:
         self.stamp = time.time()
         self.conn.execute('BEGIN TRANSACTION')
         self.in_tx = True
 
-    def finish_batch(self, processed: int):
+    def finish_batch(self, processed: int) -> None:
         '''Return new batch size'''
 
         if not self.in_tx:
@@ -358,7 +565,7 @@ class BatchedTransactionManager:
         )
 
 
-def create_tables(conn):
+def create_tables(conn: Connection) -> None:
     # Table of storage objects
     # Refcount is included for performance reasons
     # phys_size is the number of bytes stored in the backend (i.e., after compression).
@@ -480,7 +687,7 @@ class DatabaseChecksumError(RuntimeError):
         self.expected = expected
         self.actual = actual
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
@@ -500,8 +707,8 @@ def get_block_objects(backend: AbstractBackend) -> dict[int, list[int]]:
         seq_no = int(hit.group(2), base=16)
         block_list[blockno].append(seq_no)
 
-    for l in block_list.values():  # noqa: E741 # auto-added, needs manual check!
-        l.sort()
+    for seq_list in block_list.values():
+        seq_list.sort()
 
     return block_list
 
@@ -510,8 +717,8 @@ def download_metadata(
     backend: AbstractBackend,
     db_file: str,
     params: FsAttributes,
-    failsafe=False,
-):
+    failsafe: bool = False,
+) -> Connection:
     '''Download metadata from backend into *db_file*
 
     If *failsafe* is True, do not truncate file and do not verify
@@ -562,20 +769,22 @@ def download_metadata(
             if params.db_md5 != digest:
                 raise DatabaseChecksumError(db_file, params.db_md5, digest)
 
-    return Connection(db_file, blocksize)
+    conn = Connection(db_file, blocksize)
+
+    return conn
 
 
-def first_le_than(l: list[int], threshold: int):  # noqa: E741 # auto-added, needs manual check!
-    '''Return first element of *l* less or equal than *threshold*
+def first_le_than(seq: list[int], threshold: int) -> int:
+    '''Return first element of *seq* less or equal than *threshold*
 
-    Assumes that *l* is sorted in ascending order
+    Assumes that *seq* is sorted in ascending order
     '''
 
-    for e in l[::-1]:
+    for e in seq[::-1]:
         if e <= threshold:
             return e
 
-    raise ValueError('No element below %d in list of length %d' % (threshold, len(l)))
+    raise ValueError('No element below %d in list of length %d' % (threshold, len(seq)))
 
 
 def get_available_seq_nos(backend: AbstractBackend) -> list[int]:
@@ -590,12 +799,12 @@ def get_available_seq_nos(backend: AbstractBackend) -> list[int]:
     return nos
 
 
-def expire_objects(backend, versions_to_keep=32):
+def expire_objects(backend: AbstractBackend, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
     log.debug('Expiring old metadata backups...')
     block_list = get_block_objects(backend)
-    to_remove = []
+    to_remove: list[str] = []
 
     metadata_objs = get_available_seq_nos(backend)
     metadata_objs.sort()
@@ -692,13 +901,13 @@ def upload_metadata(
         params.db_md5 = digest
 
 
-def upload_params(backend: AbstractBackend, params: FsAttributes):
+def upload_params(backend: AbstractBackend, params: FsAttributes) -> None:
     buf = params.serialize()
     backend['s3ql_params'] = buf
     backend['s3ql_params_%010x' % params.seq_no] = buf
 
 
-def write_params(cachepath: str, params: FsAttributes):
+def write_params(cachepath: str, params: FsAttributes) -> None:
     buf = params.serialize()
     filename = cachepath + '.params'
     tmpname = filename + '.tmp'
@@ -721,7 +930,7 @@ def write_params(cachepath: str, params: FsAttributes):
         os.close(dirfd)
 
 
-def read_cached_params(cachepath: str, min_seq: Optional[int] = None) -> Optional[FsAttributes]:
+def read_cached_params(cachepath: str, min_seq: int | None = None) -> FsAttributes | None:
     filename = cachepath + '.params'
     if not os.path.exists(filename):
         return None
@@ -739,7 +948,7 @@ def read_cached_params(cachepath: str, min_seq: Optional[int] = None) -> Optiona
     return params
 
 
-def read_remote_params(backend, seq_no: Optional[int] = None) -> FsAttributes:
+def read_remote_params(backend: AbstractBackend, seq_no: int | None = None) -> FsAttributes:
     if seq_no is None:
         try:
             buf = backend['s3ql_params']
@@ -762,14 +971,14 @@ class NoUniqueValueError(Exception):
     that generated more than one result row.
     '''
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Query generated more than 1 result row'
 
 
 class NoSuchRowError(Exception):
     '''Raised if the query did not produce any result rows'''
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 'Query produced 0 result rows'
 
 
@@ -780,22 +989,27 @@ class ResultSet:
     the query before all result rows have been retrieved.
     '''
 
-    def __init__(self, cur):
+    def __init__(self, cur: apsw.Cursor) -> None:
         self.cur = cur
 
-    def __next__(self):
+    def __next__(self) -> SqlRowT:
         return next(self.cur)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[SqlRowT]:
         return self
 
-    def __enter__(self):
+    def __enter__(self) -> ResultSet:
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
         self.cur.close()
 
-    def close(self):
+    def close(self) -> None:
         '''Terminate query'''
 
         self.cur.close()

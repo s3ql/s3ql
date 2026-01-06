@@ -6,9 +6,12 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import binascii
 import builtins
 import contextlib
+import email.message
 import hashlib
 import hmac
 import logging
@@ -19,11 +22,13 @@ import time
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
+from collections.abc import Iterator
 from email.utils import mktime_tz, parsedate_tz
 from io import BytesIO
 from itertools import count
-from typing import Any, BinaryIO, Optional
+from typing import NoReturn, cast
 from urllib.parse import quote, unquote, urlsplit
+from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
@@ -33,9 +38,11 @@ from s3ql.http import (
     CaseInsensitiveDict,
     ConnectionClosed,
     HTTPConnection,
+    HTTPResponse,
     UnsupportedResponse,
     is_temp_network_error,
 )
+from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 from ..logging import QuietError
 from .common import (
@@ -65,9 +72,27 @@ class Backend(AbstractBackend):
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
     hdr_prefix = 'x-amz-'
-    known_options = {'no-ssl', 'ssl-ca-path', 'tcp-timeout', 'dumb-copy', 'disable-expect100'}
+    known_options: set[str] = {
+        'no-ssl',
+        'ssl-ca-path',
+        'tcp-timeout',
+        'dumb-copy',
+        'disable-expect100',
+    }
 
-    def __init__(self, options):
+    ssl_context: ssl.SSLContext | None
+    options: dict[str, str | bool]
+    bucket_name: str
+    prefix: str
+    hostname: str
+    port: int
+    proxy: tuple[str, int] | None
+    conn: HTTPConnection
+    password: str
+    login: str
+    _extra_put_headers: CaseInsensitiveDict
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
         '''Initialize backend object
 
         *ssl_context* may be a `ssl.SSLContext` instance or *None*.
@@ -78,7 +103,8 @@ class Backend(AbstractBackend):
         if 'no-ssl' in options.backend_options:
             self.ssl_context = None
         else:
-            self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
+            ssl_ca_path = options.backend_options.get('ssl-ca-path', None)
+            self.ssl_context = get_ssl_context(cast(str | None, ssl_ca_path))
 
         (host, port, bucket_name, prefix) = self._parse_storage_url(
             options.storage_url, self.ssl_context
@@ -95,13 +121,15 @@ class Backend(AbstractBackend):
         self.login = options.backend_login
         self._extra_put_headers = CaseInsensitiveDict()
 
-    def reset(self):
+    def reset(self) -> None:
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
     @staticmethod
-    def _parse_storage_url(storage_url, ssl_context):
+    def _parse_storage_url(
+        storage_url: str, ssl_context: ssl.SSLContext | None
+    ) -> tuple[str, int, str, str]:
         '''Extract information from storage URL
 
         Return a tuple * (host, port, bucket_name, prefix) * .
@@ -130,7 +158,7 @@ class Backend(AbstractBackend):
 
         return (hostname, port, bucketname, prefix)
 
-    def _get_conn(self):
+    def _get_conn(self) -> HTTPConnection:
         '''Return connection to server'''
 
         conn = HTTPConnection(
@@ -144,7 +172,7 @@ class Backend(AbstractBackend):
     # to check if this makes it unsuitable for use by `_get_access_token` (in
     # that case we will have to implement a custom retry logic there).
 
-    def is_temp_failure(self, exc):  # IGNORE:W0613
+    def is_temp_failure(self, exc: BaseException) -> bool:  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
             # We probably can't use the connection anymore, so disconnect (can't use reset, since
             # this would immediately attempt to reconnect, circumventing retry logic)
@@ -179,7 +207,7 @@ class Backend(AbstractBackend):
 
         return False
 
-    def _dump_response(self, resp, body=None):
+    def _dump_response(self, resp: HTTPResponse, body: bytes | bytearray | None = None) -> str:
         '''Return string representation of server response
 
         Only the beginning of the response body is read, so this is
@@ -205,7 +233,7 @@ class Backend(AbstractBackend):
             body.decode('utf-8', errors='backslashreplace'),
         )
 
-    def _assert_empty_response(self, resp):
+    def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
         buf = self.conn.read(2048)
@@ -224,7 +252,7 @@ class Backend(AbstractBackend):
         raise RuntimeError('Unexpected server response')
 
     @retry
-    def delete(self, key):
+    def delete(self, key: str) -> None:
         log.debug('started with %s', key)
         try:
             resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
@@ -232,10 +260,10 @@ class Backend(AbstractBackend):
         except NoSuchKeyError:
             pass
 
-    def list(self, prefix=''):
+    def list(self, prefix: str = '') -> Iterator[str]:
         prefix = self.prefix + prefix
         strip = len(self.prefix)
-        page_token = None
+        page_token: str | None = None
         while True:
             (els, page_token) = self._list_page(prefix, page_token)
             for el in els:
@@ -244,10 +272,12 @@ class Backend(AbstractBackend):
                 break
 
     @retry
-    def _list_page(self, prefix, page_token=None, batch_size=1000):
+    def _list_page(
+        self, prefix: str, page_token: str | None = None, batch_size: int = 1000
+    ) -> tuple[builtins.list[str], str | None]:
         # We can get at most 1000 keys at a time, so there's no need
         # to bother with streaming.
-        query_string = {'prefix': prefix, 'max-keys': str(batch_size)}
+        query_string: dict[str, str] = {'prefix': prefix, 'max-keys': str(batch_size)}
         if page_token:
             query_string['marker'] = page_token
 
@@ -271,16 +301,21 @@ class Backend(AbstractBackend):
                 )
                 raise RuntimeError('List response has unknown namespace')
 
-        names = [
-            x.findtext(root_xmlns_prefix + 'Key')
-            for x in etree.findall(root_xmlns_prefix + 'Contents')
-        ]
+        names: builtins.list[str] = []
+        for x in etree.findall(root_xmlns_prefix + 'Contents'):
+            key = x.findtext(root_xmlns_prefix + 'Key')
+            if key is not None:
+                names.append(key)
 
         is_truncated = etree.find(root_xmlns_prefix + 'IsTruncated')
+        if is_truncated is None:
+            raise RuntimeError('IsTruncated element not found in response')
         if is_truncated.text == 'false':
             page_token = None
         elif len(names) == 0:
             next_marker = etree.find(root_xmlns_prefix + 'NextMarker')
+            if next_marker is None:
+                raise RuntimeError('NextMarker element not found in response')
             page_token = next_marker.text
         else:
             page_token = names[-1]
@@ -288,7 +323,7 @@ class Backend(AbstractBackend):
         return (names, page_token)
 
     @retry
-    def lookup(self, key):
+    def lookup(self, key: str) -> BasicMappingT:
         log.debug('started with %s', key)
 
         try:
@@ -303,7 +338,7 @@ class Backend(AbstractBackend):
         return self._extractmeta(resp, key)
 
     @retry
-    def get_size(self, key):
+    def get_size(self, key: str) -> int:
         log.debug('started with %s', key)
 
         try:
@@ -320,7 +355,7 @@ class Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -330,7 +365,7 @@ class Backend(AbstractBackend):
         return self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
+    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int) -> BasicMappingT:
         try:
             resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKeyError:
@@ -350,7 +385,7 @@ class Backend(AbstractBackend):
 
         md5 = hashlib.md5()
         fh.seek(off)
-        copyfh(self.conn, fh, update=md5.update)
+        copyfh(self.conn, fh, update=md5.update)  # type: ignore[arg-type]
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -361,10 +396,10 @@ class Backend(AbstractBackend):
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
-        metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
-    ):
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
+    ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
         The data will be read at the current offset. If *len_* is None, reads until the
@@ -381,7 +416,9 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
+    def _write_fh(
+        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: BasicMappingT
+    ) -> int:
         headers = CaseInsensitiveDict()
         headers.update(self._extra_put_headers)
         self._add_meta_headers(headers, metadata)
@@ -404,7 +441,9 @@ class Backend(AbstractBackend):
         self._assert_empty_response(resp)
         return len_
 
-    def _add_meta_headers(self, headers, metadata, chunksize=255):
+    def _add_meta_headers(
+        self, headers: CaseInsensitiveDict, metadata: BasicMappingT, chunksize: int = 255
+    ) -> None:
         hdr_count = 0
         length = 0
         for key in metadata:
@@ -443,14 +482,14 @@ class Backend(AbstractBackend):
 
     def _do_request(
         self,
-        method,
-        path,
-        subres=None,
-        query_string=None,
-        headers=None,
-        body=None,
-        body_len: Optional[int] = None,
-    ):
+        method: str,
+        path: str,
+        subres: str | None = None,
+        query_string: dict[str, str] | None = None,
+        headers: CaseInsensitiveDict | None = None,
+        body: bytes | bytearray | memoryview | BinaryInput | None = None,
+        body_len: int | None = None,
+    ) -> HTTPResponse:
         '''Sign and send request, handle redirects, and return response object.
 
         This is a wrapper around _do_request_inner() that handles Redirect responses.
@@ -499,9 +538,12 @@ class Backend(AbstractBackend):
                         raise RuntimeError('Redirect to non-https URL')
                     elif not self.ssl_context and o.scheme != 'http':
                         raise RuntimeError('Redirect to non-http URL')
-                if o.hostname != self.hostname or o.port != self.port:
+                if o.hostname is None:
+                    raise RuntimeError('Redirect URL has no hostname')
+                new_port = o.port if o.port is not None else self.port
+                if o.hostname != self.hostname or new_port != self.port:
                     self.hostname = o.hostname
-                    self.port = o.port
+                    self.port = new_port
                     self.conn.disconnect()
                     self.conn = self._get_conn()
                 else:
@@ -546,7 +588,7 @@ class Backend(AbstractBackend):
         # Error
         self._parse_error_response(resp)
 
-    def _parse_error_response(self, resp):
+    def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
         '''Handle error response from server
 
         Try to raise most-specific exception.
@@ -579,9 +621,11 @@ class Backend(AbstractBackend):
             )
             raise
 
+        if tree is None:
+            raise RuntimeError('XML document has no root element')
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
-    def _parse_xml_response(self, resp, body=None):
+    def _parse_xml_response(self, resp: HTTPResponse, body: bytes | None = None) -> Element:
         '''Return element tree for XML response'''
 
         content_type = resp.headers['Content-Type']
@@ -607,12 +651,21 @@ class Backend(AbstractBackend):
             )
             raise
 
+        if tree is None:
+            raise RuntimeError('XML document has no root element')
         return tree
 
-    def __str__(self):
+    def __str__(self) -> str:
         return 's3c://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
 
-    def _authorize_request(self, method, path, headers, subres, query_string):
+    def _authorize_request(
+        self,
+        method: str,
+        path: str,
+        headers: CaseInsensitiveDict,
+        subres: str | None,
+        query_string: dict[str, str] | None,
+    ) -> None:
         '''Add authorization information to *headers*'''
 
         # See http://docs.amazonwebservices.com/AmazonS3/latest/dev/RESTAuthentication.html
@@ -658,8 +711,15 @@ class Backend(AbstractBackend):
         headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
 
     def _do_request_inner(
-        self, method, path, headers, subres=None, query_string=None, body=None, body_len=None
-    ):
+        self,
+        method: str,
+        path: str,
+        headers: CaseInsensitiveDict,
+        subres: str | None = None,
+        query_string: dict[str, str] | None = None,
+        body: bytes | bytearray | memoryview | BinaryInput | None = None,
+        body_len: int | None = None,
+    ) -> HTTPResponse:
         '''Sign and send request, return response object (including redirects)
 
         This method does not handle redirects.
@@ -712,15 +772,15 @@ class Backend(AbstractBackend):
             md5_update = md5.update
 
         try:
-            copyfh(body, self.conn, len_=body_len, update=md5_update)
+            copyfh(body, self.conn, len_=body_len, update=md5_update)  # type: ignore[arg-type]
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
-            resp = None
+            error_resp: HTTPResponse | None = None
             with contextlib.suppress(builtins.BaseException):
-                resp = self.conn.read_response()
-            if resp is not None:
-                self._parse_error_response(resp)
+                error_resp = self.conn.read_response()
+            if error_resp is not None:
+                self._parse_error_response(error_resp)
             else:
                 # Re-raise first ConnectionClosed exception
                 raise
@@ -741,10 +801,10 @@ class Backend(AbstractBackend):
 
         return resp
 
-    def close(self):
+    def close(self) -> None:
         self.conn.disconnect()
 
-    def _extractmeta(self, resp, obj_key):
+    def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata from HTTP response object'''
 
         format_ = resp.headers.get('%smeta-format' % self.hdr_prefix, 'raw')
@@ -795,7 +855,7 @@ class Backend(AbstractBackend):
         return meta
 
 
-def _tag_xmlns_uri(elem):
+def _tag_xmlns_uri(elem: Element) -> str | None:
     '''Extract the XML namespace (xmlns) URI from an element'''
     if elem.tag[0] == '{':
         uri = elem.tag[1:].partition("}")[0]
@@ -804,13 +864,18 @@ def _tag_xmlns_uri(elem):
     return uri
 
 
-def get_S3Error(code, msg, headers=None):
+def get_S3Error(
+    code: str | None, msg: str | None, headers: email.message.Message | None = None
+) -> S3Error:
     '''Instantiate most specific S3Error subclass'''
 
     # Special case
     # http://code.google.com/p/s3ql/issues/detail?id=369
     if code == 'Timeout':
         code = 'RequestTimeout'
+
+    if code is None:
+        return S3Error(code, msg, headers)
 
     if code.endswith('Error'):
         name = code
@@ -824,16 +889,17 @@ def get_S3Error(code, msg, headers=None):
     return class_(code, msg, headers)
 
 
-def md5sum_b64(buf):
+def md5sum_b64(buf: bytes | bytearray | memoryview) -> str:
     '''Return base64 encoded MD5 sum'''
 
     return b64encode(hashlib.md5(buf).digest()).decode('ascii')
 
 
-def _parse_retry_after(header):
+def _parse_retry_after(header: str) -> float | None:
     '''Parse headers for Retry-After value'''
 
     hit = re.match(r'^\s*([0-9]+)\s*$', header)
+    val: float
     if hit:
         val = int(header)
     else:
@@ -843,7 +909,7 @@ def _parse_retry_after(header):
             return None
         val = mktime_tz(date) - time.time()
 
-    val_clamp = min(300, max(1, val))
+    val_clamp = min(300.0, max(1.0, val))
     if val != val_clamp:
         log.warning('Ignoring retry-after value of %.3f s, using %.3f s instead', val, val_clamp)
         val = val_clamp
@@ -856,7 +922,12 @@ class HTTPError(Exception):
     Represents an HTTP error returned by S3.
     '''
 
-    def __init__(self, status: int, msg: str, headers=None):
+    status: int
+    msg: str
+    headers: email.message.Message | None
+    retry_after: float | None
+
+    def __init__(self, status: int, msg: str, headers: email.message.Message | None = None) -> None:
         super().__init__()
         self.status = status
         self.msg = msg
@@ -867,7 +938,7 @@ class HTTPError(Exception):
         else:
             self.retry_after = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         return '%d %s' % (self.status, self.msg)
 
 
@@ -877,7 +948,16 @@ class S3Error(Exception):
     http://docs.amazonwebservices.com/AmazonS3/latest/API/ErrorResponses.html
     '''
 
-    def __init__(self, code, msg, headers=None):
+    code: str | None
+    msg: str | None
+    retry_after: float | None
+
+    def __init__(
+        self,
+        code: str | None,
+        msg: str | None,
+        headers: email.message.Message | None = None,
+    ) -> None:
         super().__init__(msg)
         self.code = code
         self.msg = msg
@@ -887,7 +967,7 @@ class S3Error(Exception):
         else:
             self.retry_after = None
 
-    def __str__(self):
+    def __str__(self) -> str:
         return '%s: %s' % (self.code, self.msg)
 
 
@@ -895,7 +975,7 @@ class NoSuchKeyError(S3Error):
     pass
 
 
-class AccessDeniedError(S3Error, AuthorizationError):
+class AccessDeniedError(S3Error, AuthorizationError):  # type: ignore[misc]
     pass
 
 
@@ -911,15 +991,15 @@ class InternalError(S3Error):
     pass
 
 
-class InvalidAccessKeyIdError(S3Error, AuthenticationError):
+class InvalidAccessKeyIdError(S3Error, AuthenticationError):  # type: ignore[misc]
     pass
 
 
-class InvalidSecurityError(S3Error, AuthenticationError):
+class InvalidSecurityError(S3Error, AuthenticationError):  # type: ignore[misc]
     pass
 
 
-class SignatureDoesNotMatchError(S3Error, AuthenticationError):
+class SignatureDoesNotMatchError(S3Error, AuthenticationError):  # type: ignore[misc]
     pass
 
 

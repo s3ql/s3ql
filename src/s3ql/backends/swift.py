@@ -17,7 +17,7 @@ import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from itertools import count
-from typing import Any, BinaryIO, Optional
+from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from s3ql.common import copyfh
@@ -29,6 +29,7 @@ from s3ql.http import (
     UnsupportedResponse,
     is_temp_network_error,
 )
+from s3ql.types import BinaryInput, BinaryOutput
 
 from ..logging import LOG_ONCE, QuietError
 from .common import (
@@ -515,7 +516,7 @@ class Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryIO):
+    def readinto_fh(self, key: str, fh: BinaryOutput):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -525,7 +526,7 @@ class Backend(AbstractBackend):
         return self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryIO, off: int):
+    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         try:
@@ -560,7 +561,7 @@ class Backend(AbstractBackend):
     def write_fh(
         self,
         key: str,
-        fh: BinaryIO,
+        fh: BinaryInput,
         metadata: Optional[dict[str, Any]] = None,
         len_: Optional[int] = None,
     ):
@@ -583,7 +584,7 @@ class Backend(AbstractBackend):
         return self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryIO, off: int, len_: int, metadata: dict[str, Any]):
+    def _write_fh(self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]):
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 

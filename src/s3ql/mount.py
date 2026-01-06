@@ -6,6 +6,8 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import _thread
 import argparse
 import atexit
@@ -23,12 +25,16 @@ import subprocess
 import sys
 import threading
 import time
+from argparse import Namespace
 from contextlib import AsyncExitStack
+from types import FrameType, TracebackType
+from typing import TYPE_CHECKING
 
 import pyfuse3
 import trio
 
 from . import fs
+from .backends.common import AbstractBackend
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import get_backend_factory, is_mounted
@@ -45,8 +51,11 @@ from .database import (
     write_params,
 )
 from .inode_cache import InodeCache
-from .logging import QuietError, setup_logging, setup_warnings
+from .logging import ConsoleHandler, QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
+
+if TYPE_CHECKING:
+    from .fs import Operations
 
 log = logging.getLogger(__name__)
 
@@ -71,7 +80,7 @@ def systemd_notify(message: str) -> None:
         sock.sendall(message.encode('utf-8'))
 
 
-def install_thread_excepthook():
+def install_thread_excepthook() -> None:
     """work around sys.excepthook thread bug
 
     See http://bugs.python.org/issue1230540.
@@ -83,11 +92,11 @@ def install_thread_excepthook():
 
     init_old = threading.Thread.__init__
 
-    def init(self, *args, **kwargs):
+    def init(self: threading.Thread, *args, **kwargs) -> None:
         init_old(self, *args, **kwargs)
         run_old = self.run
 
-        def run_with_except_hook(*args, **kw):
+        def run_with_except_hook(*args: object, **kw: object) -> None:
             try:
                 run_old(*args, **kw)
             except SystemExit:
@@ -95,12 +104,12 @@ def install_thread_excepthook():
             except:  # noqa: E722 # auto-added, needs manual check!
                 sys.excepthook(*sys.exc_info())
 
-        self.run = run_with_except_hook
+        self.run = run_with_except_hook  # type: ignore[method-assign]
 
-    threading.Thread.__init__ = init
+    threading.Thread.__init__ = init  # type: ignore[method-assign]
 
 
-def main(args=None):
+def main(args: list[str] | None = None) -> None:
     '''Mount S3QL file system'''
 
     if args is None:
@@ -170,37 +179,39 @@ def main(args=None):
 
 
 class Tracer(trio.abc.Instrument):
-    def _print_with_task(self, msg, task):
+    _sleep_time: float
+
+    def _print_with_task(self, msg: str, task: trio.lowlevel.Task) -> None:
         print(f"{msg}: {task.name}")
 
-    def task_spawned(self, task):
+    def task_spawned(self, task: trio.lowlevel.Task) -> None:
         self._print_with_task("### new task spawned", task)
 
-    def task_scheduled(self, task):
+    def task_scheduled(self, task: trio.lowlevel.Task) -> None:
         self._print_with_task("### task scheduled", task)
 
-    def before_task_step(self, task):
+    def before_task_step(self, task: trio.lowlevel.Task) -> None:
         self._print_with_task(">>> about to run one step of task", task)
 
-    def after_task_step(self, task):
+    def after_task_step(self, task: trio.lowlevel.Task) -> None:
         self._print_with_task("<<< task step finished", task)
 
-    def task_exited(self, task):
+    def task_exited(self, task: trio.lowlevel.Task) -> None:
         self._print_with_task("### task exited", task)
 
-    def before_io_wait(self, timeout):
+    def before_io_wait(self, timeout: float) -> None:
         if timeout:
             print(f"### waiting for I/O for up to {timeout} seconds")
         else:
             print("### doing a quick check for I/O")
         self._sleep_time = trio.current_time()
 
-    def after_io_wait(self, timeout):
+    def after_io_wait(self, timeout: float) -> None:
         duration = trio.current_time() - self._sleep_time
         print(f"### finished I/O check (took {duration} seconds)")
 
 
-async def main_async(options, stdout_log_handler):
+async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | None) -> None:
     # Get paths
     cachepath = options.cachepath
 
@@ -263,7 +274,7 @@ async def main_async(options, stdout_log_handler):
 
         unmount_clean = False
 
-        def unmount():
+        def unmount() -> None:
             log.info("Unmounting file system...")
             pyfuse3.close(unmount=unmount_clean)
 
@@ -300,21 +311,24 @@ async def main_async(options, stdout_log_handler):
 
         exc_info = setup_exchook()
 
-        received_signals = []
+        received_signals: list[signal.Signals] = []
 
-        def signal_handler(signum, frame, _main_thread=_thread.get_ident()):  # noqa: B008 # auto-added, needs manual check!
+        def signal_handler(
+            signum: int, frame: FrameType | None, _main_thread: int = _thread.get_ident()
+        ) -> None:
             log.debug('Signal %d received', signum)
             if pyfuse3.trio_token is None:
                 log.debug('FUSE loop not running')
                 if callable(old_handler):
                     log.debug('Calling parent handler...')
-                    return old_handler(signum, frame)
+                    old_handler(signum, frame)
+                    return
             log.debug('Calling pyfuse3.terminate()...')
             if _thread.get_ident() == _main_thread:
                 pyfuse3.terminate()
             else:
                 trio.from_thread.run_sync(pyfuse3.terminate, trio_token=pyfuse3.trio_token)
-            received_signals.append(signum)
+            received_signals.append(signal.Signals(signum))
 
         signal.signal(signal.SIGTERM, signal_handler)
         old_handler = signal.signal(signal.SIGINT, signal_handler)
@@ -332,7 +346,10 @@ async def main_async(options, stdout_log_handler):
 
         # Re-raise if main loop terminated due to exception in other thread
         if exc_info:
-            (exc_inst, exc_tb) = exc_info
+            exc_inst = exc_info[0]
+            exc_tb = exc_info[1]
+            assert isinstance(exc_inst, BaseException)
+            assert exc_tb is None or isinstance(exc_tb, TracebackType)
             raise exc_inst.with_traceback(exc_tb)
 
         log.info("FUSE main loop terminated.")
@@ -359,7 +376,7 @@ async def main_async(options, stdout_log_handler):
     log.info('All done.')
 
 
-def get_system_memory():
+def get_system_memory() -> int:
     '''Attempt to determine total system memory
 
     If amount cannot be determined, emits warning and
@@ -391,10 +408,21 @@ def get_system_memory():
 
 
 # Memory required for LZMA compression in MB (from xz(1))
-LZMA_MEMORY = {0: 3, 1: 9, 2: 17, 3: 32, 4: 48, 5: 94, 6: 94, 7: 186, 8: 370, 9: 674}
+LZMA_MEMORY: dict[int, int] = {
+    0: 3,
+    1: 9,
+    2: 17,
+    3: 32,
+    4: 48,
+    5: 94,
+    6: 94,
+    7: 186,
+    8: 370,
+    9: 674,
+}
 
 
-def determine_threads(options):
+def determine_threads(options: Namespace) -> int:
     '''Return optimum number of upload threads'''
 
     try:
@@ -437,7 +465,7 @@ def determine_threads(options):
         return threads
 
 
-def get_metadata(backend, cachepath) -> tuple[FsAttributes, Connection]:
+def get_metadata(backend: AbstractBackend, cachepath: str) -> tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None
@@ -475,25 +503,25 @@ def get_metadata(backend, cachepath) -> tuple[FsAttributes, Connection]:
     return (param, db)
 
 
-def get_fuse_opts(options):
+def get_fuse_opts(options: Namespace) -> set[str]:
     '''Return fuse options for given command line options'''
 
     fsname = options.fs_name
     if not fsname:
         fsname = options.storage_url
-    fuse_opts = ['fsname=%s' % fsname, 'subtype=s3ql']
+    fuse_opts: set[str] = {'fsname=%s' % fsname, 'subtype=s3ql'}
 
     if options.allow_other:
-        fuse_opts.append('allow_other')
+        fuse_opts.add('allow_other')
     if options.allow_root:
-        fuse_opts.append('allow_root')
+        fuse_opts.add('allow_root')
     if options.allow_other or options.allow_root:
-        fuse_opts.append('default_permissions')
+        fuse_opts.add('default_permissions')
 
     return fuse_opts
 
 
-def parse_args(args):
+def parse_args(args: list[str]) -> Namespace:
     '''Parse command line'''
 
     # Parse fstab-style -o options
@@ -672,7 +700,17 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    def __init__(self, params: FsAttributes, backend_pool, db, options):
+    backend_pool: BackendPool
+    db: Connection
+    event: trio.Event
+    quit: bool
+    params: FsAttributes
+    options: Namespace
+    fs: Operations | None
+
+    def __init__(
+        self, params: FsAttributes, backend_pool: BackendPool, db: Connection, options: Namespace
+    ) -> None:
         super().__init__()
         self.backend_pool = backend_pool
         self.db = db
@@ -680,8 +718,9 @@ class MetadataUploadTask:
         self.quit = False
         self.params = params
         self.options = options
+        self.fs = None
 
-    async def run(self):
+    async def run(self) -> None:
         log.debug('started')
 
         while not self.quit:
@@ -738,7 +777,7 @@ class MetadataUploadTask:
 
         log.debug('finished')
 
-    def stop(self):
+    def stop(self) -> None:
         '''Signal thread to terminate'''
 
         log.debug('started')
@@ -746,7 +785,7 @@ class MetadataUploadTask:
         self.event.set()
 
 
-def setup_exchook():
+def setup_exchook() -> list[BaseException | TracebackType | None]:
     '''Terminate FUSE main loop if any thread terminates with an exception
 
     The exc_info will be saved in the list object returned by this function.
@@ -754,9 +793,11 @@ def setup_exchook():
 
     main_thread = _thread.get_ident()
     old_exchook = sys.excepthook
-    exc_info = []
+    exc_info: list[BaseException | TracebackType | None] = []
 
-    def exchook(exc_type, exc_inst, tb):
+    def exchook(
+        exc_type: type[BaseException], exc_inst: BaseException, tb: TracebackType | None
+    ) -> None:
         reporting_thread = _thread.get_ident()
         if reporting_thread != main_thread:
             if exc_info:
@@ -786,13 +827,17 @@ class CommitTask:
     Periodically upload dirty blocks.
     '''
 
-    def __init__(self, block_cache, dirty_block_upload_delay):
+    block_cache: BlockCache
+    stop_event: trio.Event
+    dirty_block_upload_delay: int
+
+    def __init__(self, block_cache: BlockCache, dirty_block_upload_delay: int) -> None:
         super().__init__()
         self.block_cache = block_cache
         self.stop_event = trio.Event()
         self.dirty_block_upload_delay = dirty_block_upload_delay
 
-    async def run(self):
+    async def run(self) -> None:
         log.debug('started')
 
         while not self.stop_event.is_set():
@@ -827,7 +872,7 @@ class CommitTask:
 
         log.debug('finished')
 
-    def stop(self):
+    def stop(self) -> None:
         '''Signal thread to terminate'''
 
         log.debug('started')
