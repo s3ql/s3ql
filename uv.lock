@@ -719,12 +719,28 @@ wheels = [
 
 [[package]]
 name = "pyfuse3"
-version = "3.4.0"
+version = "3.4.1"
 source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "trio" },
+resolution-markers = [
+    "python_full_version < '3.10'",
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/1e/0f8f285a65e2e64f2f0c4accce4ee67d9ac66ee9684492a4327e48d68d87/pyfuse3-3.4.0.tar.gz", hash = "sha256:793493f4d5e2b3bc10e13b3421d426a6e2e3365264c24376a50b8cbc69762d39", size = 962992, upload-time = "2024-08-28T21:59:28.939Z" }
+dependencies = [
+    { name = "trio", marker = "python_full_version < '3.10'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/db/39003f19d6eb00fafc8210a8ee2703e58553c4c588f71ca413155fd43e32/pyfuse3-3.4.1.tar.gz", hash = "sha256:602f9c5f944bcdbd5e7f526c0e7f44af41970abedabc72d94ac16563e1b49209", size = 1185901, upload-time = "2025-12-22T21:22:27.019Z" }
+
+[[package]]
+name = "pyfuse3"
+version = "3.4.2"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.11'",
+    "python_full_version == '3.10.*'",
+]
+dependencies = [
+    { name = "trio", marker = "python_full_version >= '3.10'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/c8/8d4b00354b0aae1660310c6853cad7228af7efc344b3ff7d8cc4a894343d/pyfuse3-3.4.2.tar.gz", hash = "sha256:0a59031969c4ba51a5ec1b67f3c5c24f641a6a3f8119a86edad56debcb9084d9", size = 1189811, upload-time = "2026-01-06T19:03:22.229Z" }
 
 [[package]]
 name = "pygments"
@@ -839,7 +855,8 @@ dependencies = [
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
-    { name = "pyfuse3" },
+    { name = "pyfuse3", version = "3.4.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.10'" },
+    { name = "pyfuse3", version = "3.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "requests" },
     { name = "trio" },
 ]
