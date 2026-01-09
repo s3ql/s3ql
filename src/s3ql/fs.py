@@ -744,7 +744,7 @@ class Operations(pyfuse3.Operations):
             target_exists = True
 
         if target_exists:
-            self._replace(id_p_old, name_old, id_p_new, name_new, inode_old.id, inode_new.id)
+            await self._replace(id_p_old, name_old, id_p_new, name_new, inode_old.id, inode_new.id)
             await self.forget([(inode_old.id, 1), (inode_new.id, 1)])
         else:
             self._rename(id_p_old, name_old, id_p_new, name_new)
@@ -801,7 +801,7 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
         inode_p_new.ctime_ns = now_ns
 
-    def _replace(self, id_p_old, name_old, id_p_new, name_new, id_old, id_new):
+    async def _replace(self, id_p_old, name_old, id_p_new, name_new, id_old, id_new):
         now_ns = time_ns()
 
         if self.db.has_val("SELECT 1 FROM contents WHERE parent_inode=?", (id_new,)):
@@ -837,7 +837,7 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
-            self.cache.remove(id_new, 0, int(math.ceil(inode_new.size / self.max_obj_size)))
+            await self.cache.remove(id_new, 0, int(math.ceil(inode_new.size / self.max_obj_size)))
             # Since the inode is not open, it's not possible that new blocks
             # get created at this point and we can safely delete the inode
             self.db.execute(
