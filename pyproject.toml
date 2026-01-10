@@ -146,4 +146,3 @@ reportOptionalCall = false
 reportOptionalMemberAccess = false
 reportOptionalOperand = false
 reportOptionalSubscript = false
-reportShadowedImports = false
