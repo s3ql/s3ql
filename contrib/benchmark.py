@@ -199,7 +199,7 @@ def main(args=None):
 
         src.seek(0)
         stamp = time.time()
-        obj_size = backend.write_fh('s3ql_testdata', src)
+        obj_size = backend.write_fh('s3ql_testdata', src, size)
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = obj_size / dt

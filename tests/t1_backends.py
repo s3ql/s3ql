@@ -310,7 +310,7 @@ async def test_readinto_write_fh(backend: AsyncBackend):
     with assert_raises(NoSuchObject):
         await backend.readinto_fh(key, buf)
 
-    assert await backend.write_fh(key, BytesIO(value), metadata) > 0
+    assert await backend.write_fh(key, BytesIO(value), len(value), metadata) > 0
 
     assert await backend.contains(key)
 
@@ -330,7 +330,7 @@ async def test_write_fh_partial(backend: AsyncBackend):
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert await backend.write_fh(key, buf, metadata, len_=20) > 0
+    assert await backend.write_fh(key, buf, 20, metadata) > 0
 
     buf2 = BytesIO()
     await backend.readinto_fh(key, buf2)
@@ -347,7 +347,7 @@ async def test_write_fh_off(backend: AsyncBackend):
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert await backend.write_fh(key, buf, metadata) > 0
+    assert await backend.write_fh(key, buf, len(data[10:]), metadata) > 0
 
     buf2 = BytesIO()
     await backend.readinto_fh(key, buf2)

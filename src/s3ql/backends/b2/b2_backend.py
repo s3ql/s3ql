@@ -478,22 +478,18 @@ class AsyncB2Backend(AsyncBackend):
         self,
         key: str,
         fh: BinaryInput,
+        len_: int,
         metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
     ):
         '''Upload *len_* bytes from *fh* under *key*.
 
-        The data will be read at the current offset. If *len_* is None, reads until the
-        end of the file.
+        The data will be read at the current offset.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried. Returns the size of the resulting storage object.
         '''
 
         off = fh.tell()
-        if len_ is None:
-            fh.seek(0, os.SEEK_END)
-            len_ = fh.tell()
         return await self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry

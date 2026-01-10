@@ -423,12 +423,12 @@ class BlockCache:
                 el.seek(0)
                 if log.isEnabledFor(logging.DEBUG):
                     time_ = time.time()
-                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
                     time_ = time.time() - time_
                     rate = el.size / (1024**2 * time_) if time_ != 0 else 0
                     log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
                 else:
-                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el)
+                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
             success = True
         finally:
             self.in_transit.remove(el)

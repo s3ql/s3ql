@@ -457,8 +457,9 @@ def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
     local_params['seq_no'] = local_seq_no + 1
     with tempfile.TemporaryFile() as tmpfh:
         backend.readinto_fh('s3ql_metadata', tmpfh)
+        len_ = tmpfh.tell()
         tmpfh.seek(0)
-        backend.write_fh("s3ql_metadata", tmpfh, metadata=local_params, dont_compress=True)
+        backend.write_fh("s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True)
 
     print('File system upgrade complete.')
 

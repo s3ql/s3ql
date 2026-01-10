@@ -281,7 +281,8 @@ class Fsck:
                 )
 
                 with open(os.path.join(self.cachedir, filename), "rb") as fh:
-                    obj_size = self.backend.write_fh('s3ql_data_%d' % obj_id, fh)
+                    size = os.fstat(fh.fileno()).st_size
+                    obj_size = self.backend.write_fh('s3ql_data_%d' % obj_id, fh, size)
 
                 self.conn.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
             else:

@@ -288,13 +288,12 @@ class AsyncBackend(metaclass=ABCMeta):
         self,
         key: str,
         fh: BinaryInput,
+        len_: int,
         metadata: BasicMappingT | None = None,
-        len_: int | None = None,
     ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
-        The data will be read at the current offset. If *len_* is None, reads until the
-        end of the file.
+        The data will be read at the current offset.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried.  Returns the size of the resulting storage object (which may be less due
@@ -331,7 +330,7 @@ class AsyncBackend(metaclass=ABCMeta):
         equivalent to ``backend.store(key, val)``.
         """
 
-        return await self.write_fh(key, BytesIO(val), metadata)
+        return await self.write_fh(key, BytesIO(val), len(val), metadata)
 
     @abstractmethod
     def is_temp_failure(self, exc: BaseException) -> bool:
@@ -739,10 +738,10 @@ class AbstractBackend:
         self,
         key: str,
         fh: BinaryInput,
+        len_: int,
         metadata: BasicMappingT | None = None,
-        len_: int | None = None,
     ) -> int:
-        return run_async(self.async_backend.write_fh, key, fh, metadata, len_)
+        return run_async(self.async_backend.write_fh, key, fh, len_, metadata)
 
     @property
     def is_temp_failure(self) -> Callable[[BaseException], bool]:

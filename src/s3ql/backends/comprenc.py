@@ -211,7 +211,9 @@ class AsyncComprencBackend(AsyncBackend):
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 
-    async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
+    async def readinto_fh(
+        self, key: str, fh: BinaryOutput, size_hint: int | None = None
+    ) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -219,6 +221,9 @@ class AsyncComprencBackend(AsyncBackend):
 
         If the backend has a password set but the object is not encrypted, `ObjectNotEncrypted` is
         raised.
+
+        *size_hint*, if given, is an optional hint about the expected size of the object that
+        will be used to decide whether to use threaded decompression/decryption or not.
         '''
 
         buf1 = io.BytesIO()
@@ -278,14 +283,13 @@ class AsyncComprencBackend(AsyncBackend):
         self,
         key: str,
         fh: BinaryInput,
+        len_: int,
         metadata: BasicMappingT | None = None,
-        len_: int | None = None,
         dont_compress: bool = False,
     ) -> int:
         '''Upload *len_* bytes from *fh* under *key*.
 
-        The data will be read at the current offset. If *len_* is None, reads until the
-        end of the file.
+        The data will be read at the current offset.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried.  Returns the size of the resulting storage object (which may be less due
@@ -311,9 +315,9 @@ class AsyncComprencBackend(AsyncBackend):
                 meta_raw['compression'] = 'LZMA'
             buf = io.BytesIO()
             await trio.to_thread.run_sync(compress_fh, fh, buf, compr, len_)
+            len_ = buf.tell()
             buf.seek(0)
             fh = buf
-            len_ = None
 
         if self.passphrase is None:
             meta_raw['encryption'] = 'None'
@@ -330,11 +334,11 @@ class AsyncComprencBackend(AsyncBackend):
             data_key = sha256(self.passphrase + nonce)
             buf = io.BytesIO()
             await trio.to_thread.run_sync(encrypt_fh, fh, buf, data_key, len_)
+            len_ = buf.tell()
             buf.seek(0)
             fh = buf
-            len_ = None
 
-        return await self.backend.write_fh(key, fh, meta_raw, len_=len_)
+        return await self.backend.write_fh(key, fh, len_, meta_raw)
 
     async def contains(self, key: str) -> bool:
         return await self.backend.contains(key)
@@ -533,12 +537,17 @@ class ComprencBackend(AbstractBackend):
         '''Access underlying raw backend (wrapped as sync)'''
         return AbstractBackend(self.async_backend.backend)
 
+    def readinto_fh(
+        self, key: str, fh: BinaryOutput, size_hint: int | None = None
+    ) -> BasicMappingT:
+        return run_async(self.async_backend.readinto_fh, key, fh, size_hint)
+
     def write_fh(
         self,
         key: str,
         fh: BinaryInput,
+        len_: int,
         metadata: BasicMappingT | None = None,
-        len_: int | None = None,
         dont_compress: bool = False,
     ) -> int:
-        return run_async(self.async_backend.write_fh, key, fh, metadata, len_, dont_compress)
+        return run_async(self.async_backend.write_fh, key, fh, len_, metadata, dont_compress)

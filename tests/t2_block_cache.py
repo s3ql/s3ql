@@ -563,12 +563,12 @@ class MockBackendPool(AbstractBackend):
             raise RuntimeError('Got too many readinto_fh calls')
         return self.backend.readinto_fh(key, fh)
 
-    def write_fh(self, key, fh, metadata=None, dont_compress=False, len_=None):
+    def write_fh(self, key, fh, len_, metadata=None, dont_compress=False):
         self.no_write -= 1
         if self.no_write < 0:
             raise RuntimeError('Got too many write_fh calls')
 
-        return self.backend.write_fh(key, fh, metadata, dont_compress=dont_compress, len_=len_)
+        return self.backend.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
 
     def is_temp_failure(self, exc):
         return self.backend.is_temp_failure(exc)
