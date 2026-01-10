@@ -31,10 +31,9 @@ from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
 
 from s3ql import BUFSIZE, backends
-from s3ql.backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
-from s3ql.backends.comprenc import ComprencBackend, ObjectNotEncrypted
-from s3ql.backends.gs import Backend as GSBackend
-from s3ql.backends.local import Backend as LocalBackend
+from s3ql.backends import gs, local
+from s3ql.backends.common import AsyncBackend, CorruptedObjectError, NoSuchObject
+from s3ql.backends.comprenc import AsyncComprencBackend, ObjectNotEncrypted
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
 from s3ql.http import ConnectionClosed
 from s3ql.types import BasicMappingT
@@ -55,7 +54,7 @@ def brace_expand(s):
 
 
 def enable_temp_fail(backend):
-    if isinstance(backend, ComprencBackend):
+    if isinstance(backend, AsyncComprencBackend):
         backend = backend.backend
     backend.unittest_info.may_temp_fail = True
 
@@ -155,7 +154,7 @@ def pytest_generate_tests(metafunc, _info_cache=[]):  # noqa: B006
 
 
 @pytest.fixture()
-def backend(request):
+async def backend(request):
     (backend_info, comprenc_kind) = request.param
 
     if backend_info.classname == 'local':
@@ -165,36 +164,36 @@ def backend(request):
     else:
         gen = yield_remote_backend(backend_info)
 
-    for raw_backend in gen:
+    async for raw_backend in gen:
         if comprenc_kind == 'raw':
             backend = raw_backend
         elif comprenc_kind == 'plain':
-            backend = ComprencBackend(None, (None, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(None, (None, 6), raw_backend)
         elif comprenc_kind == 'aes+zlib':
-            backend = ComprencBackend(b'schlurz', ('zlib', 6), raw_backend)
+            backend = await AsyncComprencBackend.create(b'schlurz', ('zlib', 6), raw_backend)
         elif comprenc_kind == 'aes':
-            backend = ComprencBackend(b'schlurz', (None, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(b'schlurz', (None, 6), raw_backend)
         else:
-            backend = ComprencBackend(None, (comprenc_kind, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(None, (comprenc_kind, 6), raw_backend)
 
         backend.unittest_info = raw_backend.unittest_info
 
         yield backend
 
 
-def yield_local_backend(bi):
+async def yield_local_backend(bi):
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    backend = LocalBackend(Namespace(storage_url='local://' + backend_dir))
+    backend = await local.AsyncBackend.create(Namespace(storage_url='local://' + backend_dir))
     backend.unittest_info = Namespace()
     try:
         yield backend
     finally:
-        backend.close()
+        await backend.close()
         shutil.rmtree(backend_dir)
 
 
-def yield_mock_backend(bi):
-    backend_class = backends.prefix_map[bi.classname]
+async def yield_mock_backend(bi):
+    backend_class = backends.async_prefix_map[bi.classname]
     server = mock_server.StorageServer(bi.request_handler, ('localhost', 0))
     thread = threading.Thread(target=server.serve_forever)
     thread.daemon = True
@@ -204,7 +203,7 @@ def yield_mock_backend(bi):
         'host': server.server_address[0],
         'port': server.server_address[1],
     }
-    backend = backend_class(
+    backend = await backend_class.create(
         Namespace(
             storage_url=storage_url,
             backend_login='joe',
@@ -214,7 +213,7 @@ def yield_mock_backend(bi):
     )
 
     # Enable OAuth when using Google Backend
-    if isinstance(backend, GSBackend):
+    if isinstance(backend, gs.AsyncBackend):
         backend.use_oauth2 = True
         backend.hdr_prefix = 'x-goog-'  # Normally set in __init__
         backend.access_token[backend.password] = 'foobar'
@@ -234,12 +233,12 @@ def yield_mock_backend(bi):
     try:
         yield backend
     finally:
-        backend.close()
+        await backend.close()
         server.shutdown()
         server.server_close()
 
 
-def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
+async def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
     # Add timestamp + ctr to prefix so we don't have to deal with cruft from
     # previous tests
     _ctr[0] += 1
@@ -248,8 +247,8 @@ def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
         storage_url += '/'
     storage_url += '%d_%d/' % (time.time(), _ctr[0])
 
-    backend_class = backends.prefix_map[bi.classname]
-    backend = backend_class(
+    backend_class = backends.async_prefix_map[bi.classname]
+    backend = await backend_class.create(
         Namespace(
             storage_url=storage_url,
             backend_login=bi.login,
@@ -259,12 +258,16 @@ def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
     )
 
     backend.unittest_info = Namespace()
+
+    async def cleanup():
+        async for name in backend.list():
+            await backend.delete(name)
+        await backend.close()
+
     try:
         yield backend
     finally:
-        for name in list(backend.list()):
-            backend.delete(name)
-        backend.close()
+        await cleanup()
 
 
 def newname(name_counter=[0]):  # noqa: B006
@@ -277,87 +280,94 @@ def newvalue():
     return newname().encode()
 
 
-def assert_in_index(backend, keys):
+async def assert_in_index(backend, keys):
     '''Assert that *keys* are in backend list output'''
 
     keys = set(keys)
-    index = set(backend.list())
+    index = {k async for k in backend.list()}
     assert keys - index == empty_set
 
 
-def assert_not_in_index(backend, keys):
+async def assert_not_in_index(backend, keys):
     '''Assert that *keys* are not in backend list output'''
 
     keys = set(keys)
-    index = set(backend.list())
+    index = {k async for k in backend.list()}
     assert keys - index == keys
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('*/raw', 'local/*')
-def test_readinto_write_fh(backend: AbstractBackend):
+async def test_readinto_write_fh(backend: AsyncBackend):
     key = newname()
     value = newvalue()
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
     buf = BytesIO()
 
-    assert not backend.contains(key)
-    assert_raises(NoSuchObject, backend.lookup, key)
-    assert_raises(NoSuchObject, backend.readinto_fh, key, buf)
+    assert not await backend.contains(key)
+    with assert_raises(NoSuchObject):
+        await backend.lookup(key)
+    with assert_raises(NoSuchObject):
+        await backend.readinto_fh(key, buf)
 
-    assert backend.write_fh(key, BytesIO(value), metadata) > 0
+    assert await backend.write_fh(key, BytesIO(value), metadata) > 0
 
-    assert backend.contains(key)
+    assert await backend.contains(key)
 
-    metadata2 = backend.readinto_fh(key, buf)
+    metadata2 = await backend.readinto_fh(key, buf)
 
     assert value == buf.getvalue()
     assert metadata == metadata2
-    assert backend.lookup(key) == metadata
+    assert await backend.lookup(key) == metadata
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
-def test_write_fh_partial(backend: AbstractBackend):
+async def test_write_fh_partial(backend: AsyncBackend):
     key = newname()
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
     data = (''.join(str(x) for x in range(100))).encode()
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert backend.write_fh(key, buf, metadata, len_=20) > 0
+    assert await backend.write_fh(key, buf, metadata, len_=20) > 0
 
     buf2 = BytesIO()
-    backend.readinto_fh(key, buf2)
+    await backend.readinto_fh(key, buf2)
 
     assert buf2.getvalue() == data[10 : 10 + 20]
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
-def test_write_fh_off(backend: AbstractBackend):
+async def test_write_fh_off(backend: AsyncBackend):
     key = newname()
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
     data = (''.join(str(x) for x in range(100))).encode()
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert backend.write_fh(key, buf, metadata) > 0
+    assert await backend.write_fh(key, buf, metadata) > 0
 
     buf2 = BytesIO()
-    backend.readinto_fh(key, buf2)
+    await backend.readinto_fh(key, buf2)
 
     assert buf2.getvalue() == data[10:]
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('swift/raw')
-def test_issue114(backend, monkeypatch):
+async def test_issue114(backend, monkeypatch):
     key = newname()
     value = newvalue()
     monkeypatch.setitem(backend.options, 'disable-expect100', True)
-    backend.store(key, value)
-    assert_in_index(backend, [key])
+    await backend.store(key, value)
+    await assert_in_index(backend, [key])
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('*/raw', 'local/aes+zlib')
-def test_complex_meta(backend):
+async def test_complex_meta(backend):
     key = newname()
     value = newvalue()
 
@@ -371,81 +381,86 @@ def test_complex_meta(backend):
         'lo-ng': 'foobarz' * 40,
     }
 
-    assert not backend.contains(key)
-    backend.store(key, value, metadata)
-    (value2, metadata2) = backend.fetch(key)
+    assert not await backend.contains(key)
+    await backend.store(key, value, metadata)
+    (value2, metadata2) = await backend.fetch(key)
 
     assert value == value2
     assert metadata == metadata2
-    assert backend.lookup(key) == metadata
+    assert await backend.lookup(key) == metadata
 
 
 # No need to run with different encryption/compression settings,
 # ComprencBackend should just forward this 1:1 to the raw backend.
+@pytest.mark.trio
 @pytest.mark.with_backend('*/aes')
-def test_list(backend):
+async def test_list(backend):
     keys = ['prefixa' + newname() for _ in range(6)] + ['prefixb' + newname() for _ in range(6)]
     values = [newvalue() for _ in range(12)]
 
-    assert set(backend.list()) == empty_set
+    assert {k async for k in backend.list()} == empty_set
     for i in range(12):
-        backend.store(keys[i], values[i])
-    assert_in_index(backend, keys)
+        await backend.store(keys[i], values[i])
+    await assert_in_index(backend, keys)
 
-    assert set(backend.list('prefixa')) == set(keys[:6])
-    assert set(backend.list('prefixb')) == set(keys[6:])
-    assert set(backend.list('prefixc')) == empty_set
+    assert {k async for k in backend.list('prefixa')} == set(keys[:6])
+    assert {k async for k in backend.list('prefixb')} == set(keys[6:])
+    assert {k async for k in backend.list('prefixc')} == empty_set
 
 
 # No need to run with different encryption/compression settings,
 # ComprencBackend should just forward this 1:1 to the raw backend.
+@pytest.mark.trio
 @pytest.mark.with_backend('*/aes')
-def test_delete(backend):
+async def test_delete(backend):
     key = newname()
     value = newvalue()
 
-    backend.store(key, value)
-    assert_in_index(backend, [key])
-    backend.fetch(key)
+    await backend.store(key, value)
+    await assert_in_index(backend, [key])
+    await backend.fetch(key)
 
-    backend.delete(key)
+    await backend.delete(key)
 
-    assert_not_in_index(backend, [key])
+    await assert_not_in_index(backend, [key])
     with pytest.raises(NoSuchObject):
-        backend.fetch(key)
+        await backend.fetch(key)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('*/aes')
-def test_delete_non_existing(backend):
+async def test_delete_non_existing(backend):
     key = newname()
-    backend.delete(key)
+    await backend.delete(key)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('b2/aes')
-def test_delete_b2_versions(backend):
+async def test_delete_b2_versions(backend):
     key = newname()
     values = [newvalue() for _ in range(3)]
 
     # Write values to same key, should become versions of the key
     for value in values:
-        backend.store(key, value)
+        await backend.store(key, value)
 
     # Wait for it
-    assert_in_index(backend, [key])
-    backend.fetch(key)
+    await assert_in_index(backend, [key])
+    await backend.fetch(key)
 
     # Delete it, should delete all versions
-    backend.delete(key)
+    await backend.delete(key)
 
-    assert_not_in_index(backend, [key])
+    await assert_not_in_index(backend, [key])
     with pytest.raises(NoSuchObject):
-        backend.fetch(key)
+        await backend.fetch(key)
 
 
 # No need to run with different encryption/compression settings,
 # ComprencBackend should just forward this 1:1 to the raw backend.
+@pytest.mark.trio
 @pytest.mark.with_backend('*/aes')
-def test_delete_multi(backend):
+async def test_delete_multi(backend):
     if not backend.has_delete_multi:
         pytest.skip('backend does not support delete_multi')
 
@@ -453,42 +468,43 @@ def test_delete_multi(backend):
     value = newvalue()
 
     for key in keys:
-        backend.store(key, value)
+        await backend.store(key, value)
 
     # Delete half of them
     to_delete = keys[::2]
-    backend.delete_multi(to_delete)
+    await backend.delete_multi(to_delete)
     assert len(to_delete) == 0
 
-    assert_not_in_index(backend, keys[::2])
+    await assert_not_in_index(backend, keys[::2])
     for key in keys[::2]:
         with pytest.raises(NoSuchObject):
-            backend.fetch(key)
+            await backend.fetch(key)
 
-    assert_in_index(backend, keys[1::2])
+    await assert_in_index(backend, keys[1::2])
     for key in keys[1::2]:
-        backend.fetch(key)
+        await backend.fetch(key)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('local/{aes,aes+zlib,zlib,bzip2,lzma}')
-def test_corruption(backend):
+async def test_corruption(backend):
     plain_backend = backend.backend
 
     # Create compressed object
     key = newname()
     value = newvalue()
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Retrieve compressed data
-    (compr_value, meta) = plain_backend.fetch(key)
+    (compr_value, meta) = await plain_backend.fetch(key)
     compr_value = bytearray(compr_value)
 
     # Overwrite with corrupted data
     compr_value[-3:] = b'000'
-    plain_backend.store(key, compr_value, meta)
+    await plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(CorruptedObjectError) as exc:
-        backend.fetch(key)
+        await backend.fetch(key)
 
     if backend.passphrase is None:  # compression only
         assert exc.value.str == 'Invalid compressed stream'
@@ -496,25 +512,26 @@ def test_corruption(backend):
         assert exc.value.str == 'HMAC mismatch'
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('local/{aes,aes+zlib,zlib,bzip2,lzma}')
-def test_extra_data(backend):
+async def test_extra_data(backend):
     plain_backend = backend.backend
 
     # Create compressed object
     key = newname()
     value = newvalue()
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Retrieve compressed data
-    (compr_value, meta) = plain_backend.fetch(key)
+    (compr_value, meta) = await plain_backend.fetch(key)
     compr_value = bytearray(compr_value)
 
     # Overwrite with extended data
     compr_value += b'000'
-    plain_backend.store(key, compr_value, meta)
+    await plain_backend.store(key, compr_value, meta)
 
     with pytest.raises(CorruptedObjectError) as exc:
-        backend.fetch(key)
+        await backend.fetch(key)
 
     if backend.passphrase is None:  # compression only
         assert exc.value.str == 'Data after end of compressed stream'
@@ -522,59 +539,70 @@ def test_extra_data(backend):
         assert exc.value.str == 'Extraneous data at end of object'
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('local/{aes,aes+zlib}')
-def test_encryption(backend):
+async def test_encryption(backend):
     plain_backend = backend.backend
 
-    plain_backend.store('plain', b'foobar452')
-    backend.store('encrypted', b'testdata', {'tag': True})
+    await plain_backend.store('plain', b'foobar452')
+    await backend.store('encrypted', b'testdata', {'tag': True})
 
-    assert plain_backend.fetch('encrypted')[0] != b'testdata'
-    assert_raises(CorruptedObjectError, backend.fetch, 'plain')
-    assert_raises(CorruptedObjectError, backend.lookup, 'plain')
+    assert (await plain_backend.fetch('encrypted'))[0] != b'testdata'
+    with assert_raises(CorruptedObjectError):
+        await backend.fetch('plain')
+    with assert_raises(CorruptedObjectError):
+        await backend.lookup('plain')
 
     backend.passphrase = None
-    backend.store('not-encrypted', b'testdata2395', {'tag': False})
-    assert_raises(CorruptedObjectError, backend.fetch, 'encrypted')
-    assert_raises(CorruptedObjectError, backend.lookup, 'encrypted')
+    await backend.store('not-encrypted', b'testdata2395', {'tag': False})
+    with assert_raises(CorruptedObjectError):
+        await backend.fetch('encrypted')
+    with assert_raises(CorruptedObjectError):
+        await backend.lookup('encrypted')
 
     backend.passphrase = b'jobzrul'
-    assert_raises(CorruptedObjectError, backend.fetch, 'encrypted')
-    assert_raises(CorruptedObjectError, backend.lookup, 'encrypted')
-    assert_raises(ObjectNotEncrypted, backend.fetch, 'not-encrypted')
-    assert_raises(ObjectNotEncrypted, backend.lookup, 'not-encrypted')
+    with assert_raises(CorruptedObjectError):
+        await backend.fetch('encrypted')
+    with assert_raises(CorruptedObjectError):
+        await backend.lookup('encrypted')
+    with assert_raises(ObjectNotEncrypted):
+        await backend.fetch('not-encrypted')
+    with assert_raises(ObjectNotEncrypted):
+        await backend.lookup('not-encrypted')
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('local/{aes,aes+zlib}')
-def test_replay(backend):
+async def test_replay(backend):
     plain_backend = backend.backend
 
     # Create encrypted object
     key1 = newname()
     key2 = newname()
     value = newvalue()
-    backend.store(key1, value)
+    await backend.store(key1, value)
 
     # Retrieve compressed data
-    (compr_value, meta) = plain_backend.fetch(key1)
+    (compr_value, meta) = await plain_backend.fetch(key1)
     compr_value = bytearray(compr_value)
 
     # Copy into new object
-    plain_backend.store(key2, compr_value, meta)
+    await plain_backend.store(key2, compr_value, meta)
 
     with pytest.raises(CorruptedObjectError):
-        backend.fetch(key2)
+        await backend.fetch(key2)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/raw', require_mock_server=True)
-def test_list_bug(backend, monkeypatch):
+async def test_list_bug(backend, monkeypatch):
     keys = ['prefixa' + newname() for _ in range(6)] + ['prefixb' + newname() for _ in range(6)]
     values = [newvalue() for _ in range(12)]
 
-    assert set(backend.list()) == empty_set
+    assert {k async for k in backend.list()} == empty_set
     for i in range(12):
-        backend.store(keys[i], values[i])
-    assert_in_index(backend, keys)
+        await backend.store(keys[i], values[i])
+    await assert_in_index(backend, keys)
 
     # Force reconnect during list
     handler_class = mock_server.S3CRequestHandler
@@ -587,14 +615,15 @@ def test_list_bug(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_list', do_list)
 
     enable_temp_fail(backend)
-    assert set(backend.list()) == set(keys)
+    assert {k async for k in backend.list()} == set(keys)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_corrupted_get(backend, monkeypatch):
+async def test_corrupted_get(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler to produce invalid etag
     handler_class = mock_server.S3CRequestHandler
@@ -608,19 +637,23 @@ def test_corrupted_get(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    with assert_logs('^MD5 mismatch for', count=1, level=logging.WARNING):
-        assert_raises(BadDigestError, backend.fetch, key)
+    with (
+        assert_logs('^MD5 mismatch for', count=1, level=logging.WARNING),
+        assert_raises(BadDigestError),
+    ):
+        await backend.fetch(key)
 
     enable_temp_fail(backend)
     with assert_logs('^MD5 mismatch for', count=2, level=logging.WARNING):
-        assert backend.fetch(key)[0] == value
+        assert (await backend.fetch(key))[0] == value
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
-def test_corrupted_meta(backend, monkeypatch):
+async def test_corrupted_meta(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler to mess up metadata
     handler_class = mock_server.S3CRequestHandler
@@ -634,16 +667,20 @@ def test_corrupted_meta(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
-    with assert_logs('^MD5 mismatch in metadata for', count=1, level=logging.WARNING):
-        assert_raises(BadDigestError, backend.fetch, key)
+    with (
+        assert_logs('^MD5 mismatch in metadata for', count=1, level=logging.WARNING),
+        assert_raises(BadDigestError),
+    ):
+        await backend.fetch(key)
 
     enable_temp_fail(backend)
     with assert_logs('^MD5 mismatch in metadata for', count=2, level=logging.WARNING):
-        assert backend.fetch(key)[0] == value
+        assert (await backend.fetch(key))[0] == value
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
-def test_corrupted_put(backend, monkeypatch):
+async def test_corrupted_put(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
 
@@ -660,19 +697,20 @@ def test_corrupted_put(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'send_header', send_header)
 
     with pytest.raises(BadDigestError):
-        backend.store(key, value)
+        await backend.store(key, value)
 
     enable_temp_fail(backend)
-    backend.store(key, value)
+    await backend.store(key, value)
 
-    assert backend.fetch(key)[0] == value
+    assert (await backend.fetch(key))[0] == value
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
-def test_get_s3error(backend, monkeypatch):
+async def test_get_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
@@ -685,18 +723,20 @@ def test_get_s3error(backend, monkeypatch):
             self.send_error(503, code='OperationAborted')
 
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
-    assert_raises(OperationAbortedError, backend.fetch, value)
+    with assert_raises(OperationAbortedError):
+        await backend.fetch(value)
 
     enable_temp_fail(backend)
-    assert backend.fetch(key)[0] == value
+    assert (await backend.fetch(key))[0] == value
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
-def test_head_s3error(backend, monkeypatch):
+async def test_head_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
     meta = {'bar': 42, 'foo': 42**2}
-    backend.store(key, value, metadata=meta)
+    await backend.store(key, value, metadata=meta)
 
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
@@ -710,18 +750,19 @@ def test_head_s3error(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'do_HEAD', do_HEAD)
     with pytest.raises(HTTPError) as exc:
-        backend.lookup(key)
+        await backend.lookup(key)
     assert exc.value.status == 503
 
     enable_temp_fail(backend)
-    assert backend.lookup(key) == meta
+    assert await backend.lookup(key) == meta
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/raw', require_mock_server=True)
-def test_delete_s3error(backend, monkeypatch):
+async def test_delete_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
@@ -734,17 +775,19 @@ def test_delete_s3error(backend, monkeypatch):
             self.send_error(503, code='OperationAborted')
 
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
-    assert_raises(OperationAbortedError, backend.delete, key)
+    with assert_raises(OperationAbortedError):
+        await backend.delete(key)
 
     enable_temp_fail(backend)
-    backend.delete(key)
+    await backend.delete(key)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/raw', require_mock_server=True)
-def test_backoff(backend, monkeypatch):
+async def test_backoff(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
@@ -759,18 +802,19 @@ def test_backoff(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
     enable_temp_fail(backend)
-    backend.delete(key)
+    await backend.delete(key)
 
     assert timestamps[1] - timestamps[0] > 1 - CLOCK_GRANULARITY
     assert timestamps[2] - timestamps[1] > 1 - CLOCK_GRANULARITY
     assert timestamps[2] - timestamps[0] < 10
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_httperror(backend, monkeypatch):
+async def test_httperror(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend.store(key, value)
+    await backend.store(key, value)
 
     # Monkeypatch request handler to produce a HTTP Error
     handler_class = mock_server.S3CRequestHandler
@@ -788,14 +832,16 @@ def test_httperror(backend, monkeypatch):
             self.wfile.write(content)
 
     monkeypatch.setattr(handler_class, 'do_DELETE', do_DELETE)
-    assert_raises(HTTPError, backend.delete, key)
+    with assert_raises(HTTPError):
+        await backend.delete(key)
 
     enable_temp_fail(backend)
-    backend.delete(key)
+    await backend.delete(key)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_put_s3error_early(backend, monkeypatch):
+async def test_put_s3error_early(backend, monkeypatch):
     '''Fail after expect-100'''
 
     data = b'hello there, let us see whats going on'
@@ -814,14 +860,15 @@ def test_put_s3error_early(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'handle_expect_100', handle_expect_100)
     with pytest.raises(OperationAbortedError):
-        backend.store(key, data)
+        await backend.store(key, data)
 
     enable_temp_fail(backend)
-    backend.store(key, data)
+    await backend.store(key, data)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_put_s3error_med(backend, monkeypatch):
+async def test_put_s3error_med(backend, monkeypatch):
     '''Fail as soon as data is received'''
     data = b'hello there, let us see whats going on'
     key = 'borg'
@@ -845,14 +892,15 @@ def test_put_s3error_med(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
     with pytest.raises(OperationAbortedError):
-        backend.store(key, data)
+        await backend.store(key, data)
 
     enable_temp_fail(backend)
-    backend.store(key, data)
+    await backend.store(key, data)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_put_s3error_late(backend, monkeypatch):
+async def test_put_s3error_late(backend, monkeypatch):
     '''Fail after reading all data'''
     data = b'hello there, let us see whats going on'
     key = 'borg'
@@ -870,14 +918,15 @@ def test_put_s3error_late(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
     with pytest.raises(OperationAbortedError):
-        backend.store(key, data)
+        await backend.store(key, data)
 
     enable_temp_fail(backend)
-    backend.store(key, data)
+    await backend.store(key, data)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_issue58(backend, monkeypatch):
+async def test_issue58(backend, monkeypatch):
     '''Send error while client is sending data'''
 
     # Monkeypatch request handler
@@ -902,15 +951,16 @@ def test_issue58(backend, monkeypatch):
     with open('/dev/urandom', 'rb') as rnd:
         buf = rnd.read(5 * BUFSIZE)
     with pytest.raises(S3Error) as exc_info:
-        backend.store('borg', buf)
+        await backend.store('borg', buf)
     assert exc_info.value.code == 'MalformedXML'
 
     enable_temp_fail(backend)
-    backend.store('borg', buf)
+    await backend.store('borg', buf)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_issue58_b(backend, monkeypatch):
+async def test_issue58_b(backend, monkeypatch):
     '''Close connection while client is sending data'''
 
     # Monkeypatch request handler
@@ -934,14 +984,15 @@ def test_issue58_b(backend, monkeypatch):
     with open('/dev/urandom', 'rb') as rnd:
         buf = rnd.read(5 * BUFSIZE)
     with pytest.raises(ConnectionClosed):
-        backend.store('borg', buf)
+        await backend.store('borg', buf)
 
     enable_temp_fail(backend)
-    backend.store('borg', buf)
+    await backend.store('borg', buf)
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('gs/aes+zlib', require_mock_server=True)
-def test_expired_token_get(backend, monkeypatch):
+async def test_expired_token_get(backend, monkeypatch):
     '''Test handling of expired OAuth token'''
 
     key = 'borg'
@@ -955,10 +1006,10 @@ def test_expired_token_get(backend, monkeypatch):
         token_refreshed = True
         self.access_token[self.password] = 'foobar'
 
-    monkeypatch.setattr(GSBackend, '_get_access_token', _get_access_token)
+    monkeypatch.setattr(gs.AsyncBackend, '_get_access_token', _get_access_token)
 
     # Store some data
-    backend.store(key, data)
+    await backend.store(key, data)
 
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
@@ -973,12 +1024,13 @@ def test_expired_token_get(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
 
     token_refreshed = False
-    assert backend.fetch(key)[0] == data
+    assert (await backend.fetch(key))[0] == data
     assert token_refreshed
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('gs/aes+zlib', require_mock_server=True)
-def test_expired_token_put(backend, monkeypatch):
+async def test_expired_token_put(backend, monkeypatch):
     '''Test handling of expired OAuth token'''
 
     key = 'borg'
@@ -992,7 +1044,7 @@ def test_expired_token_put(backend, monkeypatch):
         token_refreshed = True
         self.access_token[self.password] = 'foobar'
 
-    monkeypatch.setattr(GSBackend, '_get_access_token', _get_access_token)
+    monkeypatch.setattr(gs.AsyncBackend, '_get_access_token', _get_access_token)
 
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
@@ -1008,17 +1060,18 @@ def test_expired_token_put(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
 
     token_refreshed = False
-    backend.store(key, data)
+    await backend.store(key, data)
     assert token_refreshed
 
 
+@pytest.mark.trio
 @pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
-def test_conn_abort(backend, monkeypatch):
+async def test_conn_abort(backend, monkeypatch):
     '''Close connection while sending data'''
 
     data = b'hello there, let us see whats going on'
     key = 'borg'
-    backend.store(key, data)
+    await backend.store(key, data)
 
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
@@ -1034,11 +1087,11 @@ def test_conn_abort(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'send_data', send_data)
 
     with pytest.raises(ConnectionClosed):
-        backend.fetch(key)
+        await backend.fetch(key)
 
     # Since we have disabled retry on failure, the connection is not automatically
     # reset after the error.
     backend.backend.conn.reset()
 
     enable_temp_fail(backend)
-    assert backend.fetch(key)[0] == data
+    assert (await backend.fetch(key))[0] == data
