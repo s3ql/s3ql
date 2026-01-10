@@ -30,6 +30,7 @@ dependencies = [
   "google-auth-oauthlib",
   "trio >= 0.15",
   "pyfuse3 >= 3.2.0, < 4.0",
+  "anyio>=4.12.1",
 ]
 
 [dependency-groups]
@@ -44,6 +45,7 @@ dev = [
   "types-docutils>=0.21.0.20241128",
   "pyright>=1.1.407",
   "types-pygments>=2.19.0.20251121",
+  "typing-extensions>=4.14.1",
 ]
 
 [project.urls]

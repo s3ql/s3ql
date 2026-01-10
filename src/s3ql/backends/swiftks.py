@@ -12,19 +12,21 @@ import re
 import urllib.parse
 from urllib.parse import urlsplit
 
+from s3ql.async_bridge import run_async
 from s3ql.http import CaseInsensitiveDict, HTTPConnection
+from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import swift
-from .common import AuthorizationError, DanglingStorageURLError, retry
+from .common import AbstractBackend, AuthorizationError, DanglingStorageURLError, retry
 from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
 
 
-class Backend(swift.Backend):
+class AsyncBackend(swift.AsyncBackend):
     # Add the options for the v3 keystore swift.
-    known_options = swift.Backend.known_options | {
+    known_options = swift.AsyncBackend.known_options | {
         'domain',
         'project-domain',
         'project-domain-is-name',
@@ -33,9 +35,18 @@ class Backend(swift.Backend):
         'identity-url',
     }
 
-    def __init__(self, options):
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize swiftks backend - use AsyncBackend.create() instead.'''
         self.region = None
-        super().__init__(options)
+        super().__init__(options=options)
+
+    @classmethod
+    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+        '''Create a new Swift Keystone backend instance with eager authentication.'''
+        backend = cls(options=options)
+        backend.conn = await backend._get_conn()
+        await backend._container_exists()
+        return backend
 
     def _parse_storage_url(self, storage_url, ssl_context):
         hit = re.match(
@@ -68,7 +79,7 @@ class Backend(swift.Backend):
         self.region = region
 
     @retry
-    def _get_conn(self):
+    async def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
         log.debug('started')
@@ -149,10 +160,10 @@ class Backend(swift.Backend):
         ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
-            conn.send_request(
+            await conn.co_send_request(
                 'POST', auth_url_path, headers=headers, body=json.dumps(auth_body).encode('utf-8')
             )
-            resp = conn.read_response()
+            resp = await conn.co_read_response()
 
             if resp.status == 401:
                 raise AuthorizationError(resp.reason)
@@ -160,7 +171,7 @@ class Backend(swift.Backend):
             elif resp.status > 299 or resp.status < 200:
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
-            cat = json.loads(conn.read().decode('utf-8'))
+            cat = json.loads((await conn.co_read()).decode('utf-8'))
 
             if self.options.get('domain', None) or self.options.get('domain-name', None):
                 self.auth_token = resp.headers['X-Subject-Token']
@@ -199,7 +210,7 @@ class Backend(swift.Backend):
                     # fall through to scheme used for authentication
                     pass
 
-                self._detect_features(o.hostname, o.port, ssl_context)
+                await self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
@@ -216,3 +227,14 @@ class Backend(swift.Backend):
                 self.container_name,
                 'No accessible object storage service found in region %s' % self.region,
             )
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)

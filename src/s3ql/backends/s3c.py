@@ -22,7 +22,7 @@ import time
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from email.utils import mktime_tz, parsedate_tz
 from io import BytesIO
 from itertools import count
@@ -32,7 +32,7 @@ from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
-from s3ql.common import copyfh
+from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -46,6 +46,7 @@ from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, Binar
 
 from ..logging import QuietError
 from .common import (
+    _FACTORY_SENTINEL,
     AbstractBackend,
     AuthenticationError,
     AuthorizationError,
@@ -53,9 +54,14 @@ from .common import (
     DanglingStorageURLError,
     NoSuchObject,
     checksum_basic_mapping,
+    copy_from_http,
+    copy_to_http,
     get_proxy,
     get_ssl_context,
     retry,
+)
+from .common import (
+    AsyncBackend as AsyncBackendBase,
 )
 
 C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -67,7 +73,7 @@ XML_CONTENT_RE = re.compile(r'^(?:application|text)/xml(?:;|$)', re.IGNORECASE)
 log = logging.getLogger(__name__)
 
 
-class Backend(AbstractBackend):
+class AsyncBackend(AsyncBackendBase):
     """A backend to stored data in some S3 compatible storage service."""
 
     xml_ns_prefix = '{http://s3.amazonaws.com/doc/2006-03-01/}'
@@ -92,13 +98,10 @@ class Backend(AbstractBackend):
     login: str
     _extra_put_headers: CaseInsensitiveDict
 
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        '''Initialize backend object
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize backend object - use AsyncBackend.create() instead.'''
 
-        *ssl_context* may be a `ssl.SSLContext` instance or *None*.
-        '''
-
-        super().__init__()
+        super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
         if 'no-ssl' in options.backend_options:
             self.ssl_context = None
@@ -121,7 +124,12 @@ class Backend(AbstractBackend):
         self.login = options.backend_login
         self._extra_put_headers = CaseInsensitiveDict()
 
-    def reset(self) -> None:
+    @classmethod
+    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+        '''Create a new S3-compatible backend instance.'''
+        return cls(options=options)
+
+    async def reset(self) -> None:
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
@@ -207,7 +215,9 @@ class Backend(AbstractBackend):
 
         return False
 
-    def _dump_response(self, resp: HTTPResponse, body: bytes | bytearray | None = None) -> str:
+    async def _dump_response(
+        self, resp: HTTPResponse, body: bytes | bytearray | None = None
+    ) -> str:
         '''Return string representation of server response
 
         Only the beginning of the response body is read, so this is
@@ -216,9 +226,9 @@ class Backend(AbstractBackend):
 
         if body is None:
             try:
-                body = self.conn.read(2048)
+                body = await self.conn.co_read(2048)
                 if body:
-                    self.conn.discard()
+                    await self.conn.co_discard()
             except UnsupportedResponse:
                 log.warning('Unsupported response, trying to retrieve data from raw socket!')
                 body = self.conn.read_raw(2048)
@@ -233,15 +243,15 @@ class Backend(AbstractBackend):
             body.decode('utf-8', errors='backslashreplace'),
         )
 
-    def _assert_empty_response(self, resp: HTTPResponse) -> None:
+    async def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
-        buf = self.conn.read(2048)
+        buf = await self.conn.co_read(2048)
         if not buf:
             return  # expected
 
         # Log the problem
-        self.conn.discard()
+        await self.conn.co_discard()
         log.error(
             'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
             resp.status,
@@ -252,27 +262,27 @@ class Backend(AbstractBackend):
         raise RuntimeError('Unexpected server response')
 
     @retry
-    def delete(self, key: str) -> None:
+    async def delete(self, key: str) -> None:
         log.debug('started with %s', key)
         try:
-            resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('DELETE', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except NoSuchKeyError:
             pass
 
-    def list(self, prefix: str = '') -> Iterator[str]:
+    async def list(self, prefix: str = '') -> AsyncIterator[str]:
         prefix = self.prefix + prefix
         strip = len(self.prefix)
         page_token: str | None = None
         while True:
-            (els, page_token) = self._list_page(prefix, page_token)
+            (els, page_token) = await self._list_page(prefix, page_token)
             for el in els:
                 yield el[strip:]
             if page_token is None:
                 break
 
     @retry
-    def _list_page(
+    async def _list_page(
         self, prefix: str, page_token: str | None = None, batch_size: int = 1000
     ) -> tuple[builtins.list[str], str | None]:
         # We can get at most 1000 keys at a time, so there's no need
@@ -281,12 +291,12 @@ class Backend(AbstractBackend):
         if page_token:
             query_string['marker'] = page_token
 
-        resp = self._do_request('GET', '/', query_string=query_string)
+        resp = await self._do_request('GET', '/', query_string=query_string)
 
         if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
             raise RuntimeError('unexpected content type: %s' % resp.headers['Content-Type'])
 
-        body = self.conn.readall()
+        body = await self.conn.co_readall()
         etree = ElementTree.fromstring(body)
         root_xmlns_uri = _tag_xmlns_uri(etree)
         if root_xmlns_uri is None:
@@ -323,12 +333,12 @@ class Backend(AbstractBackend):
         return (names, page_token)
 
     @retry
-    def lookup(self, key: str) -> BasicMappingT:
+    async def lookup(self, key: str) -> BasicMappingT:
         log.debug('started with %s', key)
 
         try:
-            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -338,12 +348,12 @@ class Backend(AbstractBackend):
         return self._extractmeta(resp, key)
 
     @retry
-    def get_size(self, key: str) -> int:
+    async def get_size(self, key: str) -> int:
         log.debug('started with %s', key)
 
         try:
-            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -355,19 +365,19 @@ class Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
+    async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
         `is_temp_failure`) occurs, the operation is retried.
         '''
 
-        return self._readinto_fh(key, fh, fh.tell())
+        return await self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int) -> BasicMappingT:
+    async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int) -> BasicMappingT:
         try:
-            resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
+            resp = await self._do_request('GET', '/%s%s' % (self.prefix, key))
         except NoSuchKeyError:
             raise NoSuchObject(key)
         etag = resp.headers['ETag'].strip('"').lower()
@@ -378,14 +388,14 @@ class Backend(AbstractBackend):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if resp.length is not None and resp.length < 64 * 1024:
-                self.conn.discard()
+                await self.conn.co_discard()
             else:
                 self.conn.disconnect()
             raise
 
         md5 = hashlib.md5()
         fh.seek(off)
-        copyfh(self.conn, fh, update=md5.update)  # type: ignore[arg-type]
+        await copy_from_http(self.conn, fh, update=md5.update)
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -393,7 +403,7 @@ class Backend(AbstractBackend):
 
         return meta
 
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -413,10 +423,10 @@ class Backend(AbstractBackend):
         if len_ is None:
             fh.seek(0, os.SEEK_END)
             len_ = fh.tell() - off
-        return self._write_fh(key, fh, off, len_, metadata or {})
+        return await self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(
+    async def _write_fh(
         self, key: str, fh: BinaryInput, off: int, len_: int, metadata: BasicMappingT
     ) -> int:
         headers = CaseInsensitiveDict()
@@ -426,7 +436,7 @@ class Backend(AbstractBackend):
         headers['Content-Type'] = 'application/octet-stream'
         fh.seek(off)
         try:
-            resp = self._do_request(
+            resp = await self._do_request(
                 'PUT',
                 '/%s%s' % (self.prefix, key),
                 headers=headers,
@@ -435,10 +445,10 @@ class Backend(AbstractBackend):
             )
         except BadDigestError:
             # Object was corrupted in transit, make sure to delete it
-            self.delete(key)
+            await self.delete(key)
             raise
 
-        self._assert_empty_response(resp)
+        await self._assert_empty_response(resp)
         return len_
 
     def _add_meta_headers(
@@ -480,7 +490,7 @@ class Backend(AbstractBackend):
         headers[self.hdr_prefix + 'meta-format'] = 'raw2'
         headers[self.hdr_prefix + 'meta-md5'] = md5
 
-    def _do_request(
+    async def _do_request(
         self,
         method: str,
         path: str,
@@ -506,7 +516,7 @@ class Backend(AbstractBackend):
         redirect_count = 0
         this_method = method
         while True:
-            resp = self._do_request_inner(
+            resp = await self._do_request_inner(
                 this_method,
                 path,
                 headers=headers,
@@ -528,7 +538,7 @@ class Backend(AbstractBackend):
             new_url = resp.headers['Location']
             if new_url:
                 # Discard body
-                self.conn.discard()
+                await self.conn.co_discard()
 
                 # Pylint can't infer SplitResult Types
                 # pylint: disable=E1103
@@ -558,7 +568,7 @@ class Backend(AbstractBackend):
 
             # Try to read new URL from request body
             else:
-                tree = self._parse_xml_response(resp)
+                tree = await self._parse_xml_response(resp)
                 new_url = tree.findtext('Endpoint')
 
                 if not new_url:
@@ -586,9 +596,9 @@ class Backend(AbstractBackend):
             return resp
 
         # Error
-        self._parse_error_response(resp)
+        await self._parse_error_response(resp)
 
-    def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
+    async def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
         '''Handle error response from server
 
         Try to raise most-specific exception.
@@ -602,22 +612,22 @@ class Backend(AbstractBackend):
         # If method == HEAD, server must not return response body
         # even in case of errors
         if resp.method.upper() == 'HEAD':
-            assert self.conn.read(1) == b''
+            assert await self.conn.co_read(1) == b''
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # If not XML, do the best we can
         if content_type is None or resp.length == 0 or not XML_CONTENT_RE.match(content_type):
-            self.conn.discard()
+            await self.conn.co_discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
-        body = self.conn.readall()
+        body = await self.conn.co_readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
             log.error(
-                'Unable to parse server response as XML:\n%s', self._dump_response(resp, body)
+                'Unable to parse server response as XML:\n%s', await self._dump_response(resp, body)
             )
             raise
 
@@ -625,7 +635,7 @@ class Backend(AbstractBackend):
             raise RuntimeError('XML document has no root element')
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
-    def _parse_xml_response(self, resp: HTTPResponse, body: bytes | None = None) -> Element:
+    async def _parse_xml_response(self, resp: HTTPResponse, body: bytes | None = None) -> Element:
         '''Return element tree for XML response'''
 
         content_type = resp.headers['Content-Type']
@@ -636,18 +646,20 @@ class Backend(AbstractBackend):
         if content_type is None:
             log.error('Server did not provide Content-Type, assuming XML')
         elif not XML_CONTENT_RE.match(content_type):
-            log.error('Unexpected server reply: expected XML, got:\n%s', self._dump_response(resp))
+            log.error(
+                'Unexpected server reply: expected XML, got:\n%s', await self._dump_response(resp)
+            )
             raise RuntimeError('Unexpected server response')
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
         if body is None:
-            body = self.conn.readall()
+            body = await self.conn.co_readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
             log.error(
-                'Unable to parse server response as XML:\n%s', self._dump_response(resp, body)
+                'Unable to parse server response as XML:\n%s', await self._dump_response(resp, body)
             )
             raise
 
@@ -710,7 +722,7 @@ class Backend(AbstractBackend):
 
         headers['Authorization'] = 'AWS %s:%s' % (self.login, signature)
 
-    def _do_request_inner(
+    async def _do_request_inner(
         self,
         method: str,
         path: str,
@@ -747,11 +759,11 @@ class Backend(AbstractBackend):
         use_expect_100c = not self.options.get('disable-expect100', False)
         log.debug('sending %s %s', method, path)
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            self.conn.send_request(method, path, body=body, headers=headers)
-            return self.conn.read_response()
+            await self.conn.co_send_request(method, path, body=body, headers=headers)
+            return await self.conn.co_read_response()
 
         assert isinstance(body_len, int)
-        self.conn.send_request(
+        await self.conn.co_send_request(
             method,
             path,
             expect100=use_expect_100c,
@@ -760,7 +772,7 @@ class Backend(AbstractBackend):
         )
 
         if use_expect_100c:
-            resp = self.conn.read_response()
+            resp = await self.conn.co_read_response()
             if resp.status != 100:  # Error
                 return resp
 
@@ -772,20 +784,20 @@ class Backend(AbstractBackend):
             md5_update = md5.update
 
         try:
-            copyfh(body, self.conn, len_=body_len, update=md5_update)  # type: ignore[arg-type]
+            await copy_to_http(body, self.conn, body_len, update=md5_update)
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             error_resp: HTTPResponse | None = None
             with contextlib.suppress(builtins.BaseException):
-                error_resp = self.conn.read_response()
+                error_resp = await self.conn.co_read_response()
             if error_resp is not None:
-                self._parse_error_response(error_resp)
+                await self._parse_error_response(error_resp)
             else:
                 # Re-raise first ConnectionClosed exception
                 raise
 
-        resp = self.conn.read_response()
+        resp = await self.conn.co_read_response()
 
         # On success, check MD5. Not sure if this is returned every time we send a request body, but
         # it seems to work. If not, we have to somehow pass in the information when this is expected
@@ -801,8 +813,9 @@ class Backend(AbstractBackend):
 
         return resp
 
-    def close(self) -> None:
-        self.conn.disconnect()
+    async def close(self) -> None:
+        if self.conn is not None:
+            self.conn.disconnect()
 
     def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata from HTTP response object'''
@@ -1029,3 +1042,14 @@ class RequestTimeTooSkewedError(S3Error):
 
 class NoSuchBucketError(S3Error, DanglingStorageURLError):
     pass
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)

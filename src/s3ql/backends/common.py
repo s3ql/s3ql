@@ -21,18 +21,33 @@ import textwrap
 import threading
 import time
 from abc import ABCMeta, abstractmethod
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from functools import wraps
 from io import BytesIO
-from typing import TYPE_CHECKING, Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
+import trio
+
+from s3ql import BUFSIZE
+from s3ql.async_bridge import run_async
+from s3ql.http import HTTPConnection
 from s3ql.logging import LOG_ONCE, QuietError
-from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
+from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 if TYPE_CHECKING:
     from hmac import HMAC
 
 F = TypeVar('F', bound=Callable[..., object])
+T = TypeVar('T', bound='AsyncBackend')
+
+
+class _FactorySentinel:
+    '''Sentinel to ensure __init__ is only called via create() factory.'''
+
+    __slots__ = ()
+
+
+_FACTORY_SENTINEL = _FactorySentinel()
 
 
 log = logging.getLogger(__name__)
@@ -100,8 +115,8 @@ class RateTracker:
 RETRY_TIMEOUT: int = 60 * 60 * 24
 
 
-def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B008 # auto-added, needs manual check!
-    '''Wrap *method* for retrying on some exceptions
+def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B008
+    '''Wrap async *method* for retrying on some exceptions
 
     If *method* raises an exception for which the instance's `is_temp_failure(exc)` method is true,
     the *method* is called again at increasing intervals. If this persists for more than
@@ -110,14 +125,14 @@ def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B00
     whenever the function is retried.
     '''
 
-    if inspect.isgeneratorfunction(method):
-        raise TypeError('Wrapping a generator function is pointless')
+    if not inspect.iscoroutinefunction(method):
+        raise TypeError('async_retry can only wrap coroutine functions')
 
     sig = inspect.signature(method)
     has_is_retry = 'is_retry' in sig.parameters
 
     @wraps(method)
-    def wrapped(*a, **kw):
+    async def wrapped(*a, **kw):
         self = a[0]
         interval = 1 / 50
         waited = 0
@@ -126,10 +141,8 @@ def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B00
             if has_is_retry:
                 kw['is_retry'] = retries > 0
             try:
-                return method(*a, **kw)
+                return await method(*a, **kw)
             except Exception as exc:
-                # Access to protected member ok
-                # pylint: disable=W0212
                 if not self.is_temp_failure(exc):
                     raise
 
@@ -177,7 +190,7 @@ def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B00
 
             # Add some random variation to prevent flooding the
             # server with too many concurrent requests.
-            time.sleep(interval * random.uniform(1, 1.5))
+            await trio.sleep(interval * random.uniform(1, 1.5))
             waited += interval
             interval = min(5 * 60, 2 * interval)
 
@@ -210,27 +223,38 @@ def extend_docstring(fun: Callable[..., object], s: str) -> None:
     fun.__doc__ += '\n'
 
 
-class AbstractBackend(metaclass=ABCMeta):
-    '''Functionality shared between all backends.'''
+class AsyncBackend(metaclass=ABCMeta):
+    '''Functionality shared between all backends'''
 
     needs_login = True
     known_options: set[str] = set()
 
-    def __enter__(self) -> AbstractBackend:
+    def __init__(self, *, _factory_sentinel: _FactorySentinel) -> None:
+        if _factory_sentinel is not _FACTORY_SENTINEL:
+            raise TypeError(
+                f'{self.__class__.__name__} cannot be instantiated directly. '
+                f'Use {self.__class__.__name__}.create() instead.'
+            )
+
+    @classmethod
+    async def create(cls: type[T], options: BackendOptionsProtocol) -> T:
+        '''Async factory method to create backend instances.
+
+        Subclasses must override this method to perform initialization.
+        '''
+        raise NotImplementedError(f'{cls.__name__}.create() must be implemented by subclass')
+
+    async def __aenter__(self: T) -> T:
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
         tb: object,
     ) -> Literal[False]:
-        self.close()
+        await self.close()
         return False
-
-    def iteritems(self) -> Iterator[tuple[str, bytes]]:
-        for key in self.list():
-            yield (key, self.fetch(key)[0])
 
     @property
     def has_delete_multi(self) -> bool:
@@ -238,7 +262,7 @@ class AbstractBackend(metaclass=ABCMeta):
 
         return False
 
-    def reset(self) -> None:  # noqa: B027 # auto-added, needs manual check!
+    async def reset(self) -> None:  # noqa: B027 # auto-added, needs manual check!
         '''Reset backend
 
         This resets the backend and ensures that it is ready to process requests. In most cases,
@@ -250,7 +274,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
+    async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -259,7 +283,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -277,19 +301,24 @@ class AbstractBackend(metaclass=ABCMeta):
         '''
         pass
 
-    def fetch(self, key: str) -> tuple[bytes, BasicMappingT]:
-        """Return data stored under `key`.
+    async def fetch(self, key: str) -> tuple[bytes, BasicMappingT]:
+        """Return data and metadata stored under `key`.
 
-        Returns a tuple with the data and metadata. If only the data itself is
-        required, ``backend[key]`` is a more concise notation for
-        ``backend.fetch(key)[0]``.
+        Returns a tuple with the data and metadata.
         """
 
         fh = BytesIO()
-        metadata = self.readinto_fh(key, fh)
+        metadata = await self.readinto_fh(key, fh)
         return (fh.getvalue(), metadata)
 
-    def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
+    async def read(self, key: str) -> bytes:
+        """Return data stored under `key`."""
+
+        fh = BytesIO()
+        await self.readinto_fh(key, fh)
+        return fh.getvalue()
+
+    async def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
         """Store data under `key`.
 
         `metadata` can be mapping with additional attributes to store with the
@@ -301,7 +330,7 @@ class AbstractBackend(metaclass=ABCMeta):
         equivalent to ``backend.store(key, val)``.
         """
 
-        return self.write_fh(key, BytesIO(val), metadata)
+        return await self.write_fh(key, BytesIO(val), metadata)
 
     @abstractmethod
     def is_temp_failure(self, exc: BaseException) -> bool:
@@ -320,7 +349,7 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def lookup(self, key: str) -> BasicMappingT:
+    async def lookup(self, key: str) -> BasicMappingT:
         """Return metadata for given key.
 
         If the key does not exist, `NoSuchObject` is raised.
@@ -329,29 +358,29 @@ class AbstractBackend(metaclass=ABCMeta):
         pass
 
     @abstractmethod
-    def get_size(self, key: str) -> int:
+    async def get_size(self, key: str) -> int:
         '''Return size of object stored under *key*'''
         pass
 
-    def contains(self, key: str) -> bool:
+    async def contains(self, key: str) -> bool:
         '''Check if `key` is in backend'''
 
         try:
-            self.lookup(key)
+            await self.lookup(key)
         except NoSuchObject:
             return False
         else:
             return True
 
     @abstractmethod
-    def delete(self, key: str) -> None:
+    async def delete(self, key: str) -> None:
         """Delete object stored under `key`
 
         Attempts to delete non-existing objects will silently succeed.
         """
         pass
 
-    def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: list[str]) -> None:
         """Delete objects stored under `keys`
 
         Deleted objects are removed from the *keys* list, so that the caller can
@@ -362,18 +391,18 @@ class AbstractBackend(metaclass=ABCMeta):
         """
 
         while keys:
-            self.delete(keys[-1])
+            await self.delete(keys[-1])
             keys.pop()
 
     @abstractmethod
-    def list(self, prefix: str = '') -> Iterator[str]:
+    def list(self, prefix: str = '') -> AsyncIterator[str]:
         '''List keys in backend
 
         Returns an iterator over all keys in the backend.
         '''
         pass
 
-    def close(self) -> None:  # noqa: B027 # auto-added, needs manual check!
+    async def close(self) -> None:  # noqa: B027
         '''Close any opened resources
 
         This method closes any resources allocated by the backend (e.g. network
@@ -567,3 +596,183 @@ def checksum_basic_mapping(metadata: BasicMappingT, key: bytes | None = None) ->
         chk.update(val)
 
     return chk.digest()
+
+
+async def copy_to_http(
+    ifh: BinaryInput,
+    ofh: HTTPConnection,
+    len_: Optional[int],
+    update: Callable[[bytes], None] | None = None,
+) -> None:
+    '''Copy *len_* bytes from sync *ifh* to async HTTPConnection *ofh*.
+
+    Reads from *ifh* (synchronously if BytesIO, otherwise in a separatet thread) and writes
+    asynchronously to *ofh* (an HTTPConnection).
+
+    If *update* is specified, call it with each block after the block has been written to the output
+    handle.
+    '''
+
+    use_async = not isinstance(ofh, BytesIO)
+
+    while len_ is None or len_ > 0:
+        bufsize = min(BUFSIZE, len_) if len_ is not None else BUFSIZE
+        if use_async:
+            # Wrapping the file object with `trio.wrap_file()` would be cleaner, but adds extra
+            # overhead and undefined behavior (will the sync object be closed when the async wrapper
+            # is garbage collected?), and just calls trio.to_thread.run_sync() internally anyway.
+            buf = await trio.to_thread.run_sync(ifh.read, bufsize)
+        else:
+            buf = ifh.read(bufsize)
+        if not buf:
+            return
+        await ofh.co_write(buf)
+        if len_ is not None:
+            len_ -= len(buf)
+        if update is not None:
+            update(buf)
+
+
+async def copy_from_http(
+    ifh: HTTPConnection,
+    ofh: BinaryOutput,
+    update: Callable[[bytes], None] | None = None,
+) -> None:
+    '''Copy all available bytes from async HTTPConnection *ifh* to sync *ofh*.
+
+    Reads asynchronously from *ifh* (an HTTPConnection) and writes
+    to *ofh* (synchronously if BytesIO, otherwise in a separate thread).
+
+    If *update* is specified, call it with each block after the block
+    has been written to the output handle.
+    '''
+    use_async = not isinstance(ofh, BytesIO)
+
+    while True:
+        buf = await ifh.co_read(BUFSIZE)
+        if not buf:
+            return
+        if use_async:
+            # Wrapping the file object with `trio.wrap_file()` would be cleaner, but adds extra
+            # overhead and undefined behavior (will the sync object be closed when the async wrapper
+            # is garbage collected?), and just calls trio.to_thread.run_sync() internally anyway.
+            await trio.to_thread.run_sync(ofh.write, buf)
+        else:
+            ofh.write(buf)
+        if update is not None:
+            update(buf)
+
+
+# TODO: Remove this after async transition is complete
+class AbstractBackend:
+    '''Synchronous wrapper for AsyncBackend.
+
+    The name of this class is misleading, and the class only exists transitionally until
+    all code has been converted to async.
+    '''
+
+    needs_login: bool
+    known_options: set[str]
+
+    def __init__(self, async_backend: AsyncBackend) -> None:
+        self.async_backend = async_backend
+
+    def __enter__(self) -> AbstractBackend:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        tb: object,
+    ) -> Literal[False]:
+        self.close()
+        return False
+
+    @property
+    def has_delete_multi(self) -> bool:
+        return self.async_backend.has_delete_multi
+
+    def reset(self) -> None:
+        run_async(self.async_backend.reset)
+
+    def fetch(self, key: str) -> tuple[bytes, BasicMappingT]:
+        return run_async(self.async_backend.fetch, key)
+
+    def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
+        return run_async(self.async_backend.store, key, val, metadata)
+
+    def lookup(self, key: str) -> BasicMappingT:
+        return run_async(self.async_backend.lookup, key)
+
+    def get_size(self, key: str) -> int:
+        return run_async(self.async_backend.get_size, key)
+
+    def contains(self, key: str) -> bool:
+        return run_async(self.async_backend.contains, key)
+
+    def delete(self, key: str) -> None:
+        run_async(self.async_backend.delete, key)
+
+    def delete_multi(self, keys: list[str]) -> None:
+        run_async(self.async_backend.delete_multi, keys)
+
+    def list(self, prefix: str = '') -> Iterator[str]:
+        '''Collect all items from AsyncIterator, return sync Iterator.'''
+
+        async def collect() -> list[str]:
+            result = []
+            async for key in self.async_backend.list(prefix):
+                result.append(key)
+            return result
+
+        return iter(run_async(collect))
+
+    def close(self) -> None:
+        run_async(self.async_backend.close)
+
+    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
+        return run_async(self.async_backend.readinto_fh, key, fh)
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
+    ) -> int:
+        return run_async(self.async_backend.write_fh, key, fh, metadata, len_)
+
+    @property
+    def is_temp_failure(self) -> Callable[[BaseException], bool]:
+        return self.async_backend.is_temp_failure
+
+    # Set by unit tests
+    @is_temp_failure.setter
+    def is_temp_failure(self, value: Callable[[BaseException], bool]) -> None:
+        self.async_backend.is_temp_failure = value  # type: ignore[method-assign,assignment]
+
+    @property
+    def prefix(self) -> str:
+        return self.async_backend.prefix  # type: ignore[attr-defined]
+
+    @prefix.setter
+    def prefix(self, value: str) -> None:
+        self.async_backend.prefix = value  # type: ignore[attr-defined]
+
+    @property
+    def options(self) -> BackendOptionsProtocol:
+        return self.async_backend.options  # type: ignore[attr-defined]
+
+    @property
+    def unittest_info(self) -> object:
+        return self.async_backend.unittest_info  # type: ignore[attr-defined]
+
+    # Set by unit tests
+    @unittest_info.setter
+    def unittest_info(self, value: object) -> None:
+        self.async_backend.unittest_info = value  # type: ignore[attr-defined]
+
+    @property
+    def conn(self) -> object:
+        return self.async_backend.conn  # type: ignore[attr-defined]

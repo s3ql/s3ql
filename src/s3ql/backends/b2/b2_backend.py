@@ -6,6 +6,8 @@ Copyright © 2019 Paul Tirk <paultirk@paultirk.com>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
+from __future__ import annotations
+
 import base64
 import binascii
 import hashlib
@@ -16,11 +18,12 @@ import re
 import ssl
 import urllib
 from ast import literal_eval
+from collections.abc import AsyncIterator
 from itertools import count
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from s3ql.common import copyfh
+from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -29,15 +32,19 @@ from s3ql.http import (
     HTTPConnection,
     is_temp_network_error,
 )
-from s3ql.types import BinaryInput, BinaryOutput
+from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
 
 from ...logging import QuietError
 from ..common import (
+    _FACTORY_SENTINEL,
     AbstractBackend,
+    AsyncBackend,
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
     checksum_basic_mapping,
+    copy_from_http,
+    copy_to_http,
     get_ssl_context,
     retry,
 )
@@ -50,7 +57,7 @@ api_url_prefix = '/b2api/v2/'
 info_header_prefix = 'X-Bz-Info-'
 
 
-class B2Backend(AbstractBackend):
+class AsyncB2Backend(AsyncBackend):
     '''A backend to store data in Backblaze B2 cloud storage.'''
 
     known_options = {
@@ -60,10 +67,21 @@ class B2Backend(AbstractBackend):
         'tcp-timeout',
     }
 
-    def __init__(self, options):
+    @classmethod
+    async def create(cls, options) -> AsyncB2Backend:
+        backend = cls(_FACTORY_SENTINEL, options)
+        await backend._authorize_account()
+        await backend._get_bucket_id()
+        return backend
+
+    def __init__(self, _sentinel, options):
         '''Initialize backend object'''
 
-        super().__init__()
+        if _sentinel is not _FACTORY_SENTINEL:
+            raise TypeError(
+                "Use 'await AsyncB2Backend.create(...)' instead of direct instantiation"
+            )
+        super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
         self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
 
@@ -155,9 +173,9 @@ class B2Backend(AbstractBackend):
         if self.upload_connection:
             self.upload_connection.reset()
 
-    def _get_download_connection(self):
+    async def _get_download_connection(self):
         if self.download_url is None:
-            self._authorize_account()
+            await self._authorize_account()
 
         if self.download_connection is None:
             self.download_connection = HTTPConnection(
@@ -167,9 +185,9 @@ class B2Backend(AbstractBackend):
 
         return self.download_connection
 
-    def _get_api_connection(self):
+    async def _get_api_connection(self):
         if self.api_url is None:
-            self._authorize_account()
+            await self._authorize_account()
 
         if self.api_connection is None:
             self.api_connection = HTTPConnection(
@@ -179,14 +197,14 @@ class B2Backend(AbstractBackend):
 
         return self.api_connection
 
-    def _get_account_id(self):
+    async def _get_account_id(self):
         if self.account_id is None:
-            self._authorize_account()
+            await self._authorize_account()
 
         return self.account_id
 
     @retry
-    def _authorize_account(self):
+    async def _authorize_account(self):
         '''Authorize API calls'''
 
         authorize_host = 'api.backblazeb2.com'
@@ -201,9 +219,9 @@ class B2Backend(AbstractBackend):
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
-            connection.send_request('GET', authorize_url, headers=headers, body=None)
-            response = connection.read_response()
-            response_body = connection.readall()
+            await connection.co_send_request('GET', authorize_url, headers=headers, body=None)
+            response = await connection.co_read_response()
+            response_body = await connection.co_readall()
 
             if response.status != 200:
                 raise RuntimeError('Authorization failed.')
@@ -230,7 +248,9 @@ class B2Backend(AbstractBackend):
         needed_capabilities = ['listBuckets', 'listFiles', 'readFiles', 'writeFiles', 'deleteFiles']
         return all(capability in capabilities for capability in needed_capabilities)
 
-    def _do_request(self, connection, method, path, headers=None, body=None, download_body=True):
+    async def _do_request(
+        self, connection, method, path, headers=None, body=None, download_body=True
+    ):
         '''Send request, read and return response object'''
 
         log.debug('started with %s %s', method, path)
@@ -239,7 +259,7 @@ class B2Backend(AbstractBackend):
             headers = CaseInsensitiveDict(self._extra_headers)
 
         if self.authorization_token is None:
-            self._authorize_account()
+            await self._authorize_account()
 
         if 'Authorization' not in headers:
             headers['Authorization'] = self.authorization_token
@@ -247,19 +267,21 @@ class B2Backend(AbstractBackend):
         log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            connection.send_request(method, path, headers=headers, body=body)
+            await connection.co_send_request(method, path, headers=headers, body=body)
         else:
             body_length = os.fstat(body.fileno()).st_size
-            connection.send_request(method, path, headers=headers, body=BodyFollowing(body_length))
+            await connection.co_send_request(
+                method, path, headers=headers, body=BodyFollowing(body_length)
+            )
 
-            copyfh(body, connection)
+            await copy_to_http(body, connection, body_length)
 
-        response = connection.read_response()
+        response = await connection.co_read_response()
 
         if (
             download_body is True or response.status != 200
         ):  # Backblaze always returns a json with error information in body
-            response_body = connection.readall()
+            response_body = await connection.co_readall()
         else:
             response_body = None
 
@@ -288,24 +310,24 @@ class B2Backend(AbstractBackend):
 
         return response, response_body
 
-    def _do_api_call(self, api_call_name, data_dict):
+    async def _do_api_call(self, api_call_name, data_dict):
         api_call_url_path = api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        _, body = self._do_request(
-            self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body
+        _, body = await self._do_request(
+            await self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body
         )
 
         json_response = json.loads(body.decode('utf-8'))
         return json_response
 
-    def _do_download_request(self, method, key):
+    async def _do_download_request(self, method, key):
         key_with_prefix = self._get_key_with_prefix(key)
         path = '/file/' + self.bucket_name + '/' + self._b2_url_encode(key_with_prefix)
 
         try:
-            response, _ = self._do_request(
-                self._get_download_connection(), method, path, download_body=False
+            response, _ = await self._do_request(
+                await self._get_download_connection(), method, path, download_body=False
             )
         except HTTPError as exc:
             if exc.status == 404:
@@ -316,10 +338,13 @@ class B2Backend(AbstractBackend):
         return response
 
     @retry
-    def _get_bucket_id(self):
+    async def _get_bucket_id(self):
         if not self.bucket_id:
-            request_data = {'accountId': self._get_account_id(), 'bucketName': self.bucket_name}
-            response = self._do_api_call('b2_list_buckets', request_data)
+            request_data = {
+                'accountId': await self._get_account_id(),
+                'bucketName': self.bucket_name,
+            }
+            response = await self._do_api_call('b2_list_buckets', request_data)
 
             buckets = response['buckets']
             for bucket in buckets:
@@ -378,11 +403,11 @@ class B2Backend(AbstractBackend):
         return False
 
     @retry
-    def lookup(self, key):
+    async def lookup(self, key):
         log.debug('started with %s', key)
 
         try:
-            response = self._do_download_request('HEAD', key)
+            response = await self._do_download_request('HEAD', key)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -392,11 +417,11 @@ class B2Backend(AbstractBackend):
         return self._extract_b2_metadata(response, key)
 
     @retry
-    def get_size(self, key):
+    async def get_size(self, key):
         log.debug('started with %s', key)
 
         try:
-            response = self._do_download_request('HEAD', key)
+            response = await self._do_download_request('HEAD', key)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -408,18 +433,18 @@ class B2Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryOutput):
+    async def readinto_fh(self, key: str, fh: BinaryOutput):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
         `is_temp_failure`) occurs, the operation is retried.
         '''
 
-        return self._readinto_fh(key, fh, fh.tell())
+        return await self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
-        response = self._do_download_request('GET', key)
+    async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
+        response = await self._do_download_request('GET', key)
 
         try:
             metadata = self._extract_b2_metadata(response, key)
@@ -427,15 +452,15 @@ class B2Backend(AbstractBackend):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if response.length is not None and response.length < 64 * 1024:
-                self._get_download_connection().discard()
+                await (await self._get_download_connection()).co_discard()
             else:
                 self._close_connections()
             raise
 
-        connection = self._get_download_connection()
+        connection = await self._get_download_connection()
         sha1 = hashlib.sha1()
 
-        copyfh(connection, fh, update=sha1.update)
+        await copy_from_http(connection, fh, update=sha1.update)
 
         remote_sha1 = response.headers['X-Bz-Content-Sha1'].strip('"')
 
@@ -449,7 +474,7 @@ class B2Backend(AbstractBackend):
 
         return metadata
 
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -469,10 +494,12 @@ class B2Backend(AbstractBackend):
         if len_ is None:
             fh.seek(0, os.SEEK_END)
             len_ = fh.tell()
-        return self._write_fh(key, fh, off, len_, metadata or {})
+        return await self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]):
+    async def _write_fh(
+        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]
+    ):
         headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
@@ -480,7 +507,7 @@ class B2Backend(AbstractBackend):
         self._add_b2_metadata_to_headers(headers, metadata)
 
         key_with_prefix = self._get_key_with_prefix(key)
-        conn = self._get_upload_conn()
+        conn = await self._get_upload_conn()
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
         headers['Content-Type'] = 'application/octet-stream'
@@ -492,14 +519,14 @@ class B2Backend(AbstractBackend):
         sha1 = hashlib.sha1()
         try:
             # 40 extra characters for hexdigest
-            conn.send_request(
+            await conn.co_send_request(
                 'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
             )
-            copyfh(fh, conn, len_=len_, update=sha1.update)
-            conn.write(sha1.hexdigest().encode())
+            await copy_to_http(fh, conn, len_, update=sha1.update)
+            await conn.co_write(sha1.hexdigest().encode())
 
-            response = conn.read_response()
-            response_body = conn.readall()
+            response = await conn.co_read_response()
+            response_body = await conn.co_readall()
 
             if response.status != 200:
                 if not response_body:
@@ -526,38 +553,39 @@ class B2Backend(AbstractBackend):
 
         return len_
 
-    # note that delete() ignores missing file errors, the same as s3c::delete()
-    def delete(self, key, force=False):
+    async def delete(self, key, force=False):
         log.debug('started with %s', key)
         try:
             if self.disable_versions:
-                file_id, file_name = self._get_file_id_and_name(key)
+                file_id, file_name = await self._get_file_id_and_name(key)
                 file_ids = [{'fileName': file_name, 'fileId': file_id}]
             else:
-                file_ids = self._list_file_versions(key)
+                file_ids = await self._list_file_versions(key)
 
             if file_ids:
-                self._delete_file_ids(file_ids, force)
+                await self._delete_file_ids(file_ids, force)
         # also catch and ignore NoSuchObject errors,
         # from _get_file_id_and_name() --> _do_download_request()
         except NoSuchObject:
             pass
 
     @retry
-    def _delete_file_ids(self, file_ids, force=False, is_retry=False):
+    async def _delete_file_ids(self, file_ids, force=False, is_retry=False):
         for i, file_id in enumerate(file_ids):
             try:
-                self._delete_file_id(file_id['fileName'], file_id['fileId'], force or is_retry)
+                await self._delete_file_id(
+                    file_id['fileName'], file_id['fileId'], force or is_retry
+                )
             except:
                 del file_ids[:i]
                 raise
 
         del file_ids[:]
 
-    def _delete_file_id(self, file_name, file_id, force=False):
+    async def _delete_file_id(self, file_name, file_id, force=False):
         request_dict = {'fileName': file_name, 'fileId': file_id}
         try:
-            self._do_api_call('b2_delete_file_version', request_dict)
+            await self._do_api_call('b2_delete_file_version', request_dict)
         except B2Error as exc:
             # Server may have deleted the object even though we did not
             # receive the response.
@@ -567,7 +595,7 @@ class B2Backend(AbstractBackend):
 
         return
 
-    def _list_file_versions(self, key):
+    async def _list_file_versions(self, key):
         next_filename = self._get_key_with_prefix(key)
         next_file_id = None
 
@@ -575,7 +603,7 @@ class B2Backend(AbstractBackend):
 
         versions = []
         while keys_remaining and next_filename is not None:
-            next_filename, next_file_id, versions_list = self._list_file_versions_page(
+            next_filename, next_file_id, versions_list = await self._list_file_versions_page(
                 next_filename, next_file_id
             )
 
@@ -591,11 +619,11 @@ class B2Backend(AbstractBackend):
         return versions
 
     @retry
-    def _list_file_versions_page(self, next_filename=None, next_file_id=None):
+    async def _list_file_versions_page(self, next_filename=None, next_file_id=None):
         request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
-            'bucketId': self._get_bucket_id(),
+            'bucketId': await self._get_bucket_id(),
         }
 
         if next_filename is not None:
@@ -604,7 +632,7 @@ class B2Backend(AbstractBackend):
         if next_file_id is not None:
             request_dict['startFileId'] = next_file_id
 
-        response = self._do_api_call('b2_list_file_versions', request_dict)
+        response = await self._do_api_call('b2_list_file_versions', request_dict)
         file_versions_list = [
             {'fileName': file_version['fileName'], 'fileId': file_version['fileId']}
             for file_version in response['files']
@@ -612,11 +640,11 @@ class B2Backend(AbstractBackend):
 
         return response['nextFileName'], response['nextFileId'], file_versions_list
 
-    def list(self, prefix=''):
+    async def list(self, prefix='') -> AsyncIterator[str]:
         next_filename = self._get_key_with_prefix(prefix)
 
         while next_filename is not None:
-            next_filename, filelist = self._list_file_names_page(prefix, next_filename)
+            next_filename, filelist = await self._list_file_names_page(prefix, next_filename)
 
             for file_ in filelist:
                 # remove prefix before return
@@ -625,25 +653,25 @@ class B2Backend(AbstractBackend):
                 yield decoded_r
 
     @retry
-    def _list_file_names_page(self, prefix='', next_filename=None):
+    async def _list_file_names_page(self, prefix='', next_filename=None):
         request_dict = {
             # maximum is 10000, but will get billed in steps of 1000
             'maxFileCount': 1000,
-            'bucketId': self._get_bucket_id(),
+            'bucketId': await self._get_bucket_id(),
             'prefix': self._get_key_with_prefix(prefix),
         }
 
         if next_filename is not None:
             request_dict['startFileName'] = next_filename
 
-        response = self._do_api_call('b2_list_file_names', request_dict)
+        response = await self._do_api_call('b2_list_file_names', request_dict)
         filelist = [file_['fileName'] for file_ in response['files']]
 
         return response['nextFileName'], filelist
 
     @retry
-    def _get_file_id_and_name(self, key):
-        head_request_response = self._do_download_request('HEAD', key)
+    async def _get_file_id_and_name(self, key):
+        head_request_response = await self._do_download_request('HEAD', key)
         file_id = self._b2_url_decode(head_request_response.headers['X-Bz-File-Id'])
         file_name = self._b2_url_decode(head_request_response.headers['X-Bz-File-Name'])
         file_name = self._b2_escape_backslashes(file_name)
@@ -653,10 +681,10 @@ class B2Backend(AbstractBackend):
         self._reset_connections()
 
     @retry
-    def _get_upload_conn(self):
+    async def _get_upload_conn(self):
         if not self.upload_connection:
-            request_data = {'bucketId': self._get_bucket_id()}
-            response = self._do_api_call('b2_get_upload_url', request_data)
+            request_data = {'bucketId': await self._get_bucket_id()}
+            response = await self._do_api_call('b2_get_upload_url', request_data)
             upload_url = urlparse(response['uploadUrl'])
             self.upload_token = response['authorizationToken']
             self.upload_path = upload_url.path
@@ -816,3 +844,14 @@ class B2Backend(AbstractBackend):
 
     def __str__(self):
         return 'b2://%s/%s' % (self.bucket_name, self.prefix)
+
+
+class B2Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncB2Backend.'''
+
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncB2Backend.create, options)
+        super().__init__(async_backend)

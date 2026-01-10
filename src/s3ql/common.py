@@ -32,7 +32,7 @@ import pyfuse3
 from pyfuse3 import InodeT
 
 from s3ql.http import HostnameNotResolvable
-from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput, HashFunction
+from s3ql.types import BackendFactory, BasicMappingT, BinaryInput, BinaryOutput, HashFunction
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
@@ -252,7 +252,7 @@ def get_backend(options, raw: bool = False) -> ComprencBackend | AbstractBackend
         return get_backend_factory(options)()
 
 
-def get_backend_factory(options) -> Callable[[], ComprencBackend]:
+def get_backend_factory(options) -> BackendFactory:
     '''Return factory producing backend objects'''
 
     from .backends.common import (
@@ -264,7 +264,7 @@ def get_backend_factory(options) -> Callable[[], ComprencBackend]:
     )
     from .backends.comprenc import ComprencBackend
 
-    backend = None
+    backend: AbstractBackend | None = None
     try:
         try:
             backend = options.backend_class(options)
@@ -336,7 +336,12 @@ def get_backend_factory(options) -> Callable[[], ComprencBackend]:
             if not (backend.contains('s3ql_params') or backend.contains('s3ql_metadata')):
                 raise QuietError('No S3QL file system found at given storage URL.', exitcode=18)
 
-    return lambda: ComprencBackend(data_pw, compress, options.backend_class(options))
+    def factory() -> ComprencBackend:
+        return ComprencBackend(data_pw, compress, options.backend_class(options))
+
+    factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
+
+    return factory  # type: ignore[return-value]
 
 
 def pretty_print_size(bytes_: int) -> str:

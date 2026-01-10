@@ -280,10 +280,8 @@ class BlockCache:
             self.upload_threads.append(t)
 
         self.to_remove = Queue(1000)
-        with self.backend_pool() as backend:
-            has_delete_multi = backend.has_delete_multi
 
-        if has_delete_multi:
+        if self.backend_pool.has_delete_multi:
             t = threading.Thread(target=self._removal_loop_multi)
             t.daemon = True  # interruption will do no permanent harm
             t.start()

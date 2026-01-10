@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
+
+from s3ql.types import BackendFactory
 
 from .common import AbstractBackend
 
@@ -26,11 +28,12 @@ class BackendPool:
     threads.
     '''
 
-    factory: Callable[[], AbstractBackend]
+    factory: BackendFactory
     pool: list[AbstractBackend]
     lock: threading.Lock
+    has_delete_multi: bool
 
-    def __init__(self, factory: Callable[[], AbstractBackend]) -> None:
+    def __init__(self, factory: BackendFactory) -> None:
         '''Init pool
 
         *factory* should be a callable that provides new
@@ -40,6 +43,7 @@ class BackendPool:
         self.factory = factory
         self.pool = []
         self.lock = threading.Lock()
+        self.has_delete_multi = factory.has_delete_multi
 
     def pop_conn(self) -> AbstractBackend:
         '''Pop connection from pool'''

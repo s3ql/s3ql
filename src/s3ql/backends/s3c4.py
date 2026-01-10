@@ -12,7 +12,11 @@ import logging
 import time
 import urllib.parse
 
+from s3ql.async_bridge import run_async
+from s3ql.types import BackendOptionsProtocol
+
 from . import s3c
+from .common import AbstractBackend
 
 log = logging.getLogger(__name__)
 
@@ -23,18 +27,24 @@ MAX_KEYS = 1000
 # pylint: disable=E1002,E1101
 
 
-class Backend(s3c.Backend):
+class AsyncBackend(s3c.AsyncBackend):
     """A backend to stored data in some S3 compatible storage service.
 
     This classes uses AWS Signature V4 for authorization.
     """
 
-    known_options = s3c.Backend.known_options | {'sig-region'}
+    known_options = s3c.AsyncBackend.known_options | {'sig-region'}
 
-    def __init__(self, options):
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize backend object - use AsyncBackend.create() instead.'''
         self.sig_region = options.backend_options.get('sig-region', 'us-east-1')
         self.signing_key = None
-        super().__init__(options)
+        super().__init__(options=options)
+
+    @classmethod
+    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+        '''Create a new S3-compatible (v4 signature) backend instance.'''
+        return cls(options=options)
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
@@ -133,3 +143,14 @@ def hmac_sha256(key, msg, hex=False):
         return d.hexdigest()
     else:
         return d.digest()
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)

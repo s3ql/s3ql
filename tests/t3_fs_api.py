@@ -74,9 +74,17 @@ some_ctx = Ctx()
 async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    plain_backend = local.Backend(Namespace(storage_url='local://' + ctx.backend_dir))
-    ctx.backend_pool = BackendPool(lambda: ComprencBackend(b'schwubl', ('zlib', 6), plain_backend))
-    ctx.backend = ctx.backend_pool.pop_conn()
+    plain_backend = await trio.to_thread.run_sync(
+        local.Backend, Namespace(storage_url='local://' + ctx.backend_dir)
+    )
+
+    def factory():
+        return ComprencBackend(b'schwubl', ('zlib', 6), plain_backend)
+
+    factory.has_delete_multi = True
+    ctx.backend_pool = BackendPool(factory)
+
+    ctx.backend = await trio.to_thread.run_sync(ctx.backend_pool.pop_conn)
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
 
@@ -134,7 +142,8 @@ async def fsck(ctx):
         ),
         ctx.db,
     )
-    fsck.check()
+    # TODO: Use async API
+    await trio.to_thread.run_sync(fsck.check)
     assert not fsck.found_errors
 
 

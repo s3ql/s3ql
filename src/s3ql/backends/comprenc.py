@@ -17,12 +17,14 @@ import lzma
 import struct
 import time
 import zlib
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, cast
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+import trio
 
+from s3ql.async_bridge import run_async
 from s3ql.types import (
     BasicMappingT,
     BinaryInput,
@@ -33,7 +35,13 @@ from s3ql.types import (
 
 from .. import BUFSIZE
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
-from .common import AbstractBackend, CorruptedObjectError, checksum_basic_mapping
+from .common import (
+    _FACTORY_SENTINEL,
+    AbstractBackend,
+    AsyncBackend,
+    CorruptedObjectError,
+    checksum_basic_mapping,
+)
 
 if TYPE_CHECKING:
     from cryptography.hazmat.primitives.ciphers import CipherContext
@@ -71,7 +79,7 @@ def aes_decryptor(key: bytes) -> CipherContext:
     return cipher.decryptor()
 
 
-class ComprencBackend(AbstractBackend):
+class AsyncComprencBackend(AsyncBackend):
     '''
     This class adds encryption, compression and integrity protection to a plain
     backend.
@@ -79,15 +87,29 @@ class ComprencBackend(AbstractBackend):
 
     passphrase: bytes | None
     compression: tuple[str | None, int]
-    backend: AbstractBackend
+    backend: AsyncBackend
+
+    @classmethod
+    async def create(  # type: ignore[override]
+        cls,
+        passphrase: bytes | None,
+        compression: tuple[str | None, int],
+        backend: AsyncBackend,
+    ) -> AsyncComprencBackend:
+        return cls(_FACTORY_SENTINEL, passphrase, compression, backend)
 
     def __init__(
         self,
+        _sentinel: object,
         passphrase: bytes | None,
         compression: tuple[str | None, int],
-        backend: AbstractBackend,
+        backend: AsyncBackend,
     ) -> None:
-        super().__init__()
+        if _sentinel is not _FACTORY_SENTINEL:
+            raise TypeError(
+                "Use 'await AsyncComprencBackend.create(...)' instead of direct instantiation"
+            )
+        super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
         self.passphrase = passphrase
         self.compression = compression
@@ -100,20 +122,20 @@ class ComprencBackend(AbstractBackend):
     def has_delete_multi(self) -> bool:
         return self.backend.has_delete_multi
 
-    def reset(self) -> None:
-        self.backend.reset()
+    async def reset(self) -> None:
+        await self.backend.reset()
 
-    def lookup(self, key: str) -> BasicMappingT:
-        meta_raw = self.backend.lookup(key)
+    async def lookup(self, key: str) -> BasicMappingT:
+        meta_raw = await self.backend.lookup(key)
         return self._verify_meta(key, meta_raw)[1]
 
-    def get_size(self, key: str) -> int:
+    async def get_size(self, key: str) -> int:
         '''
         This method returns the compressed size, i.e. the storage space
         that's actually occupied by the object.
         '''
 
-        return self.backend.get_size(key)
+        return await self.backend.get_size(key)
 
     def is_temp_failure(self, exc: BaseException) -> bool:
         return self.backend.is_temp_failure(exc)
@@ -189,7 +211,7 @@ class ComprencBackend(AbstractBackend):
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
 
-    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
+    async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
@@ -200,7 +222,7 @@ class ComprencBackend(AbstractBackend):
         '''
 
         buf1 = io.BytesIO()
-        meta_raw = self.backend.readinto_fh(key, buf1)
+        meta_raw = await self.backend.readinto_fh(key, buf1)
         (nonce, meta) = self._verify_meta(key, meta_raw)
         compr_alg = meta_raw['compression']
         encr_alg = meta_raw['encryption']
@@ -226,15 +248,18 @@ class ComprencBackend(AbstractBackend):
             buf2 = io.BytesIO()
 
         if encr_alg == 'AES_v2':
-            decrypt_fh(buf1, buf2, data_key)
+            await trio.to_thread.run_sync(decrypt_fh, buf1, buf2, data_key)
         elif encr_alg == 'None':
-            copyfh(buf1, buf2)
+            await trio.to_thread.run_sync(copyfh, buf1, buf2)
         else:
             raise RuntimeError('Unsupported encryption: %r' % encr_alg)
 
         if compr_alg == 'None':
             assert buf2 is fh
             return meta
+        assert buf2 is not fh
+        assert isinstance(buf2, io.BytesIO)
+        buf2.seek(0)
 
         if compr_alg == 'BZIP2':
             decompressor: DecompressorProtocol = bz2.BZ2Decompressor()
@@ -245,12 +270,11 @@ class ComprencBackend(AbstractBackend):
         else:
             raise RuntimeError('Unsupported compression: %r' % compr_alg)
         assert buf2 is not fh
-        buf2.seek(0)
-        decompress_fh(cast(io.BytesIO, buf2), fh, decompressor)
+        await trio.to_thread.run_sync(decompress_fh, buf2, fh, decompressor)
 
         return meta
 
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -286,7 +310,7 @@ class ComprencBackend(AbstractBackend):
                 compr = lzma.LZMACompressor(preset=self.compression[1])
                 meta_raw['compression'] = 'LZMA'
             buf = io.BytesIO()
-            compress_fh(fh, buf, compr, len_=len_)
+            await trio.to_thread.run_sync(compress_fh, fh, buf, compr, len_)
             buf.seek(0)
             fh = buf
             len_ = None
@@ -305,27 +329,28 @@ class ComprencBackend(AbstractBackend):
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
             data_key = sha256(self.passphrase + nonce)
             buf = io.BytesIO()
-            encrypt_fh(fh, buf, data_key, len_=len_)
+            await trio.to_thread.run_sync(encrypt_fh, fh, buf, data_key, len_)
             buf.seek(0)
             fh = buf
             len_ = None
 
-        return self.backend.write_fh(key, fh, meta_raw, len_=len_)
+        return await self.backend.write_fh(key, fh, meta_raw, len_=len_)
 
-    def contains(self, key: str) -> bool:
-        return self.backend.contains(key)
+    async def contains(self, key: str) -> bool:
+        return await self.backend.contains(key)
 
-    def delete(self, key: str) -> None:
-        return self.backend.delete(key)
+    async def delete(self, key: str) -> None:
+        return await self.backend.delete(key)
 
-    def delete_multi(self, keys: list[str]) -> None:
-        return self.backend.delete_multi(keys)
+    async def delete_multi(self, keys: list[str]) -> None:
+        return await self.backend.delete_multi(keys)
 
-    def list(self, prefix: str = '') -> Iterator[str]:
-        return self.backend.list(prefix)
+    async def list(self, prefix: str = '') -> AsyncIterator[str]:
+        async for key in self.backend.list(prefix):
+            yield key
 
-    def close(self) -> None:
-        self.backend.close()
+    async def close(self) -> None:
+        await self.backend.close()
 
 
 def compress_fh(
@@ -465,3 +490,55 @@ class ObjectNotEncrypted(Exception):
     '''
 
     pass
+
+
+# TODO: Remove this after async transition is complete
+class ComprencBackend(AbstractBackend):
+    '''Synchronous wrapper for AsyncComprencBackend.
+
+    For transitional use only, until all code has been converted to async.
+    '''
+
+    async_backend: AsyncComprencBackend
+
+    def __init__(
+        self,
+        passphrase: bytes | None,
+        compression: tuple[str | None, int],
+        backend: AbstractBackend,
+    ) -> None:
+        async_comprenc = run_async(
+            AsyncComprencBackend.create,
+            passphrase,
+            compression,
+            backend.async_backend,
+        )
+        super().__init__(async_comprenc)
+        self.async_backend = async_comprenc
+
+    @property
+    def passphrase(self) -> bytes | None:
+        return self.async_backend.passphrase
+
+    @passphrase.setter
+    def passphrase(self, value: bytes | None) -> None:
+        self.async_backend.passphrase = value
+
+    @property
+    def compression(self) -> tuple[str | None, int]:
+        return self.async_backend.compression
+
+    @property
+    def backend(self) -> AbstractBackend:
+        '''Access underlying raw backend (wrapped as sync)'''
+        return AbstractBackend(self.async_backend.backend)
+
+    def write_fh(
+        self,
+        key: str,
+        fh: BinaryInput,
+        metadata: BasicMappingT | None = None,
+        len_: int | None = None,
+        dont_compress: bool = False,
+    ) -> int:
+        return run_async(self.async_backend.write_fh, key, fh, metadata, len_, dont_compress)

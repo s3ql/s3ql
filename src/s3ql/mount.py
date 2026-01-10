@@ -12,7 +12,6 @@ import _thread
 import argparse
 import atexit
 import faulthandler
-import functools
 import logging
 import os
 import platform
@@ -215,12 +214,17 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     # Get paths
     cachepath = options.cachepath
 
-    backend_factory = get_backend_factory(options)
+    # TODO: Temporary, should transition to get_async_backend_factory
+    backend_factory = await trio.to_thread.run_sync(get_backend_factory, options)
     backend_pool = BackendPool(backend_factory)
     atexit.register(backend_pool.flush)
 
-    with backend_pool() as backend:
-        (param, db) = get_metadata(backend, cachepath)
+    # TODO: Temporary, should transition to async version
+    def in_thread():
+        with backend_pool() as backend:
+            return get_metadata(backend, cachepath)
+
+    (param, db) = await trio.to_thread.run_sync(in_thread)
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param.data_block_size / 2
@@ -298,8 +302,13 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.seq_no += 1
         param.is_mounted = True
         write_params(cachepath, param)
-        upload_params(backend, param)
 
+        # TODO: Switch to async API
+        def upload_in_thread():
+            with backend_pool() as backend:
+                upload_params(backend, param)
+
+        await trio.to_thread.run_sync(upload_in_thread)
         block_cache.init(options.threads)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
@@ -366,12 +375,16 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         log.warning('File system errors encountered, marking for fsck.')
         param.needs_fsck = True
 
-    with backend_pool() as backend:
-        param.last_modified = time.time()
-        upload_metadata(backend, db, param)
-        write_params(cachepath, param)
-        upload_params(backend, param)
-        expire_objects(backend)
+    # TODO: Switch to async API
+    def upload_in_thread2():
+        with backend_pool() as backend:
+            param.last_modified = time.time()
+            upload_metadata(backend, db, param)
+            write_params(cachepath, param)
+            upload_params(backend, param)
+            expire_objects(backend)
+
+    await trio.to_thread.run_sync(upload_in_thread2)
 
     log.info('All done.')
 
@@ -735,48 +748,51 @@ class MetadataUploadTask:
 
             self.event = trio.Event()  # reset
 
-            with self.backend_pool() as backend:
-                # Upload asynchronously twice to reduce the amount of data left for
-                # synchronous upload.
-                await self.db.checkpoint()
-                for _ in range(2):
-                    await trio.to_thread.run_sync(
-                        functools.partial(
-                            upload_metadata,
+            # Upload twice without blocking writes, to reduce the amount of data left for
+            # the final upload (which is needed for a consistent snapshot).
+            def first_upload():
+                with self.backend_pool() as backend:
+                    self.db.sync_checkpoint()
+                    for _ in range(2):
+                        upload_metadata(
                             backend,
                             self.db,
                             self.params,
                             update_params=False,
                             incremental=True,
                         )
+
+            await trio.to_thread.run_sync(first_upload)
+
+            self.params.last_modified = time.time()
+
+            def second_upload():
+                with self.backend_pool() as backend:
+                    upload_metadata(
+                        backend,
+                        self.db,
+                        self.params,
+                        update_params=True,
+                        incremental=True,
                     )
+                    write_params(self.options.cachepath, self.params)
+                    upload_params(backend, self.params)
 
-                # Now upload with writes inhibited to get a consistent snapshot.
-                # inhibit_writes() blocks WAL checkpointing (writes go to WAL only),
-                # ensuring the main database file remains consistent while we read it.
-                async with self.db.inhibit_writes():
-                    self.params.last_modified = time.time()
-                    await trio.to_thread.run_sync(
-                        functools.partial(
-                            upload_metadata,
-                            backend,
-                            self.db,
-                            self.params,
-                            update_params=True,
-                            incremental=True,
-                        )
-                    )
-                write_params(self.options.cachepath, self.params)
-                upload_params(backend, self.params)
+                    # Write a new params file immediately, so that we're in the same state as right
+                    # after mounting and there is no window where we could have metadata_* objects
+                    # with a sequence number for which there is no corresponding s3ql_params_*
+                    # object.
+                    self.params.seq_no += 1
+                    write_params(self.options.cachepath, self.params)
+                    upload_params(backend, self.params)
 
-                # Write a new params file immediately, so that we're in the same state as right
-                # after mounting and there is no window where we could have metadata_* objects with
-                # a sequence number for which there is no corresponding s3ql_params_* object.
-                self.params.seq_no += 1
-                write_params(self.options.cachepath, self.params)
-                upload_params(backend, self.params)
+                    expire_objects(backend)
 
-                await trio.to_thread.run_sync(expire_objects, backend)
+            # Now upload with writes inhibited to get a consistent snapshot. inhibit_writes() blocks
+            # WAL checkpointing (writes go to WAL only), ensuring the main database file remains
+            # consistent while we read it.
+            async with self.db.inhibit_writes():
+                await trio.to_thread.run_sync(second_upload)
 
         log.debug('finished')
 

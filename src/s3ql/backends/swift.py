@@ -16,11 +16,12 @@ import ssl
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
+from collections.abc import AsyncIterator
 from itertools import count
 from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
 
-from s3ql.common import copyfh
+from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -29,19 +30,25 @@ from s3ql.http import (
     UnsupportedResponse,
     is_temp_network_error,
 )
-from s3ql.types import BinaryInput, BinaryOutput
+from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
 
 from ..logging import LOG_ONCE, QuietError
 from .common import (
+    _FACTORY_SENTINEL,
     AbstractBackend,
     AuthorizationError,
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
     checksum_basic_mapping,
+    copy_from_http,
+    copy_to_http,
     get_proxy,
     get_ssl_context,
     retry,
+)
+from .common import (
+    AsyncBackend as AsyncBackendBase,
 )
 from .s3c import BadDigestError, HTTPError, md5sum_b64
 
@@ -51,7 +58,7 @@ log = logging.getLogger(__name__)
 TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
 
-class Backend(AbstractBackend):
+class AsyncBackend(AsyncBackendBase):
     """A backend to store data in OpenStack Swift"""
 
     hdr_prefix = 'X-Object-'
@@ -62,6 +69,14 @@ class Backend(AbstractBackend):
         'disable-expect100',
         'no-feature-detection',
     }
+
+    @classmethod
+    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+        '''Create a new Swift backend instance with eager authentication.'''
+        backend = cls(options=options)
+        backend.conn = await backend._get_conn()
+        await backend._container_exists()
+        return backend
 
     def _add_meta_headers(self, headers, metadata, chunksize=255):
         hdr_count = 0
@@ -150,15 +165,15 @@ class Backend(AbstractBackend):
 
         return meta
 
-    def _assert_empty_response(self, resp):
+    async def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
-        buf = self.conn.read(2048)
+        buf = await self.conn.co_read(2048)
         if not buf:
             return  # expected
 
         # Log the problem
-        self.conn.discard()
+        await self.conn.co_discard()
         log.error(
             'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
             resp.status,
@@ -168,7 +183,7 @@ class Backend(AbstractBackend):
         )
         raise RuntimeError('Unexpected server response')
 
-    def _dump_response(self, resp, body=None):
+    async def _dump_response(self, resp, body=None):
         '''Return string representation of server response
 
         Only the beginning of the response body is read, so this is
@@ -177,9 +192,9 @@ class Backend(AbstractBackend):
 
         if body is None:
             try:
-                body = self.conn.read(2048)
+                body = await self.conn.co_read(2048)
                 if body:
-                    self.conn.discard()
+                    await self.conn.co_discard()
             except UnsupportedResponse:
                 log.warning('Unsupported response, trying to retrieve data from raw socket!')
                 body = self.conn.read_raw(2048)
@@ -194,35 +209,36 @@ class Backend(AbstractBackend):
             body.decode('utf-8', errors='backslashreplace'),
         )
 
-    def reset(self):
+    async def reset(self):
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
             log.debug('Resetting state of http connection %d', id(self.conn))
             self.conn.disconnect()
 
-    def __init__(self, options):
-        super().__init__()
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize swift backend - use AsyncBackend.create() instead.'''
+        super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
         self.options = options.backend_options
         self.auth_token = None
         self.auth_prefix = None
-        self.conn = None
+
+        # Overwrite type, this will be initialized in create() right away
+        self.conn: HTTPConnection = None  # type: ignore[assignment]
         self.password = options.backend_password
         self.login = options.backend_login
         self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
         # because no-ssl applies only to the authentication URL.
-        self.ssl_context = get_ssl_context(self.options.get('ssl-ca-path', None))
+        self.ssl_context = get_ssl_context(self.options.get('ssl-ca-path', None))  # type: ignore[arg-type]
 
         # Note: this is intentionally a separate method (rather than inlining the
         # parsing logic), because derived backends (e.g. swiftks://) override it.
         self._parse_storage_url(options.storage_url, self.ssl_context)
 
         self.proxy = get_proxy(self.ssl_context is not None)
-        self._container_exists()
 
-    def _parse_storage_url(self, storage_url, ssl_context):
-        '''Init instance variables from storage url'''
-
+    def _parse_storage_url(self, storage_url: str, ssl_context: ssl.SSLContext | None) -> None:
+        '''Parse storage URL and set instance attributes.'''
         hit = re.match(
             r'^[a-zA-Z0-9]+://'  # Backend
             r'([^/:]+)'  # Hostname
@@ -248,12 +264,12 @@ class Backend(AbstractBackend):
         return 'swift container %s, prefix %s' % (self.container_name, self.prefix)
 
     @retry
-    def _container_exists(self):
+    async def _container_exists(self):
         '''Make sure that the container exists'''
 
         try:
-            self._do_request('GET', '/', query_string={'limit': 1})
-            self.conn.discard()
+            await self._do_request('GET', '/', query_string={'limit': 1})
+            await self.conn.co_discard()
         except HTTPError as exc:
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
@@ -289,7 +305,7 @@ class Backend(AbstractBackend):
 
         return False
 
-    def _get_conn(self):
+    async def _get_conn(self):
         '''Obtain connection to server and authentication token'''
 
         log.debug('started')
@@ -310,12 +326,12 @@ class Backend(AbstractBackend):
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
                 log.debug('GET %s', auth_path)
-                conn.send_request('GET', auth_path, headers=headers)
-                resp = conn.read_response()
+                await conn.co_send_request('GET', auth_path, headers=headers)
+                resp = await conn.co_read_response()
 
                 if resp.status in (404, 412):
                     log.debug('auth to %s failed, trying next path', auth_path)
-                    conn.discard()
+                    await conn.co_discard()
                     continue
 
                 elif resp.status == 401:
@@ -343,7 +359,7 @@ class Backend(AbstractBackend):
                 # (mock server handles both - storage and authentication)
                 conn.disconnect()
 
-                self._detect_features(o.hostname, o.port, ssl_context)
+                await self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
                 conn.timeout = int(self.options.get('tcp-timeout', 20))
@@ -351,7 +367,7 @@ class Backend(AbstractBackend):
 
             raise RuntimeError('No valid authentication path found')
 
-    def _do_request(
+    async def _do_request(
         self,
         method,
         path,
@@ -378,7 +394,7 @@ class Backend(AbstractBackend):
 
         if self.conn is None:
             log.debug('no active connection, calling _get_conn()')
-            self.conn = self._get_conn()
+            self.conn = await self._get_conn()
 
         # Construct full path
         path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
@@ -393,7 +409,7 @@ class Backend(AbstractBackend):
 
         headers['X-Auth-Token'] = self.auth_token
         try:
-            resp = self._do_request_inner(
+            resp = await self._do_request_inner(
                 method, path, body=body, headers=headers, body_len=body_len
             )
         except Exception as exc:
@@ -413,7 +429,7 @@ class Backend(AbstractBackend):
 
         # If method == HEAD, server must not return response body
         # even in case of errors
-        self.conn.discard()
+        await self.conn.co_discard()
         if method.upper() == 'HEAD':
             raise HTTPError(resp.status, resp.reason, resp.headers)
         else:
@@ -421,36 +437,36 @@ class Backend(AbstractBackend):
 
     # Including this code directly in _do_request would be very messy since
     # we can't `return` the response early, thus the separate method
-    def _do_request_inner(self, method, path, body, headers, body_len: Optional[int] = None):
+    async def _do_request_inner(self, method, path, body, headers, body_len: Optional[int] = None):
         '''The guts of the _do_request method'''
 
         log.debug('started with %s %s', method, path)
         use_expect_100c = not self.options.get('disable-expect100', False)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            self.conn.send_request(method, path, body=body, headers=headers)
-            return self.conn.read_response()
+            await self.conn.co_send_request(method, path, body=body, headers=headers)
+            return await self.conn.co_read_response()
 
-        self.conn.send_request(
+        await self.conn.co_send_request(
             method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
         )
 
         if use_expect_100c:
             log.debug('waiting for 100-continue')
-            resp = self.conn.read_response()
+            resp = await self.conn.co_read_response()
             if resp.status != 100:
                 return resp
 
         log.debug('writing body data')
         md5 = hashlib.md5()
         try:
-            copyfh(body, self.conn, len_=body_len, update=md5.update)
+            await copy_to_http(body, self.conn, body_len, update=md5.update)
         except ConnectionClosed:
             log.debug('interrupted write, server closed connection')
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             try:
-                resp = self.conn.read_response()
+                resp = await self.conn.co_read_response()
             except ConnectionClosed:  # No server response available
                 log.debug('no response available in  buffer')
                 pass
@@ -466,7 +482,7 @@ class Backend(AbstractBackend):
             # Re-raise original error
             raise
 
-        resp = self.conn.read_response()
+        resp = await self.conn.co_read_response()
 
         # On success, check MD5. Not sure if this is returned every time we send a request body, but
         # it seems to work. If not, we have to somehow pass in the information when this is expected
@@ -483,14 +499,14 @@ class Backend(AbstractBackend):
         return resp
 
     @retry
-    def lookup(self, key):
+    async def lookup(self, key):
         log.debug('started with %s', key)
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
         try:
-            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -500,14 +516,14 @@ class Backend(AbstractBackend):
         return self._extractmeta(resp, key)
 
     @retry
-    def get_size(self, key):
+    async def get_size(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
 
         try:
-            resp = self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -519,21 +535,21 @@ class Backend(AbstractBackend):
         except KeyError:
             raise RuntimeError('HEAD request did not return Content-Length')
 
-    def readinto_fh(self, key: str, fh: BinaryOutput):
+    async def readinto_fh(self, key: str, fh: BinaryOutput):
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset. If a temporary error (as defined by
         `is_temp_failure`) occurs, the operation is retried.
         '''
 
-        return self._readinto_fh(key, fh, fh.tell())
+        return await self._readinto_fh(key, fh, fh.tell())
 
     @retry
-    def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
+    async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         try:
-            resp = self._do_request('GET', '/%s%s' % (self.prefix, key))
+            resp = await self._do_request('GET', '/%s%s' % (self.prefix, key))
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -546,14 +562,14 @@ class Backend(AbstractBackend):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if resp.length is not None and resp.length < 64 * 1024:
-                self.conn.discard()
+                await self.conn.co_discard()
             else:
                 self.conn.disconnect()
             raise
 
         md5 = hashlib.md5()
         fh.seek(off)
-        copyfh(self.conn, fh, update=md5.update)
+        await copy_from_http(self.conn, fh, update=md5.update)
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -561,7 +577,7 @@ class Backend(AbstractBackend):
 
         return meta
 
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -584,17 +600,19 @@ class Backend(AbstractBackend):
         if len_ is None:
             fh.seek(0, os.SEEK_END)
             len_ = fh.tell() - off
-        return self._write_fh(key, fh, off, len_, metadata or {})
+        return await self._write_fh(key, fh, off, len_, metadata or {})
 
     @retry
-    def _write_fh(self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]):
+    async def _write_fh(
+        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]
+    ):
         headers = CaseInsensitiveDict()
         self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
 
         headers['Content-Type'] = 'application/octet-stream'
         fh.seek(off)
         try:
-            resp = self._do_request(
+            resp = await self._do_request(
                 'PUT',
                 '/%s%s' % (self.prefix, key),
                 headers=headers,
@@ -603,20 +621,20 @@ class Backend(AbstractBackend):
             )
         except BadDigestError:
             # Object was corrupted in transit, make sure to delete it
-            self.delete(key)
+            await self.delete(key)
             raise
 
-        self._assert_empty_response(resp)
+        await self._assert_empty_response(resp)
         return len_
 
     @retry
-    def delete(self, key):
+    async def delete(self, key):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
         try:
-            resp = self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            self._assert_empty_response(resp)
+            resp = await self._do_request('DELETE', '/%s%s' % (self.prefix, key))
+            await self._assert_empty_response(resp)
         except HTTPError as exc:
             if exc.status == 404:
                 pass
@@ -624,7 +642,7 @@ class Backend(AbstractBackend):
                 raise
 
     @retry
-    def _delete_multi(self, keys):
+    async def _delete_multi(self, keys):
         """Doing bulk delete of multiple objects at a time.
 
         This is a feature of the configurable middleware "Bulk" so it can only
@@ -684,7 +702,7 @@ class Backend(AbstractBackend):
         body = '\n'.join(body).encode('utf-8')
         headers = {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
 
-        resp = self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
+        resp = await self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
 
         # bulk deletes should always return 200
         if resp.status != 200:
@@ -693,14 +711,15 @@ class Backend(AbstractBackend):
         hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type'])
         if not hit:
             log.error(
-                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+                'Unexpected server response. Expected json, got:\n%s',
+                await self._dump_response(resp),
             )
             raise RuntimeError('Unexpected server reply')
 
         # there might be an arbitrary amount of whitespace before the
         # JSON response (to keep the connection from timing out)
         # but json.loads discards these whitespace characters automatically
-        resp_dict = json.loads(self.conn.readall().decode(hit.group(2) or 'utf-8'))
+        resp_dict = json.loads((await self.conn.co_readall()).decode(hit.group(2) or 'utf-8'))
 
         log.debug('Response %s', resp_dict)
 
@@ -773,32 +792,32 @@ class Backend(AbstractBackend):
     def has_delete_multi(self):
         return self.features.has_bulk_delete
 
-    def delete_multi(self, keys):
+    async def delete_multi(self, keys):
         log.debug('started with %s', keys)
 
         if self.features.has_bulk_delete:
             while len(keys) > 0:
                 tmp = keys[: self.features.max_deletes]
                 try:
-                    self._delete_multi(tmp)
+                    await self._delete_multi(tmp)
                 finally:
                     keys[: self.features.max_deletes] = tmp
         else:
-            super().delete_multi(keys)
+            await super().delete_multi(keys)
 
-    def list(self, prefix=''):
+    async def list(self, prefix='') -> AsyncIterator[str]:
         prefix = self.prefix + prefix
         strip = len(self.prefix)
         page_token = None
         while True:
-            (els, page_token) = self._list_page(prefix, page_token)
+            (els, page_token) = await self._list_page(prefix, page_token)
             for el in els:
                 yield el[strip:]
             if page_token is None:
                 break
 
     @retry
-    def _list_page(self, prefix, page_token=None, batch_size=1000) -> tuple:
+    async def _list_page(self, prefix, page_token=None, batch_size=1000) -> tuple:
         # Limit maximum number of results since we read everything
         # into memory (because Python JSON doesn't have a streaming API)
         query_string = {'prefix': prefix, 'limit': str(batch_size), 'format': 'json'}
@@ -806,7 +825,7 @@ class Backend(AbstractBackend):
             query_string['marker'] = page_token
 
         try:
-            resp = self._do_request('GET', '/', query_string=query_string)
+            resp = await self._do_request('GET', '/', query_string=query_string)
         except HTTPError as exc:
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
@@ -818,11 +837,12 @@ class Backend(AbstractBackend):
         hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
         if not hit:
             log.error(
-                'Unexpected server response. Expected json, got:\n%s', self._dump_response(resp)
+                'Unexpected server response. Expected json, got:\n%s',
+                await self._dump_response(resp),
             )
             raise RuntimeError('Unexpected server reply')
 
-        body = self.conn.readall()
+        body = await self.conn.co_readall()
         names = []
         count = 0
         for dataset in json.loads(body.decode(hit.group(1))):
@@ -839,10 +859,11 @@ class Backend(AbstractBackend):
 
         return (names, page_token)
 
-    def close(self):
-        self.conn.disconnect()
+    async def close(self):
+        if self.conn is not None:
+            self.conn.disconnect()
 
-    def _detect_features(self, hostname, port, ssl_context):
+    async def _detect_features(self, hostname, port, ssl_context):
         '''Try to figure out the Swift version and supported features by
         examining the /info endpoint of the storage server.
 
@@ -862,15 +883,16 @@ class Backend(AbstractBackend):
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             log.debug('GET /info')
-            conn.send_request('GET', '/info')
-            resp = conn.read_response()
+            await conn.co_send_request('GET', '/info')
+            resp = await conn.co_read_response()
 
             # 200, 401, 403 and 404 are all OK since the /info endpoint
             # may not be accessible (misconfiguration) or may not
             # exist (old Swift version).
             if resp.status not in (200, 401, 403, 404):
                 log.error(
-                    "Wrong server response.\n%s", self._dump_response(resp, body=conn.read(2048))
+                    "Wrong server response.\n%s",
+                    self._dump_response(resp, body=await conn.co_read(2048)),
                 )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
@@ -881,11 +903,11 @@ class Backend(AbstractBackend):
                 if not hit:
                     log.error(
                         "Wrong server response. Expected json. Got: \n%s",
-                        self._dump_response(resp, body=conn.read(2048)),
+                        self._dump_response(resp, body=await conn.co_read(2048)),
                     )
                     raise RuntimeError('Unexpected server reply')
 
-                info = json.loads(conn.readall().decode(hit.group(2) or 'utf-8'))
+                info = json.loads((await conn.co_readall()).decode(hit.group(2) or 'utf-8'))
                 swift_info = info.get('swift', {})
 
                 log.debug('%s:%s/info returns %s', hostname, port, info)
@@ -1002,3 +1024,14 @@ class Features:
 
     def __ne__(self, other):
         return repr(self) != repr(other)
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)

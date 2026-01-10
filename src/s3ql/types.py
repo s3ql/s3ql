@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol, TypeVar
+
+if TYPE_CHECKING:
+    from s3ql.backends.comprenc import ComprencBackend
 
 
 class HashFunction(Protocol):
@@ -36,6 +39,14 @@ T = TypeVar('T')
 # Type aliases
 ElementaryT = int | float | str | bytes | complex | bool | None
 BasicMappingT = dict[str, ElementaryT]
+
+
+class BackendFactory(Protocol):
+    """Protocol for backend factory functions."""
+
+    def __call__(self) -> ComprencBackend: ...
+
+    has_delete_multi: bool
 
 
 class BackendOptionsProtocol(Protocol):

@@ -16,6 +16,7 @@ if __name__ == '__main__':
 
 import logging
 
+import pytest
 from pytest_checklogs import assert_logs
 
 from s3ql.backends.common import retry
@@ -35,14 +36,14 @@ class NthAttempt:
         return isinstance(exc, TemporaryProblem)
 
     @retry
-    def do_stuff(self):
+    async def do_stuff(self):
         if self.count == self.succeed_on:
             return True
         self.count += 1
         raise TemporaryProblem()
 
     @retry
-    def test_is_retry(self, is_retry=False):
+    async def test_is_retry(self, is_retry=False):
         assert is_retry == (self.count != 0)
         if self.count == self.succeed_on:
             return True
@@ -50,18 +51,21 @@ class NthAttempt:
         raise TemporaryProblem()
 
 
-def test_retry():
+@pytest.mark.trio
+async def test_retry():
     inst = NthAttempt(3)
 
-    assert inst.do_stuff()
+    assert await inst.do_stuff()
 
 
-def test_is_retry():
+@pytest.mark.trio
+async def test_is_retry():
     inst = NthAttempt(3)
-    assert inst.test_is_retry()
+    assert await inst.test_is_retry()
 
 
-def test_logging():
+@pytest.mark.trio
+async def test_logging():
     inst = NthAttempt(6)
     with assert_logs(r'^Encountered %s \(%s\), retrying ', count=2, level=logging.WARNING):
-        inst.do_stuff()
+        await inst.do_stuff()

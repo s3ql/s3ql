@@ -12,18 +12,28 @@ import _thread
 import logging
 import os
 import struct
-from collections.abc import Iterator
+from collections.abc import AsyncIterator
 from contextlib import ExitStack, suppress
 
+from s3ql.async_bridge import run_async
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
-from .common import AbstractBackend, CorruptedObjectError, DanglingStorageURLError, NoSuchObject
+from .common import (
+    _FACTORY_SENTINEL,
+    AbstractBackend,
+    CorruptedObjectError,
+    DanglingStorageURLError,
+    NoSuchObject,
+)
+from .common import (
+    AsyncBackend as AsyncBackendBase,
+)
 
 log = logging.getLogger(__name__)
 
 
-class Backend(AbstractBackend):
+class AsyncBackend(AsyncBackendBase):
     '''
     A backend that stores data on the local hard disk
     '''
@@ -32,14 +42,19 @@ class Backend(AbstractBackend):
     known_options: set[str] = set()
     prefix: str
 
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        '''Initialize local backend'''
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize local backend - use AsyncBackend.create() instead.'''
 
-        super().__init__()
+        super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
         self.prefix = options.storage_url[len('local://') :].rstrip('/')
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)
+
+    @classmethod
+    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+        '''Create a new local backend instance.'''
+        return cls(options=options)
 
     @property
     def has_delete_multi(self) -> bool:
@@ -51,7 +66,7 @@ class Backend(AbstractBackend):
     def is_temp_failure(self, exc: BaseException) -> bool:
         return False
 
-    def lookup(self, key: str) -> BasicMappingT:
+    async def lookup(self, key: str) -> BasicMappingT:
         path = self._key_to_path(key)
         try:
             with open(path, 'rb') as src:
@@ -59,10 +74,10 @@ class Backend(AbstractBackend):
         except FileNotFoundError:
             raise NoSuchObject(key)
 
-    def get_size(self, key: str) -> int:
+    async def get_size(self, key: str) -> int:
         return os.path.getsize(self._key_to_path(key))
 
-    def readinto_fh(self, key: str, ofh: BinaryOutput) -> BasicMappingT:
+    async def readinto_fh(self, key: str, ofh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
 
         The data will be inserted at the current offset.
@@ -83,7 +98,7 @@ class Backend(AbstractBackend):
             copyfh(ifh, ofh)
         return metadata
 
-    def write_fh(
+    async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
@@ -131,7 +146,7 @@ class Backend(AbstractBackend):
 
         return size
 
-    def contains(self, key: str) -> bool:
+    async def contains(self, key: str) -> bool:
         path = self._key_to_path(key)
         try:
             os.lstat(path)
@@ -139,22 +154,22 @@ class Backend(AbstractBackend):
             return False
         return True
 
-    def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: list[str]) -> None:
         for i, key in enumerate(keys):
             try:
-                self.delete(key)
+                await self.delete(key)
             except:
                 del keys[:i]
                 raise
 
         del keys[:]
 
-    def delete(self, key: str) -> None:
+    async def delete(self, key: str) -> None:
         path = self._key_to_path(key)
         with suppress(FileNotFoundError):
             os.unlink(path)
 
-    def list(self, prefix: str = '') -> Iterator[str]:
+    async def list(self, prefix: str = '') -> AsyncIterator[str]:
         if prefix:
             base = os.path.dirname(self._key_to_path(prefix))
         else:
@@ -201,6 +216,18 @@ class Backend(AbstractBackend):
         path.append(key)
 
         return os.path.join(*path)
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    _key_to_path = AsyncBackend._key_to_path
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)
 
 
 def _read_meta(fh: BinaryInput) -> BasicMappingT:

@@ -13,12 +13,13 @@ import re
 import ssl
 from xml.sax.saxutils import escape as xml_escape
 
+from s3ql.async_bridge import run_async
 from s3ql.http import CaseInsensitiveDict
 from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import s3c4
-from .common import retry
+from .common import AbstractBackend, retry
 from .s3c import get_S3Error
 
 log = logging.getLogger(__name__)
@@ -30,24 +31,32 @@ MAX_KEYS = 1000
 # pylint: disable=E1002,E1101
 
 
-class Backend(s3c4.Backend):
+class AsyncBackend(s3c4.AsyncBackend):
     """A backend to store data in Amazon S3
 
     This class uses standard HTTP connections to connect to S3.
     """
 
-    known_options: set[str] = (s3c4.Backend.known_options | {'sse', 'rrs', 'ia', 'oia', 'it'}) - {
+    known_options: set[str] = (
+        s3c4.AsyncBackend.known_options | {'sse', 'rrs', 'ia', 'oia', 'it'}
+    ) - {
         'dumb-copy',
         'disable-expect100',
         'sig-region',
     }
     region: str
 
-    def __init__(self, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+        '''Initialize backend object - use AsyncBackend.create() instead.'''
         self.region = ''
-        super().__init__(options)
+        super().__init__(options=options)
         self._set_storage_options(self._extra_put_headers)
         self.sig_region = self.region
+
+    @classmethod
+    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+        '''Create a new Amazon S3 backend instance.'''
+        return cls(options=options)
 
     def _parse_storage_url(  # type: ignore[override]
         self, storage_url: str, ssl_context: ssl.SSLContext | None
@@ -79,13 +88,13 @@ class Backend(s3c4.Backend):
     def has_delete_multi(self) -> bool:
         return True
 
-    def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: list[str]) -> None:
         log.debug('started with %s', keys)
 
         while len(keys) > 0:
             tmp = keys[:MAX_KEYS]
             try:
-                self._delete_multi(tmp)
+                await self._delete_multi(tmp)
             finally:
                 keys[:MAX_KEYS] = tmp
 
@@ -106,7 +115,7 @@ class Backend(s3c4.Backend):
         headers['x-amz-storage-class'] = sc
 
     @retry
-    def _delete_multi(self, keys: list[str]) -> None:
+    async def _delete_multi(self, keys: list[str]) -> None:
         body_list = ['<Delete>']
         esc_prefix = xml_escape(self.prefix)
         for key in keys:
@@ -115,9 +124,9 @@ class Backend(s3c4.Backend):
         body = '\n'.join(body_list).encode('utf-8')
         headers = CaseInsensitiveDict({'content-type': 'text/xml; charset=utf-8'})
 
-        resp = self._do_request('POST', '/', subres='delete', body=body, headers=headers)
+        resp = await self._do_request('POST', '/', subres='delete', body=body, headers=headers)
         try:
-            root = self._parse_xml_response(resp)
+            root = await self._parse_xml_response(resp)
             ns_p = self.xml_ns_prefix
 
             error_tags = root.findall(ns_p + 'Error')
@@ -156,4 +165,20 @@ class Backend(s3c4.Backend):
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
         except:  # noqa: E722 # auto-added, needs manual check!
-            self.conn.discard()
+            await self.conn.co_discard()
+
+
+class Backend(AbstractBackend):
+    '''Synchronous wrapper for AsyncBackend.'''
+
+    async_backend: AsyncBackend
+    needs_login = AsyncBackend.needs_login
+    known_options = AsyncBackend.known_options
+
+    def __init__(self, options: BackendOptionsProtocol) -> None:
+        async_backend = run_async(AsyncBackend.create, options)
+        super().__init__(async_backend)
+
+    @property
+    def bucket_name(self) -> str:
+        return self.async_backend.bucket_name
