@@ -1,6 +1,7 @@
 # Steps for Releasing a New Version
 
-* Add release date and new version number to `ChangeLog.rst` 
+* Go through commits since last release, and document user-visible changes in
+  `Changelog.rst`. Decide on an appropriate version number.
 * Update version in `src/s3ql/__init__.py`
 * Update version in `pyproject.toml`
 * `uv lock`
