@@ -749,8 +749,14 @@ class BlockCache:
         except KeyError:
             filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
             try:
-                obj_id = self.db.get_int_val(
-                    'SELECT obj_id FROM inode_blocks WHERE inode=? AND blockno=?',
+                obj_id, size = self.db.get_row_typed(
+                    (int, int),
+                    '''
+                    SELECT obj_id, length
+                    FROM inode_blocks
+                    JOIN objects ON inode_blocks.obj_id=objects.id
+                    WHERE inode=? AND blockno=?
+                    ''',
                     (inode, blockno),
                 )
 
@@ -775,7 +781,7 @@ class BlockCache:
 
                     def with_lock_released():
                         with self.backend_pool() as backend:
-                            backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh)
+                            backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
 
                     await trio.to_thread.run_sync(with_lock_released)
 

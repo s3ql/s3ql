@@ -264,7 +264,7 @@ def _retrieve_loop(
             try:
                 if full:
                     buf.seek(0)
-                    backend.readinto_fh(key, buf)
+                    backend.readinto_fh(key, buf, size_hint=exp_size)
                     buf.truncate()
                 else:
                     backend.lookup(key)

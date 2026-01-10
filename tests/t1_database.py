@@ -111,7 +111,9 @@ def test_track_dirty_count():
 @pytest.fixture
 def backend():
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
-        yield local.Backend(Namespace(storage_url="local://" + backend_dir))
+        yield ComprencBackend(
+            b'foobar', ('zlib', 6), local.Backend(Namespace(storage_url="local://" + backend_dir))
+        )
 
 
 @pytest.mark.parametrize("incremental", (True, False))

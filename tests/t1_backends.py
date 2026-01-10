@@ -33,7 +33,12 @@ from pytest_checklogs import assert_logs
 from s3ql import BUFSIZE, backends
 from s3ql.backends import gs, local
 from s3ql.backends.common import AsyncBackend, CorruptedObjectError, NoSuchObject
-from s3ql.backends.comprenc import AsyncComprencBackend, ObjectNotEncrypted
+from s3ql.backends.comprenc import (
+    SYNC_COMPRESSION_THRESHOLD,
+    SYNC_DECOMPRESSION_THRESHOLD,
+    AsyncComprencBackend,
+    ObjectNotEncrypted,
+)
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
 from s3ql.http import ConnectionClosed
 from s3ql.types import BasicMappingT
@@ -1095,3 +1100,57 @@ async def test_conn_abort(backend, monkeypatch):
 
     enable_temp_fail(backend)
     assert (await backend.fetch(key))[0] == data
+
+
+@pytest.mark.trio
+@pytest.mark.with_backend('local/{aes+zlib,zlib,plain}')
+async def test_compression_threshold_boundaries(backend: AsyncComprencBackend):
+    '''Test data integrity when compressing data below and above thresholds'''
+
+    compression_algo = backend.compression[0] or 'None'
+    threshold = SYNC_COMPRESSION_THRESHOLD[compression_algo]
+
+    # Test data sizes: below threshold and above threshold
+    sizes = [int(threshold * 2 / 3), int(threshold * 4 / 3)]
+
+    for size in sizes:
+        key = f'test_key_{compression_algo}_{size}'
+        data = (b'a' * 100 + b'b' * 100) * (size // 200 + 1)
+        data = data[:size]
+        metadata: BasicMappingT = {'test': 'metadata', 'size': size}
+
+        await backend.store(key, data, metadata)
+
+        fetched_data, fetched_metadata = await backend.fetch(key)
+        assert fetched_data == data
+        assert fetched_metadata == metadata
+
+
+@pytest.mark.trio
+@pytest.mark.with_backend('local/{aes+zlib,zlib,plain}')
+async def test_decompression_threshold_boundaries(backend: AsyncComprencBackend):
+    '''Test decompression works correctly below and above thresholds'''
+
+    compression_algo = backend.compression[0]
+    if compression_algo is None:
+        compression_key = 'None'
+    else:
+        compression_key = compression_algo.upper()
+
+    threshold = SYNC_DECOMPRESSION_THRESHOLD[compression_key]
+
+    # Test data sizes: below threshold and above threshold
+    sizes = [int(threshold * 2 / 3), int(threshold * 4 / 3)]
+
+    for size in sizes:
+        key = f'test_key_decomp_{compression_key}_{size}'
+        data = (b'x' * 100 + b'y' * 100) * (size // 200 + 1)
+        data = data[:size]
+
+        metadata: BasicMappingT = {'test': 'decompression', 'size': size}
+
+        await backend.store(key, data, metadata)
+
+        fetched_data, fetched_metadata = await backend.fetch(key)
+        assert fetched_data == data
+        assert fetched_metadata == metadata

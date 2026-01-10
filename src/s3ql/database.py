@@ -843,7 +843,7 @@ def download_metadata(
             )
             obj = METADATA_OBJ_NAME % (blockno, seq_no)
             fh.seek(off)
-            backend.readinto_fh(obj, fh)
+            backend.readinto_fh(obj, fh, size_hint=blocksize)
 
         if not failsafe:
             log.debug('download_metadata: truncating file to %d bytes', file_size)

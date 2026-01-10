@@ -17,7 +17,7 @@ import lzma
 import struct
 import time
 import zlib
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from typing import TYPE_CHECKING
 
 import cryptography.hazmat.backends as crypto_backends
@@ -51,6 +51,22 @@ log = logging.getLogger(__name__)
 HMAC_SIZE = 32
 
 crypto_backend = crypto_backends.default_backend()
+
+
+# Thresholds for using threaded compression/encryption/decompression/decryption
+# Yeah, these use different capitalization styles. Historical reasons.
+SYNC_COMPRESSION_THRESHOLD = {
+    'None': 50 * 1024,
+    'zlib': 10 * 1024,
+    'bzip2': 250,
+    'lzma': 0,
+}
+SYNC_DECOMPRESSION_THRESHOLD = {
+    'None': 50 * 1024,
+    'ZLIB': 25 * 1024,
+    'BZIP2': 3 * 1024,
+    'LZMA': 4 * 1024,
+}
 
 
 def sha256(s: bytes) -> bytes:
@@ -127,7 +143,9 @@ class AsyncComprencBackend(AsyncBackend):
 
     async def lookup(self, key: str) -> BasicMappingT:
         meta_raw = await self.backend.lookup(key)
-        return self._verify_meta(key, meta_raw)[1]
+        meta = self._verify_meta(key, meta_raw)[1]
+        meta.pop('__size', None)
+        return meta
 
     async def get_size(self, key: str) -> int:
         '''
@@ -226,14 +244,22 @@ class AsyncComprencBackend(AsyncBackend):
         will be used to decide whether to use threaded decompression/decryption or not.
         '''
 
-        buf1 = io.BytesIO()
-        meta_raw = await self.backend.readinto_fh(key, buf1)
+        buf = io.BytesIO()
+        meta_raw = await self.backend.readinto_fh(key, buf)
         (nonce, meta) = self._verify_meta(key, meta_raw)
-        compr_alg = meta_raw['compression']
-        encr_alg = meta_raw['encryption']
         if nonce:
             assert self.passphrase is not None
             data_key = sha256(self.passphrase + nonce)
+        else:
+            data_key = None
+        compr_alg = meta_raw['compression']
+        assert isinstance(compr_alg, str)
+        encr_alg = meta_raw['encryption']
+        assert isinstance(encr_alg, str)
+        if encr_alg != 'AES_v2' and encr_alg != 'None':
+            raise RuntimeError('Unsupported encryption: %r' % encr_alg)
+        if compr_alg not in ('BZIP2', 'LZMA', 'ZLIB', 'None'):
+            raise RuntimeError('Unsupported compression: %r' % compr_alg)
 
         # The `payload_offset` key only exists if the storage object was created with on old S3QL
         # version. In order to avoid having to download and re-upload the entire object during the
@@ -242,29 +268,60 @@ class AsyncComprencBackend(AsyncBackend):
         if 'payload_offset' in meta_raw:
             off = meta_raw['payload_offset']
             assert isinstance(off, int)
-            buf1.seek(off)
+            buf.seek(off)
         else:
-            buf1.seek(0)
+            buf.seek(0)
 
-        # If not compressed, decrypt directly into `fh`. Otherwise, use intermediate buffer.
+        # __size was introduced without bumping the filesystem revision, so some objects
+        # may not have it. If it's available, use that instead of the size_hint.
+        if v := meta.pop('__size', None):
+            assert isinstance(v, int)
+            size_hint = v
+
+        # In contrast to write_fh, we potentially use sync decompression/decryption here even
+        # if writing to disk. The hope is that small amounts of data will fit into the write
+        # cache of the OS and thus not cause significant delays.
+        if size_hint is None:
+            use_async = True
+        else:
+            use_async = size_hint > SYNC_DECOMPRESSION_THRESHOLD[compr_alg]
+
+        # If not compressed, decrypt directly into `fh`.
         if compr_alg == 'None':
-            buf2: BinaryOutput = fh
+            if data_key is not None:
+                if use_async:
+                    await trio.to_thread.run_sync(decrypt_fh, buf, fh, data_key)
+                else:
+                    decrypt_fh(buf, fh, data_key)
+            else:
+                # It would be nice to avoid the pointless copy to buf1 in this case, but this makes
+                # the code more complicated and we'd need two requests (first one to determine the
+                # compression algorithm, second one to fetch the data).
+                if use_async:
+                    await trio.to_thread.run_sync(copyfh, buf, fh)
+                else:
+                    copyfh(buf, fh)
         else:
-            buf2 = io.BytesIO()
+            if use_async:
+                await trio.to_thread.run_sync(self._decompress_sync, compr_alg, data_key, buf, fh)
+            else:
+                self._decompress_sync(compr_alg, data_key, buf, fh)
 
-        if encr_alg == 'AES_v2':
-            await trio.to_thread.run_sync(decrypt_fh, buf1, buf2, data_key)
-        elif encr_alg == 'None':
-            await trio.to_thread.run_sync(copyfh, buf1, buf2)
+        return meta
+
+    def _decompress_sync(
+        self,
+        compr_alg: str,
+        data_key: bytes | None,
+        ifh: BinaryInput,
+        ofh: BinaryOutput,
+    ) -> None:
+        if data_key is None:
+            buf = ifh
         else:
-            raise RuntimeError('Unsupported encryption: %r' % encr_alg)
-
-        if compr_alg == 'None':
-            assert buf2 is fh
-            return meta
-        assert buf2 is not fh
-        assert isinstance(buf2, io.BytesIO)
-        buf2.seek(0)
+            buf = io.BytesIO()
+            decrypt_fh(ifh, buf, data_key)
+            buf.seek(0)
 
         if compr_alg == 'BZIP2':
             decompressor: DecompressorProtocol = bz2.BZ2Decompressor()
@@ -274,10 +331,8 @@ class AsyncComprencBackend(AsyncBackend):
             decompressor = zlib.decompressobj()
         else:
             raise RuntimeError('Unsupported compression: %r' % compr_alg)
-        assert buf2 is not fh
-        await trio.to_thread.run_sync(decompress_fh, buf2, fh, decompressor)
 
-        return meta
+        decompress_fh(buf, ofh, decompressor)
 
     async def write_fh(
         self,
@@ -295,9 +350,44 @@ class AsyncComprencBackend(AsyncBackend):
         retried.  Returns the size of the resulting storage object (which may be less due
         to compression)'''
 
-        if metadata is None:
-            metadata = dict()
+        meta: BasicMappingT = {'__size': len_}
+        # meta: BasicMappingT = {}
+        if metadata is not None:
+            if '__size' in metadata:
+                raise ValueError("Metadata key '__size' is reserved")
+            meta.update(metadata)
 
+        if not isinstance(fh, io.BytesIO):
+            # If we're potentially reading from disk (which may take time), always use async
+            use_async = False
+        else:
+            if dont_compress or self.compression[0] is None:
+                compress_alg = 'None'
+            else:
+                compress_alg = self.compression[0]
+            use_async = len_ > SYNC_COMPRESSION_THRESHOLD[compress_alg]
+
+        if use_async:
+            # We need to can't directly return an awaitable, because then run_sync believes
+            # we wanted to do something differently.
+            uploader = (
+                await trio.to_thread.run_sync(
+                    self._compress_sync, key, fh, len_, meta, dont_compress
+                )
+            )[0]
+        else:
+            uploader = self._compress_sync(key, fh, len_, meta, dont_compress)[0]
+
+        return await uploader
+
+    def _compress_sync(
+        self,
+        key: str,
+        fh: BinaryInput,
+        len_: int,
+        metadata: BasicMappingT,
+        dont_compress: bool,
+    ) -> tuple[Awaitable[int]]:
         meta_buf = freeze_basic_mapping(metadata)
         meta_raw: BasicMappingT = dict(format_version=2)
 
@@ -314,10 +404,10 @@ class AsyncComprencBackend(AsyncBackend):
                 compr = lzma.LZMACompressor(preset=self.compression[1])
                 meta_raw['compression'] = 'LZMA'
             buf = io.BytesIO()
-            await trio.to_thread.run_sync(compress_fh, fh, buf, compr, len_)
+            compress_fh(fh, buf, compr, len_=len_)
             len_ = buf.tell()
-            buf.seek(0)
             fh = buf
+            fh.seek(0)
 
         if self.passphrase is None:
             meta_raw['encryption'] = 'None'
@@ -333,12 +423,14 @@ class AsyncComprencBackend(AsyncBackend):
             meta_raw['signature'] = checksum_basic_mapping(meta_raw, meta_key)
             data_key = sha256(self.passphrase + nonce)
             buf = io.BytesIO()
-            await trio.to_thread.run_sync(encrypt_fh, fh, buf, data_key, len_)
+            encrypt_fh(fh, buf, data_key, len_=len_)
             len_ = buf.tell()
-            buf.seek(0)
             fh = buf
+            fh.seek(0)
 
-        return await self.backend.write_fh(key, fh, len_, meta_raw)
+        # Delibertely return an Awaitable here, hidden in a tuple so trio.to_thread.run_sync
+        # doesn't get confused.
+        return (self.backend.write_fh(key, fh, len_, meta_raw),)
 
     async def contains(self, key: str) -> bool:
         return await self.backend.contains(key)
