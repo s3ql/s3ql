@@ -249,7 +249,7 @@ def _test_expiration(
                     continue
                 block_seq_no = seq_no
                 id_seq_map[(blockno, block_id)] = block_seq_no
-                backend[METADATA_OBJ_NAME % (blockno, block_seq_no)] = str(block_id).encode()
+                backend.store(METADATA_OBJ_NAME % (blockno, block_seq_no), str(block_id).encode())
 
     for seq_no, size in enumerate(db_sizes):
         params = FsAttributes(

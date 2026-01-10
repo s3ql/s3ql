@@ -323,7 +323,7 @@ def get_backend_factory(options) -> Callable[[], ComprencBackend]:
     with ComprencBackend(fs_passphrase_bytes, compress, backend) as tmp_backend:
         if encrypted:
             try:
-                data_pw = tmp_backend['s3ql_passphrase']
+                data_pw = tmp_backend.fetch('s3ql_passphrase')[0]
             except CorruptedObjectError:
                 raise QuietError(
                     'Wrong file system passphrase (or file system '

@@ -300,13 +300,13 @@ def test_readinto_write_fh(backend: AbstractBackend):
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
     buf = BytesIO()
 
-    assert key not in backend
+    assert not backend.contains(key)
     assert_raises(NoSuchObject, backend.lookup, key)
     assert_raises(NoSuchObject, backend.readinto_fh, key, buf)
 
     assert backend.write_fh(key, BytesIO(value), metadata) > 0
 
-    assert key in backend
+    assert backend.contains(key)
 
     metadata2 = backend.readinto_fh(key, buf)
 
@@ -352,7 +352,7 @@ def test_issue114(backend, monkeypatch):
     key = newname()
     value = newvalue()
     monkeypatch.setitem(backend.options, 'disable-expect100', True)
-    backend[key] = value
+    backend.store(key, value)
     assert_in_index(backend, [key])
 
 
@@ -371,7 +371,7 @@ def test_complex_meta(backend):
         'lo-ng': 'foobarz' * 40,
     }
 
-    assert key not in backend
+    assert not backend.contains(key)
     backend.store(key, value, metadata)
     (value2, metadata2) = backend.fetch(key)
 
@@ -389,7 +389,7 @@ def test_list(backend):
 
     assert set(backend.list()) == empty_set
     for i in range(12):
-        backend[keys[i]] = values[i]
+        backend.store(keys[i], values[i])
     assert_in_index(backend, keys)
 
     assert set(backend.list('prefixa')) == set(keys[:6])
@@ -404,11 +404,11 @@ def test_delete(backend):
     key = newname()
     value = newvalue()
 
-    backend[key] = value
+    backend.store(key, value)
     assert_in_index(backend, [key])
     backend.fetch(key)
 
-    del backend[key]
+    backend.delete(key)
 
     assert_not_in_index(backend, [key])
     with pytest.raises(NoSuchObject):
@@ -418,7 +418,7 @@ def test_delete(backend):
 @pytest.mark.with_backend('*/aes')
 def test_delete_non_existing(backend):
     key = newname()
-    del backend[key]
+    backend.delete(key)
 
 
 @pytest.mark.with_backend('b2/aes')
@@ -428,14 +428,14 @@ def test_delete_b2_versions(backend):
 
     # Write values to same key, should become versions of the key
     for value in values:
-        backend[key] = value
+        backend.store(key, value)
 
     # Wait for it
     assert_in_index(backend, [key])
     backend.fetch(key)
 
     # Delete it, should delete all versions
-    del backend[key]
+    backend.delete(key)
 
     assert_not_in_index(backend, [key])
     with pytest.raises(NoSuchObject):
@@ -453,7 +453,7 @@ def test_delete_multi(backend):
     value = newvalue()
 
     for key in keys:
-        backend[key] = value
+        backend.store(key, value)
 
     # Delete half of them
     to_delete = keys[::2]
@@ -477,7 +477,7 @@ def test_corruption(backend):
     # Create compressed object
     key = newname()
     value = newvalue()
-    backend[key] = value
+    backend.store(key, value)
 
     # Retrieve compressed data
     (compr_value, meta) = plain_backend.fetch(key)
@@ -503,7 +503,7 @@ def test_extra_data(backend):
     # Create compressed object
     key = newname()
     value = newvalue()
-    backend[key] = value
+    backend.store(key, value)
 
     # Retrieve compressed data
     (compr_value, meta) = plain_backend.fetch(key)
@@ -526,10 +526,10 @@ def test_extra_data(backend):
 def test_encryption(backend):
     plain_backend = backend.backend
 
-    plain_backend['plain'] = b'foobar452'
+    plain_backend.store('plain', b'foobar452')
     backend.store('encrypted', b'testdata', {'tag': True})
 
-    assert plain_backend['encrypted'] != b'testdata'
+    assert plain_backend.fetch('encrypted')[0] != b'testdata'
     assert_raises(CorruptedObjectError, backend.fetch, 'plain')
     assert_raises(CorruptedObjectError, backend.lookup, 'plain')
 
@@ -553,7 +553,7 @@ def test_replay(backend):
     key1 = newname()
     key2 = newname()
     value = newvalue()
-    backend[key1] = value
+    backend.store(key1, value)
 
     # Retrieve compressed data
     (compr_value, meta) = plain_backend.fetch(key1)
@@ -573,7 +573,7 @@ def test_list_bug(backend, monkeypatch):
 
     assert set(backend.list()) == empty_set
     for i in range(12):
-        backend[keys[i]] = values[i]
+        backend.store(keys[i], values[i])
     assert_in_index(backend, keys)
 
     # Force reconnect during list
@@ -594,7 +594,7 @@ def test_list_bug(backend, monkeypatch):
 def test_corrupted_get(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler to produce invalid etag
     handler_class = mock_server.S3CRequestHandler
@@ -613,14 +613,14 @@ def test_corrupted_get(backend, monkeypatch):
 
     enable_temp_fail(backend)
     with assert_logs('^MD5 mismatch for', count=2, level=logging.WARNING):
-        assert backend[key] == value
+        assert backend.fetch(key)[0] == value
 
 
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_corrupted_meta(backend, monkeypatch):
     key = 'brafasel'
     value = b'hello there, let us see whats going on'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler to mess up metadata
     handler_class = mock_server.S3CRequestHandler
@@ -639,7 +639,7 @@ def test_corrupted_meta(backend, monkeypatch):
 
     enable_temp_fail(backend)
     with assert_logs('^MD5 mismatch in metadata for', count=2, level=logging.WARNING):
-        assert backend[key] == value
+        assert backend.fetch(key)[0] == value
 
 
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
@@ -665,14 +665,14 @@ def test_corrupted_put(backend, monkeypatch):
     enable_temp_fail(backend)
     backend.store(key, value)
 
-    assert backend[key] == value
+    assert backend.fetch(key)[0] == value
 
 
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
 def test_get_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
@@ -688,7 +688,7 @@ def test_get_s3error(backend, monkeypatch):
     assert_raises(OperationAbortedError, backend.fetch, value)
 
     enable_temp_fail(backend)
-    assert backend[key] == value
+    assert backend.fetch(key)[0] == value
 
 
 @pytest.mark.with_backend('s3c/{plain,raw,aes+zlib}', require_mock_server=True)
@@ -721,7 +721,7 @@ def test_head_s3error(backend, monkeypatch):
 def test_delete_s3error(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler to produce 3 errors
     handler_class = mock_server.S3CRequestHandler
@@ -744,7 +744,7 @@ def test_delete_s3error(backend, monkeypatch):
 def test_backoff(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
@@ -770,7 +770,7 @@ def test_backoff(backend, monkeypatch):
 def test_httperror(backend, monkeypatch):
     value = b'hello there, let us see whats going on'
     key = 'quote'
-    backend[key] = value
+    backend.store(key, value)
 
     # Monkeypatch request handler to produce a HTTP Error
     handler_class = mock_server.S3CRequestHandler
@@ -958,7 +958,7 @@ def test_expired_token_get(backend, monkeypatch):
     monkeypatch.setattr(GSBackend, '_get_access_token', _get_access_token)
 
     # Store some data
-    backend[key] = data
+    backend.store(key, data)
 
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
@@ -973,7 +973,7 @@ def test_expired_token_get(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
 
     token_refreshed = False
-    assert backend[key] == data
+    assert backend.fetch(key)[0] == data
     assert token_refreshed
 
 
@@ -1008,7 +1008,7 @@ def test_expired_token_put(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
 
     token_refreshed = False
-    backend[key] = data
+    backend.store(key, data)
     assert token_refreshed
 
 
@@ -1018,7 +1018,7 @@ def test_conn_abort(backend, monkeypatch):
 
     data = b'hello there, let us see whats going on'
     key = 'borg'
-    backend[key] = data
+    backend.store(key, data)
 
     # Monkeypatch request handler
     handler_class = mock_server.S3CRequestHandler
@@ -1041,4 +1041,4 @@ def test_conn_abort(backend, monkeypatch):
     backend.backend.conn.reset()
 
     enable_temp_fail(backend)
-    assert backend[key] == data
+    assert backend.fetch(key)[0] == data

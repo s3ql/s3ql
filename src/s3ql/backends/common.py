@@ -211,34 +211,10 @@ def extend_docstring(fun: Callable[..., object], s: str) -> None:
 
 
 class AbstractBackend(metaclass=ABCMeta):
-    '''Functionality shared between all backends.
-
-    Instances behave similarly to dicts. They can be iterated over and
-    indexed into, but raise a separate set of exceptions.
-    '''
+    '''Functionality shared between all backends.'''
 
     needs_login = True
     known_options: set[str] = set()
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def __getitem__(self, key: str) -> bytes:
-        return self.fetch(key)[0]
-
-    def __setitem__(self, key: str, value: bytes) -> None:
-        self.store(key, value)
-
-    def __delitem__(self, key: str) -> None:
-        self.delete(key)
-
-    def __iter__(self) -> Iterator[str]:
-        return self.list()
-
-    def __contains__(self, key: object) -> bool:
-        if not isinstance(key, str):
-            return False
-        return self.contains(key)
 
     def __enter__(self) -> AbstractBackend:
         return self
@@ -254,7 +230,7 @@ class AbstractBackend(metaclass=ABCMeta):
 
     def iteritems(self) -> Iterator[tuple[str, bytes]]:
         for key in self.list():
-            yield (key, self[key])
+            yield (key, self.fetch(key)[0])
 
     @property
     def has_delete_multi(self) -> bool:

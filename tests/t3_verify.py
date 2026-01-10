@@ -68,7 +68,7 @@ def test_missing(backend, db, full):
 
         if id_ != obj_ids[missing_idx]:
             key = 's3ql_data_%d' % obj_ids[0]
-            backend[key] = data
+            backend.store(key, data)
 
     # When using a single thread, we can fake the backend factory
     def backend_factory():
@@ -96,7 +96,7 @@ def test_corrupted_head(backend, db, full):
         )
 
         key = 's3ql_data_%d' % id_
-        backend[key] = data
+        backend.store(key, data)
 
     # Introduce checksum error in metadata
     key = 's3ql_data_%d' % obj_ids[corrupted_idx]
@@ -140,7 +140,7 @@ def test_corrupted_body(backend, db, full):
             'INSERT INTO objects (id, refcount, phys_size, length, hash) VALUES(?, ?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data), sha256(data)),
         )
-        backend['s3ql_data_%d' % id_] = data
+        backend.store('s3ql_data_%d' % id_, data)
 
     # Introduce checksum error
     key = 's3ql_data_%d' % obj_ids[corrupted_idx]
@@ -182,7 +182,7 @@ def test_truncated_body(backend, db, full):
         (id_, 1, 27 * id_, len(data) + 1),
     )
     key = 's3ql_data_%d' % id_
-    backend[key] = data
+    backend.store(key, data)
 
     # When using a single thread, we can fake the backend factory
     def backend_factory():
@@ -216,7 +216,7 @@ def test_corrupted_hash(backend, db):
             'INSERT INTO objects (id, refcount, phys_size, length, hash) VALUES(?, ?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data), sha256(data)),
         )
-        backend['s3ql_data_%d' % id_] = data
+        backend.store('s3ql_data_%d' % id_, data)
 
     # Introduce checksum error
     db.execute('UPDATE objects SET hash=? WHERE id=?', (sha256(b'foobar'), obj_ids[corrupted_idx]))

@@ -1052,7 +1052,7 @@ class Fsck:
 
         # Delete objects which (correctly had) refcount=0
         for (obj_id,) in self.conn.query_typed((int,), 'SELECT id FROM objects WHERE refcount = 0'):
-            del self.backend['s3ql_data_%d' % obj_id]
+            self.backend.delete('s3ql_data_%d' % obj_id)
         self.conn.execute("DELETE FROM objects WHERE refcount = 0")
 
     def check_objects_temp(self) -> None:
@@ -1120,10 +1120,10 @@ class Fsck:
             ):
                 try:
                     if obj_id in self.unlinked_objects:
-                        del self.backend['s3ql_data_%d' % obj_id]
+                        self.backend.delete('s3ql_data_%d' % obj_id)
                     else:
                         # TODO: Save the data in lost+found instead
-                        del self.backend['s3ql_data_%d' % obj_id]
+                        self.backend.delete('s3ql_data_%d' % obj_id)
                         self.found_errors = True
                         self.log_error("Deleted spurious object %d", obj_id)
                 except NoSuchObject:
@@ -1134,7 +1134,7 @@ class Fsck:
                 'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids'
             )
             for (obj_id,) in self.conn.query_typed((int,), 'SELECT * FROM missing'):
-                if ('s3ql_data_%d' % obj_id) in self.backend:
+                if self.backend.contains('s3ql_data_%d' % obj_id):
                     # Object was just not in list yet
                     continue
 
@@ -1499,7 +1499,7 @@ def verify_metadata_snapshots(
     for seq_no in to_check:
         # De-serialize directly instead of using read_remote_params() to avoid
         # exceptions on old filesystem revisions.
-        d = thaw_basic_mapping(backend['s3ql_params_%010x' % seq_no])
+        d = thaw_basic_mapping(backend.fetch('s3ql_params_%010x' % seq_no)[0])
         if d['revision'] != CURRENT_FS_REV:
             break
         params = FsAttributes(**d)  # type: ignore

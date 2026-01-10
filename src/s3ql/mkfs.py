@@ -160,7 +160,7 @@ def main(args: Sequence[str] | None = None) -> None:
             '(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)'
         )
 
-    if 's3ql_params' in plain_backend or 's3ql_metadata' in plain_backend:
+    if plain_backend.contains('s3ql_params') or plain_backend.contains('s3ql_metadata'):
         raise QuietError(
             "Refusing to overwrite existing file system! (use `s3qladm clear` to delete)"
         )
@@ -181,10 +181,10 @@ def main(args: Sequence[str] | None = None) -> None:
             data_pw = fh.read(32)
 
         backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), plain_backend)
-        backend['s3ql_passphrase'] = data_pw
-        backend['s3ql_passphrase_bak1'] = data_pw
-        backend['s3ql_passphrase_bak2'] = data_pw
-        backend['s3ql_passphrase_bak3'] = data_pw
+        backend.store('s3ql_passphrase', data_pw)
+        backend.store('s3ql_passphrase_bak1', data_pw)
+        backend.store('s3ql_passphrase_bak2', data_pw)
+        backend.store('s3ql_passphrase_bak3', data_pw)
     else:
         data_pw = None
 

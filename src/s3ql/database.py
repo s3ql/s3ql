@@ -903,8 +903,8 @@ def upload_metadata(
 
 def upload_params(backend: AbstractBackend, params: FsAttributes) -> None:
     buf = params.serialize()
-    backend['s3ql_params'] = buf
-    backend['s3ql_params_%010x' % params.seq_no] = buf
+    backend.store('s3ql_params', buf)
+    backend.store('s3ql_params_%010x' % params.seq_no, buf)
 
 
 def write_params(cachepath: str, params: FsAttributes) -> None:
@@ -951,13 +951,13 @@ def read_cached_params(cachepath: str, min_seq: int | None = None) -> FsAttribut
 def read_remote_params(backend: AbstractBackend, seq_no: int | None = None) -> FsAttributes:
     if seq_no is None:
         try:
-            buf = backend['s3ql_params']
+            buf = backend.fetch('s3ql_params')[0]
         except NoSuchObject:
             raise QuietError(
                 'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
             )
     else:
-        buf = backend['s3ql_params_%010x' % seq_no]
+        buf = backend.fetch('s3ql_params_%010x' % seq_no)[0]
     params = FsAttributes.deserialize(buf)
 
     if seq_no:

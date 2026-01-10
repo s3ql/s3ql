@@ -103,7 +103,7 @@ class fsck_tests(unittest.TestCase):
             fh.write(b'somedata')
         size = os.stat(fh.name).st_size
         self.assert_fsck(self.fsck.check_cache)
-        self.assertEqual(self.backend['s3ql_data_1'], b'somedata')
+        self.assertEqual(self.backend.fetch('s3ql_data_1')[0], b'somedata')
         assert self.db.get_val('SELECT size FROM inodes WHERE id=?', (inode,)) == size
 
         # Existing block
@@ -323,7 +323,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(?, ?, ?, ?)',
             (1, 36, block_size, sha256(b'foo')),
         )
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
+        self.backend.store('s3ql_data_%d' % obj_id, b'foo')
 
         # One block, no holes, size plausible
         self.db.execute('UPDATE inodes SET size=? WHERE id=?', (block_size, id_))
@@ -379,7 +379,7 @@ class fsck_tests(unittest.TestCase):
 
     def test_objects_id(self):
         # Create an object that only exists in the backend
-        self.backend['s3ql_data_4364'] = b'Testdata'
+        self.backend.store('s3ql_data_4364', b'Testdata')
         self.assert_fsck(self.fsck.check_objects_id)
 
         # Create an object that does not exist in the backend
@@ -407,7 +407,7 @@ class fsck_tests(unittest.TestCase):
         self._link(b'test-entry', id_)
 
         # Assume that due to a crash we did not write the hash for the block
-        self.backend['s3ql_data_4364'] = b'Testdata'
+        self.backend.store('s3ql_data_4364', b'Testdata')
         self.db.execute(
             'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
             (4364, 1, 8, 8),
@@ -462,7 +462,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, 42, 34, ?)',
             (sha256(b'foo'),),
         )
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
+        self.backend.store('s3ql_data_%d' % obj_id, b'foo')
 
         self.db.execute(
             'INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?,?,?)', (27, 0, obj_id)
@@ -569,8 +569,8 @@ class fsck_tests(unittest.TestCase):
     def test_tmpfile(self):
         # Ensure that path exists
         objname = 's3ql_data_38375'
-        self.backend[objname] = b'bla'
-        del self.backend[objname]
+        self.backend.store(objname, b'bla')
+        self.backend.delete(objname)
         path = self.backend._key_to_path(objname)
         tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
         with open(tmpname, 'wb') as fh:
@@ -583,7 +583,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO objects (refcount, phys_size, length, hash) VALUES(1, 42, 0, ?)',
             (sha256(b'foo'),),
         )
-        self.backend['s3ql_data_%d' % obj_id] = b'foo'
+        self.backend.store('s3ql_data_%d' % obj_id, b'foo')
 
         inode = self.db.rowid(
             "INSERT INTO inodes (mode,uid,gid,mtime_ns,atime_ns,ctime_ns,refcount,size) "

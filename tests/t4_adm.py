@@ -141,7 +141,7 @@ class AdmTests(unittest.TestCase):
         master_key = hit.group(1)
 
         plain_backend = local.Backend(Namespace(storage_url=self.storage_url))
-        del plain_backend['s3ql_passphrase']  # Oops
+        plain_backend.delete('s3ql_passphrase')  # Oops
 
         backend = ComprencBackend(self.passphrase.encode(), ('zlib', 6), plain_backend)
         with pytest.raises(CorruptedObjectError):

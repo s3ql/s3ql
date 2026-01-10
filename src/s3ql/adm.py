@@ -190,10 +190,10 @@ def change_passphrase(backend: ComprencBackend) -> None:
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
     backend.passphrase = wrap_pw_bytes
-    backend['s3ql_passphrase'] = data_pw
-    backend['s3ql_passphrase_bak1'] = data_pw
-    backend['s3ql_passphrase_bak2'] = data_pw
-    backend['s3ql_passphrase_bak3'] = data_pw
+    backend.store('s3ql_passphrase', data_pw)
+    backend.store('s3ql_passphrase_bak1', data_pw)
+    backend.store('s3ql_passphrase_bak2', data_pw)
+    backend.store('s3ql_passphrase_bak3', data_pw)
     backend.passphrase = data_pw
 
 
@@ -218,10 +218,10 @@ def recover(backend: AbstractBackend, options: argparse.Namespace) -> None:
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
     comprenc_backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), backend)
-    comprenc_backend['s3ql_passphrase'] = data_pw
-    comprenc_backend['s3ql_passphrase_bak1'] = data_pw
-    comprenc_backend['s3ql_passphrase_bak2'] = data_pw
-    comprenc_backend['s3ql_passphrase_bak3'] = data_pw
+    comprenc_backend.store('s3ql_passphrase', data_pw)
+    comprenc_backend.store('s3ql_passphrase_bak1', data_pw)
+    comprenc_backend.store('s3ql_passphrase_bak2', data_pw)
+    comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
 @handle_on_return
@@ -474,7 +474,7 @@ def restore_metadata_cmd(backend: ComprencBackend, options: argparse.Namespace) 
     for i, backup_seq_no in enumerate(backups):
         # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
         # filesystem revisions.
-        d = thaw_basic_mapping(backend['s3ql_params_%010x' % backup_seq_no])
+        d = thaw_basic_mapping(backend.fetch('s3ql_params_%010x' % backup_seq_no)[0])
         if d['revision'] != CURRENT_FS_REV:
             print(f'{i:3d} {backup_seq_no:010x} (unsupported revision)')
             continue
