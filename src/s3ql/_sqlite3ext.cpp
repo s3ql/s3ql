@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <iostream>
 #include <string>
+#include <atomic>
 
  // Set of dirty blocks in a file
 typedef std::unordered_set<size_t> block_map_t;
@@ -20,6 +21,11 @@ static std::unordered_map<std::string, block_map_t> file_block_map;
 static size_t blocksize;
 
 static std::string vfsname = "s3ql_tracewrites";
+
+// Flag to indicate that writes to the main database file should currently
+// not happen. This is a defense-in-depth mechanism to detect when the
+// mechanism in database.py fails for some reason.
+static std::atomic<bool> writes_inhibited{ false };
 
 
 SQLITE_EXTENSION_INIT1;
@@ -121,6 +127,16 @@ static int vfstraceWrite(
     int iAmt,
     sqlite_int64 iOfst) {
     vfstrace_file* p = (vfstrace_file*)pFile;
+
+    // If writes are inhibited and this is a tracked file (main DB), reject the write.
+    // This should never happen and indicates a bug elsewhere (probably in database.py).
+    if (p->block_map && writes_inhibited.load()) {
+        sqlite3_log(SQLITE_IOERR,
+            "Write rejected: writes inhibited on main DB file (offset=%lld, size=%d)",
+            (long long)iOfst, iAmt);
+        return SQLITE_IOERR;
+    }
+
     int rc;
     rc = p->pReal->pMethods->xWrite(p->pReal, zBuf, iAmt, iOfst);
     if (rc != SQLITE_OK) {
@@ -148,6 +164,15 @@ static int vfstraceWrite(
 */
 static int vfstraceTruncate(sqlite3_file* pFile, sqlite_int64 size) {
     vfstrace_file* p = (vfstrace_file*)pFile;
+
+    // If writes are inhibited and this is a tracked file (main DB), reject the truncate.
+    if (p->block_map && writes_inhibited.load()) {
+        sqlite3_log(SQLITE_IOERR,
+            "Truncate rejected: writes inhibited on main DB file (size=%lld)",
+            (long long)size);
+        return SQLITE_IOERR;
+    }
+
     int rc;
     rc = p->pReal->pMethods->xTruncate(p->pReal, size);
     if (rc != SQLITE_OK) {
@@ -252,14 +277,17 @@ static int vfstraceDeviceCharacteristics(sqlite3_file* pFile) {
 }
 
 /*
-** Shared-memory operations.
+** Shared-memory operations. One might worry that these are mmap'ing the database
+** file, in which case writes to the mapped memory would bypass the write-tracking
+** that we do in vfstraceWrite. However, in practice, the xShmMap() functions
+** acts on a different file than the main database file (see
+** https://github.com/sqlite/sqlite/blob/4b9def19035dfabe/src/os_unix.c#L5121
+** and  https://github.com/sqlite/sqlite/blob/4b9def19035dfabe62/src/os_unix.c#L4952,
+** https://sqlite.org/forum/forumpost/4863fa8320, and https://sqlite.org/mmap.html).
+** Therefore, we do not have to worry about missing writes done via shared memory.
 */
 static int vfstraceShmLock(sqlite3_file* pFile, int ofst, int n, int flags) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    if (p->block_map) {
-        sqlite3_log(SQLITE_IOERR_SHMLOCK, "Can't use shm when write tracking is enabled");
-        return SQLITE_IOERR_SHMLOCK;
-    }
     return p->pReal->pMethods->xShmLock(p->pReal, ofst, n, flags);
 }
 static int vfstraceShmMap(
@@ -269,25 +297,14 @@ static int vfstraceShmMap(
     int isWrite,
     void volatile** pp) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    if (p->block_map) {
-        sqlite3_log(SQLITE_IOERR_SHMMAP, "Can't use shm when write tracking is enabled");
-        return SQLITE_IOERR_SHMMAP;
-    }
     return p->pReal->pMethods->xShmMap(p->pReal, iRegion, szRegion, isWrite, pp);
 }
 static void vfstraceShmBarrier(sqlite3_file* pFile) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    if (p->block_map) {
-        sqlite3_log(SQLITE_IOERR, "Can't use shm when write tracking is enabled");
-    }
     p->pReal->pMethods->xShmBarrier(p->pReal);
 }
 static int vfstraceShmUnmap(sqlite3_file* pFile, int delFlag) {
     vfstrace_file* p = (vfstrace_file*)pFile;
-    if (p->block_map) {
-        sqlite3_log(SQLITE_IOERR, "Can't use shm when write tracking is enabled");
-        return SQLITE_IOERR;
-    }
     return p->pReal->pMethods->xShmUnmap(p->pReal, delFlag);
 }
 
@@ -334,9 +351,6 @@ static int vfstraceOpen(
         pNew->xSectorSize = vfstraceSectorSize;
         pNew->xDeviceCharacteristics = vfstraceDeviceCharacteristics;
         if (pNew->iVersion >= 2) {
-            /* We can't set these to nullptr for the tracked databases, because SQLite
-             * then assumes that they will not be available for e.g. the associated
-             * journals either */
             pNew->xShmMap = pSub->xShmMap ? vfstraceShmMap : 0;
             pNew->xShmLock = pSub->xShmLock ? vfstraceShmLock : 0;
             pNew->xShmBarrier = pSub->xShmBarrier ? vfstraceShmBarrier : 0;

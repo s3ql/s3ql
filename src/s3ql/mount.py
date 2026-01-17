@@ -738,7 +738,7 @@ class MetadataUploadTask:
             with self.backend_pool() as backend:
                 # Upload asynchronously twice to reduce the amount of data left for
                 # synchronous upload.
-                self.db.checkpoint()
+                await self.db.checkpoint()
                 for _ in range(2):
                     await trio.to_thread.run_sync(
                         functools.partial(
@@ -751,18 +751,21 @@ class MetadataUploadTask:
                         )
                     )
 
-                # Now upload synchronously to get consistent snapshot (at the cost of stopping file
-                # system operation). As a future optimization, we could first copy all modified
-                # blocks locally, and then upload async...
-                self.db.checkpoint()
-                self.params.last_modified = time.time()
-                upload_metadata(
-                    backend,
-                    self.db,
-                    self.params,
-                    update_params=True,
-                    incremental=True,
-                )
+                # Now upload with writes inhibited to get a consistent snapshot.
+                # inhibit_writes() blocks WAL checkpointing (writes go to WAL only),
+                # ensuring the main database file remains consistent while we read it.
+                async with self.db.inhibit_writes():
+                    self.params.last_modified = time.time()
+                    await trio.to_thread.run_sync(
+                        functools.partial(
+                            upload_metadata,
+                            backend,
+                            self.db,
+                            self.params,
+                            update_params=True,
+                            incremental=True,
+                        )
+                    )
                 write_params(self.options.cachepath, self.params)
                 upload_params(backend, self.params)
 

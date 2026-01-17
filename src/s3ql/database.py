@@ -16,6 +16,7 @@ Module Attributes:
 from __future__ import annotations
 
 import collections
+import contextlib
 import copy
 import dataclasses
 import logging
@@ -23,11 +24,12 @@ import math
 import os
 import re
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import AsyncIterator, Callable, Iterator
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, NewType, TypeVar, overload
 
 import apsw
+import trio
 from pyfuse3 import InodeT
 
 from . import CURRENT_FS_REV, sqlite3ext
@@ -184,13 +186,24 @@ class Connection:
         self.blocksize = blocksize
         self.tx_active = False
 
+        # Event used to signal when inhibit_writes() context exits.
+        # Set to a trio.Event while inhibit_writes is active, None otherwise.
+        self._inhibit_writes_event: trio.Event | None = None
+
         cur = self.conn.cursor()
 
-        cur.execute('PRAGMA locking_mode = EXCLUSIVE')
+        # We initialize in NORMAL locking mode before entering WAL mode, then switch to
+        # EXCLUSIVE. This creates the shared-memory wal-index, which allows us to later switch
+        # back to NORMAL mode temporarily in inhibit_writes(). If we entered WAL mode while
+        # already in EXCLUSIVE mode, SQLite would not create the wal-index and we'd be
+        # permanently locked into EXCLUSIVE mode (per SQLite documentation).
         res = self.get_val('PRAGMA journal_mode = WAL')
         assert isinstance(res, str)
         if res.lower() != 'wal':
             raise RuntimeError(f'Unable to set WAL journaling mode, got: {res}')
+        cur.execute('PRAGMA locking_mode = EXCLUSIVE')
+        # Perform a read to actually acquire the exclusive lock
+        cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
 
         for s in (
             'PRAGMA synchronous = NORMAL',
@@ -271,9 +284,8 @@ class Connection:
             res.close()
             return True
 
-    def checkpoint(self) -> None:
-        '''Checkpoint the WAL'''
-
+    def _do_checkpoint(self) -> None:
+        '''Internal checkpoint implementation.'''
         try:
             row = self.get_row('PRAGMA main.wal_checkpoint(RESTART)')
         except apsw.LockedError:  # https://sqlite.org/forum/forumpost/9e1ad35f07
@@ -284,6 +296,78 @@ class Connection:
             )
         else:
             log.debug('checkpoint: wrote %d/%d pages to db file', row[2], row[1])
+
+    async def checkpoint(self) -> None:
+        '''Checkpoint the WAL.
+
+        If inhibit_writes() is active, waits until it completes before checkpointing.
+        '''
+        if self._inhibit_writes_event is not None:
+            log.debug('checkpoint: waiting for inhibit_writes to complete')
+            await self._inhibit_writes_event.wait()
+        self._do_checkpoint()
+
+    def sync_checkpoint(self) -> None:
+        '''Checkpoint the WAL synchronously.
+
+        Raises RuntimeError if inhibit_writes() is active. Use this in sync contexts
+        (e.g., tests) where awaiting is not possible.
+        '''
+        if self._inhibit_writes_event is not None:
+            raise RuntimeError('Cannot checkpoint while writes are inhibited')
+        self._do_checkpoint()
+
+    @contextlib.asynccontextmanager
+    async def inhibit_writes(self) -> AsyncIterator[None]:
+        '''Context manager that prevents writes to the main database file.
+
+        While this context is active,
+        - WAL checkpointing is blocked (writes go to WAL only)
+        - The C extension will reject any direct writes to the main DB file
+          (should never happen, this is just defense in depth)
+        - checkpoint() will wait until this context exits
+        - sync_checkpoint() will raise RuntimeError
+        '''
+        if self._inhibit_writes_event is not None:
+            raise RuntimeError('inhibit_writes is already active')
+
+        log.debug('inhibit_writes: starting')
+        self._inhibit_writes_event = trio.Event()
+        sqlite3ext.set_writes_inhibited(True)
+
+        # Switch to NORMAL locking mode temporarily so we can open a second connection.
+        # We need to do a read after changing the mode to actually release the exclusive lock.
+        self.conn.cursor().execute('PRAGMA locking_mode = NORMAL')
+        self.conn.cursor().execute('SELECT 1 FROM sqlite_master LIMIT 1')
+
+        # Open a second connection and start a read transaction.
+        # This establishes a WAL "end mark" that prevents checkpointing past this point,
+        # ensuring the main database file stays consistent while we read it.
+        second_conn = apsw.Connection(self.file)
+        second_cur = second_conn.cursor()
+        second_cur.execute('BEGIN DEFERRED')
+        second_cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+
+        log.debug('inhibit_writes: active, writes to main DB file will be rejected')
+
+        try:
+            yield
+        finally:
+            log.debug('inhibit_writes: writes re-enabled')
+
+            # End the read transaction and close the second connection
+            second_cur.execute('ROLLBACK')
+            second_conn.close()
+
+            # Switch back to EXCLUSIVE locking mode and acquire the lock
+            self.conn.cursor().execute('PRAGMA locking_mode = EXCLUSIVE')
+            self.conn.cursor().execute('SELECT 1 FROM sqlite_master LIMIT 1')
+            sqlite3ext.set_writes_inhibited(False)
+
+            # Signal any waiting checkpoint() calls
+            self._inhibit_writes_event.set()
+            self._inhibit_writes_event = None
+            log.debug('inhibit_writes: finished')
 
     def batch(self, dt_target: float) -> BatchedTransactionManager:
         return BatchedTransactionManager(self, dt_target)
@@ -524,11 +608,11 @@ class BatchedTransactionManager:
         self.stamp = 0.0
         self.batch_size = 100
 
-    def __enter__(self) -> BatchedTransactionManager:
-        self.start_batch()
+    async def __aenter__(self) -> BatchedTransactionManager:
+        await self.start_batch()
         return self
 
-    def __exit__(
+    async def __aexit__(
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
@@ -538,20 +622,20 @@ class BatchedTransactionManager:
             self.conn.execute('COMMIT')
             self.in_tx = False
 
-    def start_batch(self) -> None:
+    async def start_batch(self) -> None:
         self.stamp = time.time()
         self.conn.execute('BEGIN TRANSACTION')
         self.in_tx = True
 
-    def finish_batch(self, processed: int) -> None:
-        '''Return new batch size'''
+    async def finish_batch(self, processed: int) -> None:
+        '''Finish current batch and checkpoint.'''
 
         if not self.in_tx:
             raise RuntimeError('No active batch')
 
         self.conn.execute('COMMIT')
         self.in_tx = False
-        self.conn.checkpoint()
+        await self.conn.checkpoint()
         dt = time.time() - self.stamp
         self.batch_size = max(
             100,

@@ -5,6 +5,7 @@
 from libcpp.unordered_map cimport unordered_map
 from libcpp.unordered_set cimport unordered_set
 from libcpp.string cimport string
+from libcpp cimport bool as cpp_bool
 from cython.operator cimport dereference as deref
 
 import os
@@ -16,6 +17,14 @@ cdef extern from "_sqlite3ext.cpp":
     cdef unordered_map[string, block_map_t] file_block_map
     cdef size_t blocksize
     cdef string vfsname
+
+cdef extern from "<atomic>":
+    cdef cppclass atomic_bool "std::atomic<bool>":
+        cpp_bool load()
+        void store(cpp_bool)
+
+cdef extern from "_sqlite3ext.cpp":
+    cdef atomic_bool writes_inhibited
 
 
 cdef class WriteTracker:
@@ -62,3 +71,15 @@ def reset():
 
 def get_vfsname():
     return vfsname.decode('utf-8')
+
+def set_writes_inhibited(value: bool) -> None:
+    """Set whether writes to tracked database files should be inhibited.
+
+    When True, any write to the main database file will fail with SQLITE_IOERR.
+    This is used during metadata upload to ensure consistent snapshots.
+    """
+    writes_inhibited.store(value)
+
+def get_writes_inhibited() -> bool:
+    """Return whether writes to tracked database files are currently inhibited."""
+    return writes_inhibited.load()

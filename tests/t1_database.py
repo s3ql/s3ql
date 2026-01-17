@@ -54,14 +54,14 @@ def test_track_dirty():
         for i in range(rows):
             db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
 
-        db.checkpoint()
+        db.sync_checkpoint()
         assert db.dirty_blocks.get_count() >= rows
 
         db.dirty_blocks.clear()
         assert db.dirty_blocks.get_count() == 0
 
         db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
-        db.checkpoint()
+        db.sync_checkpoint()
         assert rows > db.dirty_blocks.get_count() > 0
 
         db.close()
@@ -80,14 +80,14 @@ def test_track_dirty_symlink():
         for i in range(rows):
             db.execute("INSERT INTO FOO VALUES(?, ?)", (i, DUMMY_DATA))
 
-        db.checkpoint()
+        db.sync_checkpoint()
         assert db.dirty_blocks.get_count() >= rows
 
         db.dirty_blocks.clear()
         assert db.dirty_blocks.get_count() == 0
 
         db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
-        db.checkpoint()
+        db.sync_checkpoint()
         assert rows > db.dirty_blocks.get_count() > 0
 
         db.close()
@@ -100,7 +100,7 @@ def test_track_dirty_count():
         db.execute("CREATE TABLE foo (id INT);")
         db.execute("INSERT INTO FOO VALUES(42)")
 
-        db.checkpoint()
+        db.sync_checkpoint()
         db_size = tmpfh.seek(0, os.SEEK_END)
         assert db.dirty_blocks.get_count() == math.ceil(db_size / BLOCKSIZE)
 
@@ -128,13 +128,13 @@ def test_upload_download(backend, incremental):
         for i in range(rows):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
-        db.checkpoint()
+        db.sync_checkpoint()
         upload_metadata(backend, db, params, incremental=incremental)
 
         # Shrink database
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
-        db.checkpoint()
+        db.sync_checkpoint()
         upload_metadata(backend, db, params, incremental=incremental)
 
         db.close()
@@ -155,7 +155,7 @@ def test_checkpoint():
         db.execute("INSERT INTO FOO VALUES(?)", (25,))
         db.execute("INSERT INTO FOO VALUES(?)", (30,))
 
-        db.checkpoint()
+        db.sync_checkpoint()
 
         q = db.query('SELECT * FROM foo')
         db.execute("INSERT INTO FOO VALUES(?)", (35,))
@@ -163,10 +163,10 @@ def test_checkpoint():
             with assert_logs(
                 '^sqlite3: statement aborts at.+SQLITE_LOCKED', count=1, level=logging.WARNING
             ):
-                db.checkpoint()
+                db.sync_checkpoint()
 
         q.close()
-        db.checkpoint()
+        db.sync_checkpoint()
         db.close()
 
 
@@ -194,7 +194,7 @@ def test_versioning(backend):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         def upload():
-            db.checkpoint()
+            db.sync_checkpoint()
             upload_metadata(backend, db, params)
             tmpfh.seek(0)
             versions.append((params.copy(), tmpfh.read()))
@@ -400,7 +400,7 @@ def test_download_shorter(backend, incremental):
         for i in range(2):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
-        db.checkpoint()
+        db.sync_checkpoint()
         upload_metadata(backend, db, params, incremental=incremental)
         old_params = params.copy()
         params.seq_no += 1
@@ -408,7 +408,7 @@ def test_download_shorter(backend, incremental):
         # Grow database
         for i in range(2, 6):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
-        db.checkpoint()
+        db.sync_checkpoint()
         upload_metadata(backend, db, params)
         db.close()
 

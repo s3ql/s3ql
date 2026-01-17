@@ -21,7 +21,6 @@ from io import BytesIO
 from typing import TYPE_CHECKING, cast, overload
 
 import pyfuse3
-import trio
 from pyfuse3 import EntryAttributes, FileHandleT, FUSEError, InodeT, RequestContext
 
 from . import CTRL_INODE, CTRL_NAME
@@ -398,7 +397,7 @@ class Operations(pyfuse3.Operations):
         # error, because in that case the database gets out of sync with the inode cache (which
         # probably makes things worse).
         processed = 0
-        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+        async with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
             while queue:
                 (id_p, off) = queue.pop()
                 log.debug('Processing directory (%d, %d)', id_p, off)
@@ -424,10 +423,9 @@ class Operations(pyfuse3.Operations):
                             break
 
                 if processed > batch_mgr.batch_size:
-                    batch_mgr.finish_batch(processed)
-                    await trio.lowlevel.checkpoint()
+                    await batch_mgr.finish_batch(processed)
                     processed = 0
-                    batch_mgr.start_batch()
+                    await batch_mgr.start_batch()
 
         log.debug('finished')
 
@@ -450,7 +448,7 @@ class Operations(pyfuse3.Operations):
         # error, because in that case the database gets out of sync with the inode cache (which
         # probably makes things worse).
         processed = 0
-        with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+        async with conn.batch(CHECKPOINT_INTERVAL) as batch_mgr:
             while queue:  # For every directory
                 id_p = queue.pop()
                 is_open = id_p in self.open_inodes
@@ -489,10 +487,9 @@ class Operations(pyfuse3.Operations):
                     queue.append(id_p)
 
                 if processed > batch_mgr.batch_size:
-                    batch_mgr.finish_batch(processed)
-                    await trio.lowlevel.checkpoint()
+                    await batch_mgr.finish_batch(processed)
                     processed = 0
-                    batch_mgr.start_batch()
+                    await batch_mgr.start_batch()
 
         if id_p0 in self.open_inodes:
             log.debug('invalidate_entry(%d, %r)', id_p0, name0)
@@ -546,7 +543,7 @@ class Operations(pyfuse3.Operations):
         # error, because in that case the database gets out of sync with the inode cache (which
         # probably makes things worse).
         processed = 0
-        with db.batch(CHECKPOINT_INTERVAL) as batch_mgr:
+        async with db.batch(CHECKPOINT_INTERVAL) as batch_mgr:
             while queue:
                 (src_id, target_id, off) = queue.pop()
                 # log.debug('Processing directory (%d, %d, %d)', src_id, target_id, off)
@@ -632,10 +629,9 @@ class Operations(pyfuse3.Operations):
                             break
 
                 if processed >= batch_mgr.batch_size:
-                    batch_mgr.finish_batch(processed)
-                    await trio.lowlevel.checkpoint()
+                    await batch_mgr.finish_batch(processed)
                     processed = 0
-                    batch_mgr.start_batch()
+                    await batch_mgr.start_batch()
 
         # Make replication visible
         self.db.execute(

@@ -51,3 +51,15 @@ def reset() -> None:
 def get_vfsname() -> str:
     """Returns the name under which the custom VFS is registered with SQLite."""
     ...
+
+def set_writes_inhibited(value: bool) -> None:
+    """Set whether writes to tracked database files should be inhibited.
+
+    When True, any write to the main database file will fail with SQLITE_IOERR.
+    This is used during metadata upload to ensure consistent snapshots.
+    """
+    ...
+
+def get_writes_inhibited() -> bool:
+    """Return whether writes to tracked database files are currently inhibited."""
+    ...
