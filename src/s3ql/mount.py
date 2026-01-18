@@ -32,8 +32,9 @@ from typing import TYPE_CHECKING
 import pyfuse3
 import trio
 
+from s3ql.backends.comprenc import ComprencBackend
+
 from . import fs
-from .backends.common import AbstractBackend
 from .backends.pool import BackendPool
 from .block_cache import BlockCache
 from .common import get_backend_factory, is_mounted
@@ -478,7 +479,7 @@ def determine_threads(options: Namespace) -> int:
         return threads
 
 
-def get_metadata(backend: AbstractBackend, cachepath: str) -> tuple[FsAttributes, Connection]:
+def get_metadata(backend: ComprencBackend, cachepath: str) -> tuple[FsAttributes, Connection]:
     '''Retrieve metadata'''
 
     db = None

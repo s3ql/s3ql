@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 F = TypeVar('F', bound=Callable[..., object])
 T = TypeVar('T', bound='AsyncBackend')
+T2 = TypeVar('T2', bound='AbstractBackend')
 
 
 class _FactorySentinel:
@@ -677,7 +678,7 @@ class AbstractBackend:
     def __init__(self, async_backend: AsyncBackend) -> None:
         self.async_backend = async_backend
 
-    def __enter__(self) -> AbstractBackend:
+    def __enter__(self: T2) -> T2:
         return self
 
     def __exit__(

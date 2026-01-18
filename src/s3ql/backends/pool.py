@@ -13,9 +13,8 @@ import threading
 from collections.abc import Generator
 from contextlib import contextmanager
 
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.types import BackendFactory
-
-from .common import AbstractBackend
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class BackendPool:
     '''
 
     factory: BackendFactory
-    pool: list[AbstractBackend]
+    pool: list[ComprencBackend]
     lock: threading.Lock
     has_delete_multi: bool
 
@@ -45,7 +44,7 @@ class BackendPool:
         self.lock = threading.Lock()
         self.has_delete_multi = factory.has_delete_multi
 
-    def pop_conn(self) -> AbstractBackend:
+    def pop_conn(self) -> ComprencBackend:
         '''Pop connection from pool'''
 
         with self.lock:
@@ -54,7 +53,7 @@ class BackendPool:
             else:
                 return self.factory()
 
-    def push_conn(self, conn: AbstractBackend) -> None:
+    def push_conn(self, conn: ComprencBackend) -> None:
         '''Push connection back into pool'''
 
         conn.reset()
@@ -72,7 +71,7 @@ class BackendPool:
                 self.pool.pop().close()
 
     @contextmanager
-    def __call__(self, close: bool = False) -> Generator[AbstractBackend, None, None]:
+    def __call__(self, close: bool = False) -> Generator[ComprencBackend, None, None]:
         '''Provide connection from pool (context manager)
 
         If *close* is True, the backend's close method is automatically called

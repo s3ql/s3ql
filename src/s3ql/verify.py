@@ -22,6 +22,8 @@ from queue import Full as QueueFull
 from queue import Queue
 from typing import IO
 
+from s3ql.types import BackendFactory
+
 from .backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
 from .common import AsyncFn, get_backend_factory, pretty_print_size, sha256_fh
 from .database import Connection
@@ -233,7 +235,7 @@ def retrieve_objects(
 
 def _retrieve_loop(
     queue: Queue[tuple[int, bytes, int] | None],
-    backend_factory: Callable[[], AbstractBackend],
+    backend_factory: BackendFactory,
     corrupted_fh: IO[str],
     missing_fh: IO[str],
     full: bool = False,

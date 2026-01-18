@@ -1479,7 +1479,7 @@ def to_str(name: bytes) -> str:
 
 
 def verify_metadata_snapshots(
-    backend: AbstractBackend, count: int = 5, include_most_recent: bool = True
+    backend: ComprencBackend, count: int = 5, include_most_recent: bool = True
 ) -> None:
     '''Verify the last *count* metadata snapshots.'''
 

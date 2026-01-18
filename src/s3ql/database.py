@@ -32,6 +32,8 @@ import apsw
 import trio
 from pyfuse3 import InodeT
 
+from s3ql.backends.comprenc import ComprencBackend
+
 from . import CURRENT_FS_REV, sqlite3ext
 from .backends.common import AbstractBackend, NoSuchObject
 from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
@@ -775,7 +777,7 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
-def get_block_objects(backend: AbstractBackend) -> dict[int, list[int]]:
+def get_block_objects(backend: ComprencBackend) -> dict[int, list[int]]:
     '''Get list of objects holding versions of each block'''
 
     block_list = collections.defaultdict(list)
@@ -798,7 +800,7 @@ def get_block_objects(backend: AbstractBackend) -> dict[int, list[int]]:
 
 
 def download_metadata(
-    backend: AbstractBackend,
+    backend: ComprencBackend,
     db_file: str,
     params: FsAttributes,
     failsafe: bool = False,
@@ -871,7 +873,7 @@ def first_le_than(seq: list[int], threshold: int) -> int:
     raise ValueError('No element below %d in list of length %d' % (threshold, len(seq)))
 
 
-def get_available_seq_nos(backend: AbstractBackend) -> list[int]:
+def get_available_seq_nos(backend: ComprencBackend) -> list[int]:
     nos = []
     for obj in backend.list('s3ql_params_'):
         hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)
@@ -883,7 +885,7 @@ def get_available_seq_nos(backend: AbstractBackend) -> list[int]:
     return nos
 
 
-def expire_objects(backend: AbstractBackend, versions_to_keep: int = 32) -> None:
+def expire_objects(backend: ComprencBackend, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
     log.debug('Expiring old metadata backups...')

@@ -28,6 +28,7 @@ from t2_block_cache import random_data
 from s3ql import sqlite3ext
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.database import (
     METADATA_OBJ_NAME,
     Connection,
@@ -232,7 +233,7 @@ def test_versioning(backend):
 
 
 def _test_expiration(
-    backend: AbstractBackend,
+    backend: ComprencBackend,
     contents_pre: list[list[int]],
     contents_post: list[list[int]],
     db_sizes: list[int],
