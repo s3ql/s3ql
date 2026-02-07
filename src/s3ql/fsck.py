@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import functools
 import itertools
 import logging
 import os
@@ -31,8 +30,8 @@ from pyfuse3 import InodeT
 from s3ql.mount import determine_threads
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
-from .backends.common import AsyncBackend, NoSuchObject
-from .backends.comprenc import AsyncComprencBackend, ComprencBackend
+from .backends.common import NoSuchObject
+from .backends.comprenc import AsyncComprencBackend
 from .backends.local import AsyncBackend as LocalAsyncBackend
 from .common import (
     async_get_backend,
@@ -77,7 +76,7 @@ S_IFMT = (
 
 class Fsck:
     cachedir: str
-    backend: AsyncComprencBackend | AsyncBackend
+    backend: AsyncComprencBackend
     expect_errors: bool
     found_errors: bool
     uncorrectable_errors: bool
@@ -88,7 +87,7 @@ class Fsck:
     def __init__(
         self,
         cachedir_: str,
-        backend_: AsyncComprencBackend | AsyncBackend,
+        backend_: AsyncComprencBackend,
         param: FsAttributes,
         conn: Connection,
     ) -> None:
@@ -1303,7 +1302,6 @@ async def main_async(options: Namespace) -> None:
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
     backend = await async_get_backend(options)
-    sync_backend = ComprencBackend.from_async_backend(backend)
 
     if options.fast:
         log.info('Starting fast fsck of %s', options.storage_url)
@@ -1313,7 +1311,7 @@ async def main_async(options: Namespace) -> None:
     cachepath = options.cachepath
     db = None
 
-    param = await trio.to_thread.run_sync(functools.partial(read_remote_params, sync_backend))
+    param = await read_remote_params(backend)
     local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
         log.info('Using cached metadata.')
@@ -1407,14 +1405,11 @@ async def main_async(options: Namespace) -> None:
         # When file system was not unmounted cleanly, the checksum and size may not have been
         # updated.
         log.info('Downloading metadata...')
-        db = await trio.to_thread.run_sync(
-            functools.partial(
-                download_metadata,
-                sync_backend,
-                cachepath + '.db',
-                param,
-                failsafe=param.is_mounted,
-            )
+        db = await download_metadata(
+            backend,
+            cachepath + '.db',
+            param,
+            failsafe=param.is_mounted,
         )
 
         # Don't download the same metadata again in verify_metadata_snapshots
@@ -1444,7 +1439,6 @@ async def main_async(options: Namespace) -> None:
     if not options.fast:
         await verify_metadata_snapshots(
             backend,
-            sync_backend,
             count=5,
             include_most_recent=check_current_metadata,
         )
@@ -1452,7 +1446,7 @@ async def main_async(options: Namespace) -> None:
     param.is_mounted = True
     param.seq_no += 1
     write_params(cachepath, param)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
+    await upload_params(backend, param)
 
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     await fsck.check(check_cache)
@@ -1483,19 +1477,15 @@ async def main_async(options: Namespace) -> None:
         # This is a good time to reduce DB size if possible
         db.execute('VACUUM')
         db.close()
-        await trio.to_thread.run_sync(
-            functools.partial(upload_metadata, sync_backend, db, param, incremental=False)
-        )
+        await upload_metadata(backend, db, param, incremental=False)
     else:
         db.close()
-        await trio.to_thread.run_sync(
-            functools.partial(upload_metadata, sync_backend, db, param, incremental=True)
-        )
+        await upload_metadata(backend, db, param, incremental=True)
 
     write_params(cachepath, param)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
+    await upload_params(backend, param)
 
-    await trio.to_thread.run_sync(functools.partial(expire_objects, sync_backend))
+    await expire_objects(backend)
 
     log.info('Completed fsck of %s', options.storage_url)
 
@@ -1519,7 +1509,6 @@ def to_str(name: bytes) -> str:
 
 async def verify_metadata_snapshots(
     backend: AsyncComprencBackend,
-    sync_backend: ComprencBackend,
     count: int = 5,
     include_most_recent: bool = True,
 ) -> None:
@@ -1527,7 +1516,7 @@ async def verify_metadata_snapshots(
 
     log.info('Verifying consistency of most recent metadata backups:')
     backups = sorted(
-        await trio.to_thread.run_sync(functools.partial(get_available_seq_nos, sync_backend)),
+        await get_available_seq_nos(backend),
         reverse=True,
     )
 
@@ -1555,9 +1544,7 @@ async def verify_metadata_snapshots(
             continue
         log.info('Checking backup %010x (from %s)...', seq_no, date)
         with NamedTemporaryFile() as fh:
-            conn = await trio.to_thread.run_sync(
-                functools.partial(download_metadata, sync_backend, fh.name, params)
-            )
+            conn = await download_metadata(backend, fh.name, params)
             res = conn.get_list('PRAGMA integrity_check(20)')
             if res[0][0] != 'ok':
                 log.error('\n'.join(str(x[0]) for x in res))

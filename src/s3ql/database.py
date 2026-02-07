@@ -32,10 +32,10 @@ import apsw
 import trio
 from pyfuse3 import InodeT
 
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 
 from . import CURRENT_FS_REV, sqlite3ext
-from .backends.common import AbstractBackend, NoSuchObject
+from .backends.common import NoSuchObject
 from .common import freeze_basic_mapping, sha256_fh, thaw_basic_mapping
 from .logging import QuietError
 
@@ -777,12 +777,12 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
-def get_block_objects(backend: ComprencBackend) -> dict[int, list[int]]:
+async def get_block_objects(backend: AsyncComprencBackend) -> dict[int, list[int]]:
     '''Get list of objects holding versions of each block'''
 
     block_list = collections.defaultdict(list)
     log.debug('Scanning metadata objects...')
-    for obj in backend.list('s3ql_metadata_'):
+    async for obj in backend.list('s3ql_metadata_'):
         hit = METADATA_OBJ_RE.match(obj)
         if not hit:
             # _bak objects are leftovers from previous filesystem revisions.
@@ -799,8 +799,8 @@ def get_block_objects(backend: ComprencBackend) -> dict[int, list[int]]:
     return block_list
 
 
-def download_metadata(
-    backend: ComprencBackend,
+async def download_metadata(
+    backend: AsyncComprencBackend,
     db_file: str,
     params: FsAttributes,
     failsafe: bool = False,
@@ -815,7 +815,7 @@ def download_metadata(
     file_size = params.db_size
 
     # Determine which objects hold the most recent database snapshot
-    block_list = get_block_objects(backend)
+    block_list = await get_block_objects(backend)
     total = len(block_list)
     processed = 0
 
@@ -843,7 +843,7 @@ def download_metadata(
             )
             obj = METADATA_OBJ_NAME % (blockno, seq_no)
             fh.seek(off)
-            backend.readinto_fh(obj, fh, size_hint=blocksize)
+            await backend.readinto_fh(obj, fh, size_hint=blocksize)
 
         if not failsafe:
             log.debug('download_metadata: truncating file to %d bytes', file_size)
@@ -873,9 +873,9 @@ def first_le_than(seq: list[int], threshold: int) -> int:
     raise ValueError('No element below %d in list of length %d' % (threshold, len(seq)))
 
 
-def get_available_seq_nos(backend: ComprencBackend) -> list[int]:
+async def get_available_seq_nos(backend: AsyncComprencBackend) -> list[int]:
     nos = []
-    for obj in backend.list('s3ql_params_'):
+    async for obj in backend.list('s3ql_params_'):
         hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)
         if not hit:
             log.warning('Unexpected object in backend: %s, ignoring', obj)
@@ -885,14 +885,14 @@ def get_available_seq_nos(backend: ComprencBackend) -> list[int]:
     return nos
 
 
-def expire_objects(backend: ComprencBackend, versions_to_keep: int = 32) -> None:
+async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
     log.debug('Expiring old metadata backups...')
-    block_list = get_block_objects(backend)
+    block_list = await get_block_objects(backend)
     to_remove: list[str] = []
 
-    metadata_objs = get_available_seq_nos(backend)
+    metadata_objs = await get_available_seq_nos(backend)
     metadata_objs.sort()
     seq_to_keep = metadata_objs[-versions_to_keep:]
     to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
@@ -902,7 +902,7 @@ def expire_objects(backend: ComprencBackend, versions_to_keep: int = 32) -> None
     for seq_no in seq_to_keep:
         # We'll have to figure out what we want to do here when one of the objects
         # has an older filesystem revision...
-        params = read_remote_params(backend, seq_no)
+        params = await read_remote_params(backend, seq_no)
         blocksize = params.metadata_block_size
 
         # math.ceil() calculates the number of blocks we need. To convert to
@@ -921,11 +921,11 @@ def expire_objects(backend: ComprencBackend, versions_to_keep: int = 32) -> None
             if seq_no in to_keep[blockno]:
                 continue
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
-    backend.delete_multi(to_remove)
+    await backend.delete_multi(to_remove)
 
 
-def upload_metadata(
-    backend: AbstractBackend,
+async def upload_metadata(
+    backend: AsyncComprencBackend,
     db: Connection,
     params: FsAttributes,
     incremental: bool = True,
@@ -975,7 +975,7 @@ def upload_metadata(
             )
             obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
             fh.seek(blockno * blocksize)
-            backend.write_fh(obj, fh, len_=blocksize)
+            await backend.write_fh(obj, fh, len_=blocksize)
 
         if not update_params:
             return
@@ -987,10 +987,10 @@ def upload_metadata(
         params.db_md5 = digest
 
 
-def upload_params(backend: AbstractBackend, params: FsAttributes) -> None:
+async def upload_params(backend: AsyncComprencBackend, params: FsAttributes) -> None:
     buf = params.serialize()
-    backend.store('s3ql_params', buf)
-    backend.store('s3ql_params_%010x' % params.seq_no, buf)
+    await backend.store('s3ql_params', buf)
+    await backend.store('s3ql_params_%010x' % params.seq_no, buf)
 
 
 def write_params(cachepath: str, params: FsAttributes) -> None:
@@ -1034,16 +1034,18 @@ def read_cached_params(cachepath: str, min_seq: int | None = None) -> FsAttribut
     return params
 
 
-def read_remote_params(backend: AbstractBackend, seq_no: int | None = None) -> FsAttributes:
+async def read_remote_params(
+    backend: AsyncComprencBackend, seq_no: int | None = None
+) -> FsAttributes:
     if seq_no is None:
         try:
-            buf = backend.fetch('s3ql_params')[0]
+            buf = (await backend.fetch('s3ql_params'))[0]
         except NoSuchObject:
             raise QuietError(
                 'File system revision too old, please run `s3qladm upgrade` first.', exitcode=32
             )
     else:
-        buf = backend.fetch('s3ql_params_%010x' % seq_no)[0]
+        buf = (await backend.fetch('s3ql_params_%010x' % seq_no))[0]
     params = FsAttributes.deserialize(buf)
 
     if seq_no:

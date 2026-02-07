@@ -27,8 +27,7 @@ from t2_block_cache import random_data
 
 from s3ql import sqlite3ext
 from s3ql.backends import local
-from s3ql.backends.common import AbstractBackend
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.database import (
     METADATA_OBJ_NAME,
     Connection,
@@ -109,15 +108,14 @@ def test_track_dirty_count():
 
 
 @pytest.fixture
-def backend():
+async def backend():
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
-        yield ComprencBackend(
-            b'foobar', ('zlib', 6), local.Backend(Namespace(storage_url="local://" + backend_dir))
-        )
+        raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
+        yield await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
 
 @pytest.mark.parametrize("incremental", (True, False))
-def test_upload_download(backend, incremental):
+async def test_upload_download(backend, incremental):
     sqlite3ext.reset()
     rows = 11
     params = FsAttributes(
@@ -132,18 +130,18 @@ def test_upload_download(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        upload_metadata(backend, db, params, incremental=incremental)
+        await upload_metadata(backend, db, params, incremental)
 
         # Shrink database
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
         db.sync_checkpoint()
-        upload_metadata(backend, db, params, incremental=incremental)
+        await upload_metadata(backend, db, params, incremental)
 
         db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            download_metadata(backend, tmpfh2.name, params)
+            await download_metadata(backend, tmpfh2.name, params)
 
             tmpfh.seek(0)
             tmpfh2.seek(0)
@@ -173,14 +171,14 @@ def test_checkpoint():
         db.close()
 
 
-def get_metadata_obj_count(backend: AbstractBackend):
+async def get_metadata_obj_count(backend: AsyncComprencBackend):
     i = 0
-    for _ in backend.list('s3ql_metadata_'):
+    async for _ in backend.list('s3ql_metadata_'):
         i += 1
     return i
 
 
-def test_versioning(backend):
+async def test_versioning(backend):
     sqlite3ext.reset()
     rows = 11
     params = FsAttributes(
@@ -196,46 +194,46 @@ def test_versioning(backend):
         for i in range(rows):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
-        def upload():
+        async def upload():
             db.sync_checkpoint()
-            upload_metadata(backend, db, params)
+            await upload_metadata(backend, db, params)
             tmpfh.seek(0)
             versions.append((params.copy(), tmpfh.read()))
             params.seq_no += 1
 
-        upload()
-        base_count = len(list(backend.list('s3ql_metadata_')))
+        await upload()
+        base_count = len([obj async for obj in backend.list('s3ql_metadata_')])
 
         # Make some modifications
         db.execute('INSERT INTO foo(id, data) VALUES(?, ?)', (rows + 1, b'short data'))
-        upload()
+        await upload()
 
         db.execute('INSERT INTO foo(id, data) VALUES(?, ?)', (2 * rows + 1, DUMMY_DATA))
-        upload()
+        await upload()
 
         db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), 0))
         db.execute("UPDATE FOO SET data=? WHERE id=?", (random_data(len(DUMMY_DATA)), rows // 2))
-        upload()
+        await upload()
 
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
-        upload()
+        await upload()
 
         db.close()
 
     for params, ref_db in versions:
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            download_metadata(backend, tmpfh2.name, params)
+            await download_metadata(backend, tmpfh2.name, params)
             assert tmpfh2.read() == ref_db
 
     # Make sure that we did not store a full copy of every version
-    obj_count = len(list(backend.list('s3ql_metadata_')))
+    obj_count = len([obj async for obj in backend.list('s3ql_metadata_')])
     versions = len(versions) - 1
     assert obj_count - base_count <= versions * base_count * 0.5
 
 
-def _test_expiration(
-    backend: ComprencBackend,
+async def _test_expiration(
+    backend: AsyncComprencBackend,
     contents_pre: list[list[int]],
     contents_post: list[list[int]],
     db_sizes: list[int],
@@ -252,7 +250,9 @@ def _test_expiration(
                     continue
                 block_seq_no = seq_no
                 id_seq_map[(blockno, block_id)] = block_seq_no
-                backend.store(METADATA_OBJ_NAME % (blockno, block_seq_no), str(block_id).encode())
+                await backend.store(
+                    METADATA_OBJ_NAME % (blockno, block_seq_no), str(block_id).encode()
+                )
 
     for seq_no, size in enumerate(db_sizes):
         params = FsAttributes(
@@ -261,9 +261,9 @@ def _test_expiration(
             db_size=BLOCKSIZE * size,
             data_block_size=BLOCKSIZE,
         )
-        upload_params(backend, params)
+        await upload_params(backend, params)
 
-    expire_objects(backend, versions_to_keep=versions_to_keep)
+    await expire_objects(backend, versions_to_keep=versions_to_keep)
 
     expected_objects = set()
     for blockno, versions in enumerate(contents_post):
@@ -273,11 +273,11 @@ def _test_expiration(
             block_seq_no = id_seq_map[(blockno, block_id)]
             expected_objects.add(METADATA_OBJ_NAME % (blockno, block_seq_no))
 
-    all_objs = set(backend.list('s3ql_metadata_'))
+    all_objs = {obj async for obj in backend.list('s3ql_metadata_')}
     assert expected_objects == all_objs
 
 
-def test_expiration_nodup(backend):
+async def test_expiration_nodup(backend):
     # Trivial case, every block is stored in every version
     contents_pre = [
         [10, 11, 12, 13, 14, 15],  # block 0
@@ -292,10 +292,12 @@ def test_expiration_nodup(backend):
         [33, 34, 35],  # block 2
         [43, 44, 45],  # block 3
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3
+    )
 
 
-def test_expiration_dup1(backend):
+async def test_expiration_dup1(backend):
     # Some old blocks are used repeatedly, but all expired
     contents_pre = [
         [10, 11, 12, 13, 14, 15],  # block 0
@@ -310,10 +312,12 @@ def test_expiration_dup1(backend):
         [33, 34, 35],  # block 2
         [42, 43, 44],  # block 3
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3
+    )
 
 
-def test_expiration_dup2(backend):
+async def test_expiration_dup2(backend):
     # Some old blocks are used repeatedly and thus not removed
     contents_pre = [
         [10, 11, 12, 13, 14, 15],  # block 0
@@ -329,10 +333,12 @@ def test_expiration_dup2(backend):
         [32, 33, 34, 35],  # block 2
         [41, 42, 43, 44],  # block 3
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=4)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=4
+    )
 
 
-def test_expiration_dup3(backend):
+async def test_expiration_dup3(backend):
     # Some new blocks are used repeatedly
     contents_pre = [
         [10, 11, 12, 13, 13, 13],  # block 0
@@ -348,10 +354,12 @@ def test_expiration_dup3(backend):
         [33, 34, 35],  # block 2
         [42, 43, 44],  # block 3
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3
+    )
 
 
-def test_expiration_smaller(backend):
+async def test_expiration_smaller(backend):
     # Database size reduced
     contents_pre = [
         [10, 11, 12, 13, 14, 15],  # block 0
@@ -366,10 +374,12 @@ def test_expiration_smaller(backend):
         [23, 24, 25],  # block 1
         [33, None, None],  # block 2
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3
+    )
 
 
-def test_expiration_downup(backend):
+async def test_expiration_downup(backend):
     # Database size reduced and then increased again
     contents_pre = [
         [10, 11, 12, 13, 13],  # block 0
@@ -385,11 +395,13 @@ def test_expiration_downup(backend):
         [None, 33, 34],  # block 2
         [None, 40, None],  # block 3
     ]
-    _test_expiration(backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3)
+    await _test_expiration(
+        backend, contents_pre, contents_post, db_sizes=db_sizes, versions_to_keep=3
+    )
 
 
 @pytest.mark.parametrize("incremental", (True, False))
-def test_download_shorter(backend, incremental):
+async def test_download_shorter(backend, incremental):
     # Test downloading older snapshot when the filesize has grown
     sqlite3ext.reset()
     params = FsAttributes(
@@ -404,7 +416,7 @@ def test_download_shorter(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        upload_metadata(backend, db, params, incremental=incremental)
+        await upload_metadata(backend, db, params, incremental)
         old_params = params.copy()
         params.seq_no += 1
 
@@ -412,8 +424,8 @@ def test_download_shorter(backend, incremental):
         for i in range(2, 6):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
         db.sync_checkpoint()
-        upload_metadata(backend, db, params)
+        await upload_metadata(backend, db, params)
         db.close()
 
     with tempfile.NamedTemporaryFile() as tmpfh:
-        download_metadata(backend, tmpfh.name, old_params)
+        await download_metadata(backend, tmpfh.name, old_params)

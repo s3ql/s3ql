@@ -44,7 +44,7 @@ from s3ql.mount import get_metadata
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .async_bridge import run_async
 from .backends.common import AbstractBackend, AsyncBackend
-from .backends.comprenc import AsyncComprencBackend, ComprencBackend
+from .backends.comprenc import AsyncComprencBackend
 from .common import (
     AsyncFn,
     async_get_backend,
@@ -155,7 +155,7 @@ async def main_async(options: argparse.Namespace) -> None:
         await recover(backend, options)
         return
 
-    async with  await async_get_backend(options) as backend:
+    async with await async_get_backend(options) as backend:
         if options.action == 'passphrase':
             await change_passphrase(backend)
 
@@ -331,14 +331,11 @@ async def shrink_db(backend: AsyncComprencBackend, options) -> None:
     '''Run VACUUM on SQLite database file'''
 
     cachepath = options.cachepath
-    sync_backend = ComprencBackend.from_async_backend(backend)
-    (param, db) = await trio.to_thread.run_sync(
-        functools.partial(get_metadata, sync_backend, cachepath)
-    )
+    (param, db) = await get_metadata(backend, cachepath)
     param.seq_no += 1
     param.is_mounted = True
     write_params(cachepath, param)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
+    await upload_params(backend, param)
 
     old_size = os.path.getsize(db.file)
     db.execute('VACUUM')
@@ -353,10 +350,10 @@ async def shrink_db(backend: AsyncComprencBackend, options) -> None:
 
     param.is_mounted = False
     param.last_modified = time.time()
-    await trio.to_thread.run_sync(functools.partial(upload_metadata, sync_backend, db, param))
+    await upload_metadata(backend, db, param)
     write_params(cachepath, param)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
-    await trio.to_thread.run_sync(functools.partial(expire_objects, sync_backend))
+    await upload_params(backend, param)
+    await expire_objects(backend)
 
 
 async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
@@ -458,12 +455,9 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
     params.last_modified = time.time()
     params.seq_no += 1
 
-    sync_backend = ComprencBackend.from_async_backend(backend)
-    await trio.to_thread.run_sync(
-        functools.partial(upload_metadata, sync_backend, db, params, incremental=False)
-    )
+    await upload_metadata(backend, db, params, incremental=False)
     write_params(options.cachepath, params)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, params))
+    await upload_params(backend, params)
 
     # Re-upload the old metadata object to make sure that we don't accidentally
     # re-mount the filesystem with an older S3QL version.
@@ -482,10 +476,7 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
 
 
 async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
-    sync_backend = ComprencBackend.from_async_backend(backend)
-    backups = sorted(
-        await trio.to_thread.run_sync(functools.partial(get_available_seq_nos, sync_backend))
-    )
+    backups = sorted(await get_available_seq_nos(backend))
 
     if not backups:
         raise QuietError('No metadata backups found.')
@@ -518,13 +509,9 @@ async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.
         except:  # noqa: E722 # auto-added, needs manual check!
             print('Invalid selection.')
 
-    params = await trio.to_thread.run_sync(
-        functools.partial(read_remote_params, sync_backend, seq_no=seq_no)
-    )
+    params = await read_remote_params(backend, seq_no=seq_no)
     log.info('Downloading metadata...')
-    conn = await trio.to_thread.run_sync(
-        functools.partial(download_metadata, sync_backend, options.cachepath + ".db", params)
-    )
+    conn = await download_metadata(backend, options.cachepath + ".db", params)
     conn.close()
 
     params.is_mounted = False

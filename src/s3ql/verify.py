@@ -133,10 +133,7 @@ async def main_async(options: argparse.Namespace) -> None:
     backend_factory = await get_backend_factory(options)
 
     # Retrieve metadata
-    sync_backend = ComprencBackend.from_async_backend(await backend_factory())
-    (_, db) = await trio.to_thread.run_sync(
-        functools.partial(get_metadata, sync_backend, options.cachepath)
-    )
+    (_, db) = await get_metadata(await backend_factory(), options.cachepath)
 
     await trio.to_thread.run_sync(
         functools.partial(

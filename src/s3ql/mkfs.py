@@ -9,7 +9,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import argparse
-import functools
 import logging
 import os
 import shutil
@@ -24,7 +23,7 @@ import trio
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends import s3
-from .backends.comprenc import AsyncComprencBackend, ComprencBackend
+from .backends.comprenc import AsyncComprencBackend
 from .common import split_by_n, time_ns
 from .database import (
     Connection,
@@ -220,10 +219,9 @@ async def main_async(options: argparse.Namespace) -> None:
 
     log.info('Uploading metadata...')
     db.close()
-    sync_backend = ComprencBackend.from_async_backend(backend)
-    await trio.to_thread.run_sync(functools.partial(upload_metadata, sync_backend, db, param))
+    await upload_metadata(backend, db, param)
     write_params(cachepath, param)
-    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
+    await upload_params(backend, param)
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 

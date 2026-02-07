@@ -22,8 +22,6 @@ log = logging.getLogger(__name__)
 
 
 class BackendPool:
-
-
     factory: BackendFactory
     pool: list[AsyncComprencBackend]
     lock: trio.Lock
