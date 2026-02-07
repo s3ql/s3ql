@@ -16,12 +16,15 @@ if __name__ == '__main__':
 
 import _thread
 import hashlib
+import inspect
 import os
 import shutil
 import stat
 import tempfile
 import unittest
 from argparse import Namespace
+
+import trio
 
 from s3ql import ROOT_INODE
 from s3ql.backends import local
@@ -49,7 +52,7 @@ class fsck_tests(unittest.TestCase):
 
         self.fsck = Fsck(
             self.cachedir,
-            self.backend,
+            self.backend.async_backend,
             FsAttributes(data_block_size=self.max_obj_size, metadata_block_size=self.max_obj_size),
             self.db,
         )
@@ -65,13 +68,16 @@ class fsck_tests(unittest.TestCase):
         self.fsck.expect_errors = True
         for fn in fns:
             self.fsck.found_errors = False
-            fn()
+            if inspect.iscoroutinefunction(fn):
+                trio.run(fn)
+            else:
+                fn()
             assert self.fsck.found_errors
         if not can_fix:
             return
         self.fsck.found_errors = False
         self.fsck.expect_errors = False
-        self.fsck.check()
+        trio.run(self.fsck.check)
         assert not self.fsck.found_errors
 
     def test_cache(self):
@@ -331,7 +337,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)', (id_, 0, obj_id)
         )
         self.fsck.found_errors = False
-        self.fsck.check()
+        trio.run(self.fsck.check)
         assert not self.fsck.found_errors
 
         # One block, size not plausible
@@ -347,7 +353,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)', (id_, 1, obj_id)
         )
         self.fsck.found_errors = False
-        self.fsck.check()
+        trio.run(self.fsck.check)
         assert not self.fsck.found_errors
 
         # Two blocks, no holes, size plausible
@@ -356,7 +362,7 @@ class fsck_tests(unittest.TestCase):
             'INSERT INTO inode_blocks (inode, blockno, obj_id) VALUES(?, ?, ?)', (id_, 0, obj_id)
         )
         self.fsck.found_errors = False
-        self.fsck.check()
+        trio.run(self.fsck.check)
         assert not self.fsck.found_errors
 
         # Two blocks, size not plausible
@@ -370,7 +376,7 @@ class fsck_tests(unittest.TestCase):
             'UPDATE inodes SET size=? WHERE id=?', (self.max_obj_size + block_size + 1, id_)
         )
         self.fsck.found_errors = False
-        self.fsck.check()
+        trio.run(self.fsck.check)
         assert not self.fsck.found_errors
 
         # Two blocks, size not plausible

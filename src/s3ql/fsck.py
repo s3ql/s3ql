@@ -31,9 +31,9 @@ from pyfuse3 import InodeT
 from s3ql.mount import determine_threads
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
-from .backends.common import NoSuchObject
+from .backends.common import AsyncBackend, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend, ComprencBackend
-from .backends.local import Backend as LocalBackend
+from .backends.local import AsyncBackend as LocalAsyncBackend
 from .common import (
     async_get_backend,
     get_path,
@@ -60,7 +60,6 @@ from .logging import QuietError, setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
 if TYPE_CHECKING:
-    from .backends.common import AbstractBackend
     from .database import Connection
 
 log = logging.getLogger(__name__)
@@ -78,7 +77,7 @@ S_IFMT = (
 
 class Fsck:
     cachedir: str
-    backend: AbstractBackend
+    backend: AsyncComprencBackend | AsyncBackend
     expect_errors: bool
     found_errors: bool
     uncorrectable_errors: bool
@@ -89,7 +88,7 @@ class Fsck:
     def __init__(
         self,
         cachedir_: str,
-        backend_: AbstractBackend,
+        backend_: AsyncComprencBackend | AsyncBackend,
         param: FsAttributes,
         conn: Connection,
     ) -> None:
@@ -106,7 +105,7 @@ class Fsck:
         # exist even though they have refcount=0
         self.unlinked_objects = set()
 
-    def check(self, check_cache: bool | Literal['keep'] = True) -> None:
+    async def check(self, check_cache: bool | Literal['keep'] = True) -> None:
         """Check file system
 
         If *check_cache* is False, assume that all cache files are clean (aka
@@ -127,7 +126,7 @@ class Fsck:
         try:
             self.check_lof()
             if check_cache:
-                self.check_cache(check_cache == 'keep')
+                await self.check_cache(check_cache == 'keep')
             self.check_names_refcount()
 
             self.check_contents_name()
@@ -136,9 +135,9 @@ class Fsck:
 
             self.check_objects_temp()
             self.check_objects_hash()
-            self.check_objects_refcount()
-            self.check_objects_id()
-            self.check_objects_phys_size()
+            await self.check_objects_refcount()
+            await self.check_objects_id()
+            await self.check_objects_phys_size()
             # TODO: Are there any checks we could do on objects.length?
 
             self.check_inode_blocks_obj_id()
@@ -210,7 +209,7 @@ class Fsck:
                     log.error('This should not happen, please report a bug.')
                     self.uncorrectable_errors = True
 
-    def check_cache(self, keep_cache: bool = False) -> None:
+    async def check_cache(self, keep_cache: bool = False) -> None:
         """Commit uncommitted cache files"""
 
         log.info("Checking for dirty cache objects...")
@@ -285,7 +284,7 @@ class Fsck:
 
                 with open(os.path.join(self.cachedir, filename), "rb") as fh:
                     size = os.fstat(fh.fileno()).st_size
-                    obj_size = self.backend.write_fh('s3ql_data_%d' % obj_id, fh, size)
+                    obj_size = await self.backend.write_fh('s3ql_data_%d' % obj_id, fh, size)
 
                 self.conn.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
             else:
@@ -1004,7 +1003,7 @@ class Fsck:
             )
             self.found_errors = True
 
-    def check_objects_refcount(self) -> None:
+    async def check_objects_refcount(self) -> None:
         """Check objects.refcount"""
 
         log.info('Checking objects (reference counts)...')
@@ -1056,22 +1055,22 @@ class Fsck:
 
         # Delete objects which (correctly had) refcount=0
         for (obj_id,) in self.conn.query_typed((int,), 'SELECT id FROM objects WHERE refcount = 0'):
-            self.backend.delete('s3ql_data_%d' % obj_id)
+            await self.backend.delete('s3ql_data_%d' % obj_id)
         self.conn.execute("DELETE FROM objects WHERE refcount = 0")
 
     def check_objects_temp(self) -> None:
         """Remove temporary objects"""
 
         # Tests may provide a plain backend directly, but in regular operation
-        # we'll always work with a ComprencBackend (even if there is neither
+        # we'll always work with an AsyncComprencBackend (even if there is neither
         # compression nor encryption)
-        if isinstance(self.backend, ComprencBackend):
+        if isinstance(self.backend, AsyncComprencBackend):
             plain_backend = self.backend.backend
         else:
-            assert isinstance(self.backend, LocalBackend)
+            assert isinstance(self.backend, LocalAsyncBackend)
             plain_backend = self.backend
 
-        if not isinstance(plain_backend, LocalBackend):
+        if not isinstance(plain_backend, LocalAsyncBackend):
             return
 
         log.info('Checking for temporary objects and empty directories (backend)...')
@@ -1095,7 +1094,7 @@ class Fsck:
 
         log.info('Removed %d empty directories', empty_dirs)
 
-    def check_objects_id(self) -> None:
+    async def check_objects_id(self) -> None:
         """Check objects.id"""
 
         log.info('Checking objects (backend)...')
@@ -1103,7 +1102,9 @@ class Fsck:
         # We use this table to keep track of the objects that we have seen
         self.conn.execute("CREATE TEMP TABLE obj_ids (id INTEGER PRIMARY KEY)")
         try:
-            for i, obj_name in enumerate(self.backend.list('s3ql_data_')):
+            i = 0
+            async for obj_name in self.backend.list('s3ql_data_'):
+                i += 1
                 log.info(
                     'Processed %d objects so far',
                     i,
@@ -1124,10 +1125,10 @@ class Fsck:
             ):
                 try:
                     if obj_id in self.unlinked_objects:
-                        self.backend.delete('s3ql_data_%d' % obj_id)
+                        await self.backend.delete('s3ql_data_%d' % obj_id)
                     else:
                         # TODO: Save the data in lost+found instead
-                        self.backend.delete('s3ql_data_%d' % obj_id)
+                        await self.backend.delete('s3ql_data_%d' % obj_id)
                         self.found_errors = True
                         self.log_error("Deleted spurious object %d", obj_id)
                 except NoSuchObject:
@@ -1138,7 +1139,7 @@ class Fsck:
                 'SELECT id FROM objects EXCEPT SELECT id FROM obj_ids'
             )
             for (obj_id,) in self.conn.query_typed((int,), 'SELECT * FROM missing'):
-                if self.backend.contains('s3ql_data_%d' % obj_id):
+                if await self.backend.contains('s3ql_data_%d' % obj_id):
                     # Object was just not in list yet
                     continue
 
@@ -1153,7 +1154,7 @@ class Fsck:
             self.conn.execute('DROP TABLE obj_ids')
             self.conn.execute('DROP TABLE IF EXISTS missing')
 
-    def check_objects_phys_size(self) -> None:
+    async def check_objects_phys_size(self) -> None:
         """Check objects.phys_size"""
 
         log.info('Checking objects (physical sizes)...')
@@ -1165,7 +1166,7 @@ class Fsck:
             self.log_error("Object %d has no size information, retrieving from backend...", obj_id)
             self.conn.execute(
                 'UPDATE objects SET phys_size=? WHERE id=?',
-                (self.backend.get_size('s3ql_data_%d' % obj_id), obj_id),
+                (await self.backend.get_size('s3ql_data_%d' % obj_id), obj_id),
             )
 
     def resolve_free(self, path: bytes, name: bytes) -> tuple[InodeT, bytes]:
@@ -1453,8 +1454,8 @@ async def main_async(options: Namespace) -> None:
     write_params(cachepath, param)
     await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
 
-    fsck = Fsck(cachepath + '-cache', sync_backend, param, db)
-    await trio.to_thread.run_sync(functools.partial(fsck.check, check_cache))
+    fsck = Fsck(cachepath + '-cache', backend, param, db)
+    await fsck.check(check_cache)
 
     if fsck.uncorrectable_errors:
         raise QuietError("Uncorrectable errors found, aborting.", exitcode=44 + 128)

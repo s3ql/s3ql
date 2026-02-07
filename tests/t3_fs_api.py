@@ -82,7 +82,7 @@ async def ctx():
     factory.has_delete_multi = True
     ctx.backend_pool = BackendPool(factory)
 
-    ctx.backend = ComprencBackend.from_async_backend(await ctx.backend_pool.pop_conn())
+    ctx.backend = await ctx.backend_pool.pop_conn()
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
 
@@ -140,8 +140,7 @@ async def fsck(ctx):
         ),
         ctx.db,
     )
-    # TODO: Use async API
-    await trio.to_thread.run_sync(fsck.check)
+    await fsck.check()
     assert not fsck.found_errors
 
 
