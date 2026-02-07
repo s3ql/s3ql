@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import functools
 import logging
 import os
 import re
@@ -24,6 +25,8 @@ from datetime import datetime
 from getpass import getpass
 from queue import Full as QueueFull
 from queue import Queue
+
+import trio
 
 from s3ql.database import (
     Connection,
@@ -40,11 +43,11 @@ from s3ql.mount import get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .async_bridge import run_async
-from .backends.common import AbstractBackend
-from .backends.comprenc import ComprencBackend
+from .backends.common import AbstractBackend, AsyncBackend
+from .backends.comprenc import AsyncComprencBackend, ComprencBackend
 from .common import (
     AsyncFn,
-    get_backend,
+    async_get_backend,
     handle_on_return,
     is_mounted,
     pretty_print_size,
@@ -139,37 +142,40 @@ def main(args: Sequence[str] | None = None) -> None:
     if is_mounted(options.storage_url):
         raise QuietError('Can not work on mounted file system.')
 
+    trio.run(main_async, options)
+
+
+async def main_async(options: argparse.Namespace) -> None:
     if options.action == 'clear':
-        clear(options)  # pyright: ignore[reportCallIssue]
+        await trio.to_thread.run_sync(functools.partial(clear, options))
         return
 
-    elif options.action == 'recover-key':
-        with get_backend(options, raw=True) as backend:
-            recover(backend, options)
-            return
+    if options.action == 'recover-key':
+        backend = await async_get_backend(options, raw=True)
+        await recover(backend, options)
+        return
 
-    with get_backend(options) as backend:
-        assert isinstance(backend, ComprencBackend)
+    async with  await async_get_backend(options) as backend:
         if options.action == 'passphrase':
-            change_passphrase(backend)
+            await change_passphrase(backend)
 
         elif options.action == 'restore-metadata':
-            restore_metadata_cmd(backend, options)
+            await restore_metadata_cmd(backend, options)
 
         elif options.action == 'upgrade':
-            upgrade(backend, options)
+            await upgrade(backend, options)
 
         elif options.action == 'shrink-db':
-            shrink_db(backend, options)
+            await shrink_db(backend, options)
 
         else:
             raise QuietError('Unknown action: %s' % options.action)
 
 
-def change_passphrase(backend: ComprencBackend) -> None:
+async def change_passphrase(backend: AsyncComprencBackend) -> None:
     '''Change file system passphrase'''
 
-    if not isinstance(backend, ComprencBackend) and backend.passphrase:
+    if not backend.passphrase:
         raise QuietError('File system is not encrypted.')
 
     data_pw = backend.passphrase
@@ -193,14 +199,14 @@ def change_passphrase(backend: ComprencBackend) -> None:
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
     backend.passphrase = wrap_pw_bytes
-    backend.store('s3ql_passphrase', data_pw)
-    backend.store('s3ql_passphrase_bak1', data_pw)
-    backend.store('s3ql_passphrase_bak2', data_pw)
-    backend.store('s3ql_passphrase_bak3', data_pw)
+    await backend.store('s3ql_passphrase', data_pw)
+    await backend.store('s3ql_passphrase_bak1', data_pw)
+    await backend.store('s3ql_passphrase_bak2', data_pw)
+    await backend.store('s3ql_passphrase_bak3', data_pw)
     backend.passphrase = data_pw
 
 
-def recover(backend: AbstractBackend, options: argparse.Namespace) -> None:
+async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
     print("Enter master key (should be 11 blocks of 4 characters each): ")
     data_pw_str = sys.stdin.readline()
     data_pw_str = re.sub(r'\s+', '', data_pw_str)
@@ -220,11 +226,11 @@ def recover(backend: AbstractBackend, options: argparse.Namespace) -> None:
         wrap_pw = sys.stdin.readline().rstrip()
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
-    comprenc_backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), backend)
-    comprenc_backend.store('s3ql_passphrase', data_pw)
-    comprenc_backend.store('s3ql_passphrase_bak1', data_pw)
-    comprenc_backend.store('s3ql_passphrase_bak2', data_pw)
-    comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
+    comprenc_backend = await AsyncComprencBackend.create(wrap_pw_bytes, ('lzma', 2), backend)
+    await comprenc_backend.store('s3ql_passphrase', data_pw)
+    await comprenc_backend.store('s3ql_passphrase_bak1', data_pw)
+    await comprenc_backend.store('s3ql_passphrase_bak2', data_pw)
+    await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
 @handle_on_return
@@ -321,15 +327,18 @@ def get_old_rev_msg(rev: int, prog: str) -> str:
     )
 
 
-def shrink_db(backend: ComprencBackend, options) -> None:
+async def shrink_db(backend: AsyncComprencBackend, options) -> None:
     '''Run VACUUM on SQLite database file'''
 
     cachepath = options.cachepath
-    (param, db) = get_metadata(backend, cachepath)
+    sync_backend = ComprencBackend.from_async_backend(backend)
+    (param, db) = await trio.to_thread.run_sync(
+        functools.partial(get_metadata, sync_backend, cachepath)
+    )
     param.seq_no += 1
     param.is_mounted = True
     write_params(cachepath, param)
-    upload_params(backend, param)
+    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
 
     old_size = os.path.getsize(db.file)
     db.execute('VACUUM')
@@ -344,13 +353,13 @@ def shrink_db(backend: ComprencBackend, options) -> None:
 
     param.is_mounted = False
     param.last_modified = time.time()
-    upload_metadata(backend, db, param)
+    await trio.to_thread.run_sync(functools.partial(upload_metadata, sync_backend, db, param))
     write_params(cachepath, param)
-    upload_params(backend, param)
-    expire_objects(backend)
+    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
+    await trio.to_thread.run_sync(functools.partial(expire_objects, sync_backend))
 
 
-def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
+async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
     '''Upgrade file system to newest revision'''
 
     params_path = options.cachepath + '.params'
@@ -364,7 +373,7 @@ def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
 
     with open(params_path, 'rb') as fh:
         local_params: BasicMappingT = thaw_basic_mapping(fh.read())
-    remote_params = backend.lookup('s3ql_metadata')
+    remote_params = await backend.lookup('s3ql_metadata')
 
     local_seq_no = local_params['seq_no']
     remote_seq_no = remote_params['seq_no']
@@ -449,9 +458,12 @@ def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
     params.last_modified = time.time()
     params.seq_no += 1
 
-    upload_metadata(backend, db, params, incremental=False)
+    sync_backend = ComprencBackend.from_async_backend(backend)
+    await trio.to_thread.run_sync(
+        functools.partial(upload_metadata, sync_backend, db, params, incremental=False)
+    )
     write_params(options.cachepath, params)
-    upload_params(backend, params)
+    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, params))
 
     # Re-upload the old metadata object to make sure that we don't accidentally
     # re-mount the filesystem with an older S3QL version.
@@ -459,16 +471,21 @@ def upgrade(backend: ComprencBackend, options: argparse.Namespace) -> None:
     local_params['revision'] = CURRENT_FS_REV
     local_params['seq_no'] = local_seq_no + 1
     with tempfile.TemporaryFile() as tmpfh:
-        backend.readinto_fh('s3ql_metadata', tmpfh)
+        await backend.readinto_fh('s3ql_metadata', tmpfh)
         len_ = tmpfh.tell()
         tmpfh.seek(0)
-        backend.write_fh("s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True)
+        await backend.write_fh(
+            "s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True
+        )
 
     print('File system upgrade complete.')
 
 
-def restore_metadata_cmd(backend: ComprencBackend, options: argparse.Namespace) -> None:
-    backups = sorted(get_available_seq_nos(backend))
+async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
+    sync_backend = ComprencBackend.from_async_backend(backend)
+    backups = sorted(
+        await trio.to_thread.run_sync(functools.partial(get_available_seq_nos, sync_backend))
+    )
 
     if not backups:
         raise QuietError('No metadata backups found.')
@@ -478,7 +495,7 @@ def restore_metadata_cmd(backend: ComprencBackend, options: argparse.Namespace) 
     for i, backup_seq_no in enumerate(backups):
         # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
         # filesystem revisions.
-        d = thaw_basic_mapping(backend.fetch('s3ql_params_%010x' % backup_seq_no)[0])
+        d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % backup_seq_no))[0])
         if d['revision'] != CURRENT_FS_REV:
             print(f'{i:3d} {backup_seq_no:010x} (unsupported revision)')
             continue
@@ -501,9 +518,13 @@ def restore_metadata_cmd(backend: ComprencBackend, options: argparse.Namespace) 
         except:  # noqa: E722 # auto-added, needs manual check!
             print('Invalid selection.')
 
-    params = read_remote_params(backend, seq_no=seq_no)
+    params = await trio.to_thread.run_sync(
+        functools.partial(read_remote_params, sync_backend, seq_no=seq_no)
+    )
     log.info('Downloading metadata...')
-    conn = download_metadata(backend, options.cachepath + ".db", params)
+    conn = await trio.to_thread.run_sync(
+        functools.partial(download_metadata, sync_backend, options.cachepath + ".db", params)
+    )
     conn.close()
 
     params.is_mounted = False
