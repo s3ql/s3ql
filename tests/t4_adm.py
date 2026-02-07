@@ -14,12 +14,10 @@ if __name__ == '__main__':
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import os.path
+import os
 import re
 import shutil
 import subprocess
-import tempfile
-import unittest
 from argparse import Namespace
 
 import pytest
@@ -28,21 +26,20 @@ from t4_fuse import TestFuse
 
 from s3ql.backends import local
 from s3ql.backends.common import CorruptedObjectError
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 
 
 @pytest.mark.usefixtures('pass_reg_output')
-class AdmTests(unittest.TestCase):
-    def setUp(self):
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+class TestAdm:
+    @pytest.fixture(autouse=True)
+    def setup(self, tmp_path):
+        self.cache_dir = str(tmp_path / 'cache')
+        os.makedirs(self.cache_dir)
+        self.backend_dir = str(tmp_path / 'backend')
+        os.makedirs(self.backend_dir)
 
         self.storage_url = 'local://' + self.backend_dir
         self.passphrase = 'oeut3d'
-
-    def tearDown(self):
-        shutil.rmtree(self.cache_dir)
-        shutil.rmtree(self.backend_dir)
 
     def mkfs(self):
         proc = subprocess.Popen(
@@ -69,11 +66,12 @@ class AdmTests(unittest.TestCase):
         proc.stdin.close()
         stdout = proc.stdout.read()
         proc.stdout.close()
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
         return stdout
 
-    def test_passphrase(self):
+    @pytest.mark.trio
+    async def test_passphrase(self):
         self.mkfs()
 
         passphrase_new = 'sd982jhd'
@@ -98,14 +96,17 @@ class AdmTests(unittest.TestCase):
         print(passphrase_new, file=proc.stdin)
         proc.stdin.close()
 
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
-        plain_backend = local.Backend(Namespace(storage_url=self.storage_url))
-        backend = ComprencBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
+        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        backend = await AsyncComprencBackend.create(
+            passphrase_new.encode(), ('zlib', 6), plain_backend
+        )
 
-        backend.fetch('s3ql_passphrase')  # will fail with wrong pw
+        await backend.fetch('s3ql_passphrase')  # will fail with wrong pw
 
-    def test_clear(self):
+    @pytest.mark.trio
+    async def test_clear(self):
         self.mkfs()
 
         proc = subprocess.Popen(
@@ -124,12 +125,13 @@ class AdmTests(unittest.TestCase):
         )
         print('yes', file=proc.stdin)
         proc.stdin.close()
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
-        plain_backend = local.Backend(Namespace(storage_url=self.storage_url))
-        assert list(plain_backend.list()) == []
+        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        assert [k async for k in plain_backend.list()] == []
 
-    def test_key_recovery(self):
+    @pytest.mark.trio
+    async def test_key_recovery(self):
         mkfs_output = self.mkfs()
 
         hit = re.search(
@@ -140,12 +142,14 @@ class AdmTests(unittest.TestCase):
         assert hit
         master_key = hit.group(1)
 
-        plain_backend = local.Backend(Namespace(storage_url=self.storage_url))
-        plain_backend.delete('s3ql_passphrase')  # Oops
+        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        await plain_backend.delete('s3ql_passphrase')  # Oops
 
-        backend = ComprencBackend(self.passphrase.encode(), ('zlib', 6), plain_backend)
+        backend = await AsyncComprencBackend.create(
+            self.passphrase.encode(), ('zlib', 6), plain_backend
+        )
         with pytest.raises(CorruptedObjectError):
-            backend.fetch('s3ql_params')
+            await backend.fetch('s3ql_params')
 
         passphrase_new = 'sd982jhd'
 
@@ -168,11 +172,13 @@ class AdmTests(unittest.TestCase):
         print(passphrase_new, file=proc.stdin)
         print(passphrase_new, file=proc.stdin)
         proc.stdin.close()
-        self.assertEqual(proc.wait(), 0)
+        assert proc.wait() == 0
 
-        backend = ComprencBackend(passphrase_new.encode(), ('zlib', 6), plain_backend)
+        backend = await AsyncComprencBackend.create(
+            passphrase_new.encode(), ('zlib', 6), plain_backend
+        )
 
-        backend.fetch('s3ql_passphrase')  # will fail with wrong pw
+        await backend.fetch('s3ql_passphrase')  # will fail with wrong pw
 
 
 class TestMetadataRestore(TestFuse):
