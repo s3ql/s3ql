@@ -9,7 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import argparse
-import atexit
+import functools
 import logging
 import os
 import shutil
@@ -20,10 +20,12 @@ from base64 import b64encode
 from collections.abc import Sequence
 from getpass import getpass
 
+import trio
+
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends import s3
-from .backends.comprenc import ComprencBackend
-from .common import get_backend, split_by_n, time_ns
+from .backends.comprenc import AsyncComprencBackend, ComprencBackend
+from .common import split_by_n, time_ns
 from .database import (
     Connection,
     FsAttributes,
@@ -143,24 +145,27 @@ def main(args: Sequence[str] | None = None) -> None:
 
     options = parse_args(args)
     setup_logging(options)
-
     setup_warnings()
-    plain_backend = get_backend(options, raw=True)
-    atexit.register(plain_backend.close)
+    trio.run(main_async, options)
+
+
+async def main_async(options: argparse.Namespace) -> None:
+    plain_backend = await options.backend_class.create(options)
+    backend: AsyncComprencBackend | None = None
 
     log.info(
         "Before using S3QL, make sure to read the user's guide, especially\n"
         "the 'Important Rules to Avoid Losing Data' section."
     )
 
-    if isinstance(plain_backend, s3.Backend) and '.' in plain_backend.bucket_name:
+    if isinstance(plain_backend, s3.AsyncBackend) and '.' in plain_backend.bucket_name:
         log.warning(
             'S3 Buckets with names containing dots cannot be '
             'accessed using SSL!'
             '(cf. https://forums.aws.amazon.com/thread.jspa?threadID=130560)'
         )
 
-    if plain_backend.contains('s3ql_params') or plain_backend.contains('s3ql_metadata'):
+    if await plain_backend.contains('s3ql_params') or await plain_backend.contains('s3ql_metadata'):
         raise QuietError(
             "Refusing to overwrite existing file system! (use `s3qladm clear` to delete)"
         )
@@ -180,17 +185,15 @@ def main(args: Sequence[str] | None = None) -> None:
         with open('/dev/urandom', "rb", 0) as fh:  # No buffering
             data_pw = fh.read(32)
 
-        backend = ComprencBackend(wrap_pw_bytes, ('lzma', 2), plain_backend)
-        backend.store('s3ql_passphrase', data_pw)
-        backend.store('s3ql_passphrase_bak1', data_pw)
-        backend.store('s3ql_passphrase_bak2', data_pw)
-        backend.store('s3ql_passphrase_bak3', data_pw)
+        backend = await AsyncComprencBackend.create(wrap_pw_bytes, ('lzma', 2), plain_backend)
+        await backend.store('s3ql_passphrase', data_pw)
+        await backend.store('s3ql_passphrase_bak1', data_pw)
+        await backend.store('s3ql_passphrase_bak2', data_pw)
+        await backend.store('s3ql_passphrase_bak3', data_pw)
     else:
         data_pw = None
 
-    backend = ComprencBackend(data_pw, ('lzma', 2), plain_backend)
-    atexit.unregister(plain_backend.close)
-    atexit.register(backend.close)
+    backend = await AsyncComprencBackend.create(data_pw, ('lzma', 2), plain_backend)
     cachepath = options.cachepath
 
     # There can't be a corresponding backend, so we can safely delete
@@ -217,9 +220,10 @@ def main(args: Sequence[str] | None = None) -> None:
 
     log.info('Uploading metadata...')
     db.close()
-    upload_metadata(backend, db, param)
+    sync_backend = ComprencBackend.from_async_backend(backend)
+    await trio.to_thread.run_sync(functools.partial(upload_metadata, sync_backend, db, param))
     write_params(cachepath, param)
-    upload_params(backend, param)
+    await trio.to_thread.run_sync(functools.partial(upload_params, sync_backend, param))
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
 
