@@ -20,12 +20,14 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import Any, BinaryIO, Optional
+from typing import Any, BinaryIO
+
+import trio
 
 from s3ql import BUFSIZE
 from s3ql.backends.common import DanglingStorageURLError
-from s3ql.backends.comprenc import ComprencBackend
-from s3ql.common import get_backend
+from s3ql.backends.comprenc import AsyncComprencBackend
+from s3ql.common import async_get_backend
 from s3ql.logging import QuietError, setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 
@@ -121,21 +123,24 @@ def test_write_speed(size, blocksize, cachedir, rnd_fh):
     return copied / write_time
 
 
-class MockBackend:
-    def write_fh(
+class AsyncMockBackend:
+    """Minimal async backend stub for compression benchmarking."""
+
+    has_delete_multi = False
+
+    async def write_fh(
         self,
         key: str,
         fh: BinaryIO,
-        metadata: Optional[dict[str, Any]] = None,
-        len_: Optional[int] = None,
-    ):
+        len_: int,
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
         cur_off = fh.tell()
-        if len_ is None:
-            fh.seek(0, os.SEEK_END)
-            return fh.tell() - cur_off
-        else:
-            fh.seek(len_)
-            return fh.tell() - cur_off
+        fh.seek(cur_off + len_)
+        return len_
+
+    def is_temp_failure(self, exc: BaseException) -> bool:
+        return False
 
 
 def main(args=None):
@@ -146,6 +151,10 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
+    trio.run(main_async, options)
+
+
+async def main_async(options: argparse.Namespace) -> None:
     # /dev/urandom may be slow, so we cache the data first
     log.info('Preparing test data...')
     rnd_fh = tempfile.TemporaryFile()  # noqa: SIM115
@@ -170,22 +179,22 @@ def main(args=None):
     # on the network layer
     log.info('Measuring raw backend throughput..')
     try:
-        backend = get_backend(options, raw=True)
+        backend = await async_get_backend(options, raw=True)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 
-    upload_time = 0
+    upload_time: float = 0
     size = 512 * 1024
     while upload_time < 10 and size <= (rnd_fh_size / 2):
         size *= 2
         rnd_fh.seek(0)
         stamp = time.time()
-        upload_size = backend.write_fh('s3ql_testdata', rnd_fh, None, size)
+        upload_size = await backend.write_fh('s3ql_testdata', rnd_fh, size)
         upload_time = time.time() - stamp
         assert upload_time > 0, 'Upload took 0 seconds'
     backend_speed = upload_size / upload_time
     log.info('Backend throughput: %d KiB/sec', backend_speed / 1024)
-    backend.delete('s3ql_testdata')
+    await backend.delete('s3ql_testdata')
 
     src = options.file
     size = os.fstat(options.file.fileno()).st_size
@@ -195,11 +204,15 @@ def main(args=None):
     out_speed = dict()
     for alg in ALGS:
         log.info('compressing with %s-6...', alg)
-        backend = ComprencBackend(b'pass', (alg, 6), MockBackend())
+        compr_backend = await AsyncComprencBackend.create(
+            b'pass',
+            (alg, 6),
+            AsyncMockBackend(),  # type: ignore[arg-type]
+        )
 
         src.seek(0)
         stamp = time.time()
-        obj_size = backend.write_fh('s3ql_testdata', src, size)
+        obj_size = await compr_backend.write_fh('s3ql_testdata', src, size)
         dt = time.time() - stamp
         in_speed[alg] = size / dt
         out_speed[alg] = obj_size / dt
