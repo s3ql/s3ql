@@ -9,8 +9,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import argparse
-import contextlib
-import functools
 import logging
 import os
 import re
@@ -23,8 +21,6 @@ from base64 import b64decode
 from collections.abc import Sequence
 from datetime import datetime
 from getpass import getpass
-from queue import Full as QueueFull
-from queue import Queue
 
 import trio
 
@@ -42,13 +38,10 @@ from s3ql.database import (
 from s3ql.mount import get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .async_bridge import run_async
-from .backends.common import AbstractBackend, AsyncBackend
+from .backends.common import AsyncBackend
 from .backends.comprenc import AsyncComprencBackend
 from .common import (
-    AsyncFn,
     async_get_backend,
-    handle_on_return,
     is_mounted,
     pretty_print_size,
     thaw_basic_mapping,
@@ -147,7 +140,7 @@ def main(args: Sequence[str] | None = None) -> None:
 
 async def main_async(options: argparse.Namespace) -> None:
     if options.action == 'clear':
-        await trio.to_thread.run_sync(functools.partial(clear, options))
+        await clear(options)
         return
 
     if options.action == 'recover-key':
@@ -233,81 +226,60 @@ async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
     await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
-@handle_on_return
-def clear(options: argparse.Namespace, on_return: contextlib.ExitStack) -> None:
-    def backend_factory() -> AbstractBackend:
-        return AbstractBackend(run_async(options.backend_class.create, options))
+async def clear(options: argparse.Namespace) -> None:
+    async with await async_get_backend(options, raw=True) as backend:
+        print(
+            'I am about to DELETE ALL DATA in %s.' % backend,
+            'This includes not just S3QL file systems but *all* stored objects.',
+            'Depending on the storage service, it may be necessary to run this command',
+            'several times to delete all data, and it may take a while until the ',
+            'removal becomes effective.',
+            'Please enter "yes" to continue.',
+            '> ',
+            sep='\n',
+            end='',
+        )
+        sys.stdout.flush()
 
-    backend = on_return.enter_context(backend_factory())
+        if sys.stdin.readline().strip().lower() != 'yes':
+            raise QuietError()
 
-    print(
-        'I am about to DELETE ALL DATA in %s.' % backend,
-        'This includes not just S3QL file systems but *all* stored objects.',
-        'Depending on the storage service, it may be necessary to run this command',
-        'several times to delete all data, and it may take a while until the ',
-        'removal becomes effective.',
-        'Please enter "yes" to continue.',
-        '> ',
-        sep='\n',
-        end='',
-    )
-    sys.stdout.flush()
+        log.info('Deleting...')
+        for suffix in ('.db', '.params'):
+            name = options.cachepath + suffix
+            if os.path.exists(name):
+                os.unlink(name)
 
-    if sys.stdin.readline().strip().lower() != 'yes':
-        raise QuietError()
-
-    log.info('Deleting...')
-    for suffix in ('.db', '.params'):
-        name = options.cachepath + suffix
+        name = options.cachepath + '-cache'
         if os.path.exists(name):
-            os.unlink(name)
+            shutil.rmtree(name)
 
-    name = options.cachepath + '-cache'
-    if os.path.exists(name):
-        shutil.rmtree(name)
-
-    queue: Queue[str | None] = Queue(maxsize=options.max_connections)
-
-    def removal_loop() -> None:
-        with backend_factory() as backend:
-            while True:
-                key = queue.get()
-                if key is None:
-                    return
-                backend.delete(key)
-
-    threads = []
-    for _ in range(options.max_connections):
-        t = AsyncFn(removal_loop)
-        # Don't wait for worker threads, gives deadlock if main thread
-        # terminates with exception
-        t.daemon = True
-        t.start()
-        threads.append(t)
-
-    for i, obj_id in enumerate(backend.list()):
-        log.info(
-            'Deleting objects (%d so far)...', i, extra={'rate_limit': 1, 'update_console': True}
+        send_channel, receive_channel = trio.open_memory_channel[str](
+            max_buffer_size=options.max_connections
         )
 
-        # Avoid blocking if all threads terminated
-        while True:
-            try:
-                queue.put(obj_id, timeout=1)
-            except QueueFull:
-                pass
-            else:
-                break
-            for t in threads:
-                if not t.is_alive():
-                    t.join_and_raise()
+        async def removal_task(
+            recv: trio.MemoryReceiveChannel[str],
+        ) -> None:
+            async with recv, await options.backend_class.create(options) as worker_backend:
+                async for key in recv:
+                    await worker_backend.delete(key)
 
-    queue.maxsize += len(threads)
-    for t in threads:  # noqa: B007 # auto-added, needs manual check!
-        queue.put(None)
+        async with trio.open_nursery() as nursery:
+            for _ in range(options.max_connections):
+                nursery.start_soon(removal_task, receive_channel.clone())
+            await receive_channel.aclose()
 
-    for t in threads:
-        t.join_and_raise()
+            async with send_channel:
+                i = 0
+                async for obj_id in backend.list():
+                    log.info(
+                        'Deleting objects (%d so far)...',
+                        i,
+                        extra={'rate_limit': 1, 'update_console': True},
+                    )
+                    await send_channel.send(obj_id)
+                    i += 1
 
     log.info('All visible objects deleted.')
 
