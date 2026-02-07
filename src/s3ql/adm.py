@@ -88,7 +88,9 @@ def parse_args(args: Sequence[str]) -> argparse.Namespace:
     sparser = subparsers.add_parser(
         "clear", help="delete file system and all data", parents=[pparser]
     )
-    sparser.add_argument("--threads", type=int, default=20, help='Number of threads to use')
+    sparser.add_argument(
+        "--max-connections", type=int, default=32, help='Number of connections to use'
+    )
     subparsers.add_parser(
         "recover-key", help="Recover master key from offline copy.", parents=[pparser]
     )
@@ -257,7 +259,7 @@ def clear(options: argparse.Namespace, on_return: contextlib.ExitStack) -> None:
     if os.path.exists(name):
         shutil.rmtree(name)
 
-    queue: Queue[str | None] = Queue(maxsize=options.threads)
+    queue: Queue[str | None] = Queue(maxsize=options.max_connections)
 
     def removal_loop() -> None:
         with backend_factory() as backend:
@@ -268,7 +270,7 @@ def clear(options: argparse.Namespace, on_return: contextlib.ExitStack) -> None:
                 backend.delete(key)
 
     threads = []
-    for _ in range(options.threads):
+    for _ in range(options.max_connections):
         t = AsyncFn(removal_loop)
         # Don't wait for worker threads, gives deadlock if main thread
         # terminates with exception

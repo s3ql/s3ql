@@ -144,8 +144,7 @@ would like to have an S3QL mountpoint with persistent cache at
 
 #. Mount a local block device at :file:`/mnt/data`.
 #. Mount an S3QL file system at :file:`/mnt/data_online` using a small
-   cache size and number of threads (eg. :cmdopt:`--threads
-   2 --max-cache-entries 10`).
+   cache size (eg. :cmdopt:`--max-cache-entries 10`).
 #. Keep :file:`/mnt/data_online` synchronized with :file:`/mnt/data`
    by either
 

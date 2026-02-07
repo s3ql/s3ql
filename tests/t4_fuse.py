@@ -97,7 +97,7 @@ class TestFuse:
             self.cache_dir,
             '--log',
             'none',
-            '--threads=2',
+            '--max-connections=2',
             '--compress',
             'zlib',
             '--quiet',
@@ -133,10 +133,10 @@ class TestFuse:
         with open('/dev/null', 'wb') as devnull:
             retry(
                 5,
-                lambda: subprocess.call(
-                    ['fuser', '-m', self.mnt_dir], stdout=devnull, stderr=devnull
-                )
-                == 1,
+                lambda: (
+                    subprocess.call(['fuser', '-m', self.mnt_dir], stdout=devnull, stderr=devnull)
+                    == 1
+                ),
             )
 
         proc = subprocess.Popen(['umount.s3ql', '--quiet', self.mnt_dir])

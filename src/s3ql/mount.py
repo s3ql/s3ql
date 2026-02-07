@@ -130,18 +130,15 @@ def main(args: list[str] | None = None) -> None:
     if is_mounted(options.storage_url):
         raise QuietError('File system already mounted elsewhere on this machine.', exitcode=40)
 
-    if options.threads is None:
-        options.threads = determine_threads(options)
-
     avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     if avail_fd == resource.RLIM_INFINITY:
         avail_fd = 4096
     resource.setrlimit(resource.RLIMIT_NOFILE, (avail_fd, avail_fd))
 
     # Subtract some fd's for random things we forgot, and a fixed number for
-    # each upload thread (because each thread is using at least one socket and
-    # at least one temporary file)
-    avail_fd -= 32 + 3 * options.threads
+    # each upload connection (because each connection is using at least one
+    # socket and at least one temporary file)
+    avail_fd -= 32 + 3 * options.max_connections
 
     if options.max_cache_entries is None:
         if avail_fd <= 64:
@@ -310,7 +307,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
                 upload_params(backend, param)
 
         await trio.to_thread.run_sync(upload_in_thread)
-        block_cache.init(options.threads)
+        block_cache.init(options.max_connections)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
@@ -677,12 +674,12 @@ def parse_args(args: list[str]) -> Namespace:
         'backups, the filesystem will be unresponsile. Default: 6h',
     )
     parser.add_argument(
-        "--threads",
+        "--max-connections",
         action="store",
         type=int,
-        default=None,
+        default=32,
         metavar='<no>',
-        help='Number of parallel upload threads to use (default: auto).',
+        help='Number of parallel upload connections to use (default: %(default)d).',
     )
     parser.add_argument(
         "--nfs",

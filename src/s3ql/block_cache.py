@@ -269,12 +269,12 @@ class BlockCache:
         '''Get number of objects in cache'''
         return len(self.cache)
 
-    def init(self, threads: int = 1) -> None:
+    def init(self, connections: int = 1) -> None:
         '''Start worker threads'''
 
         self.trio_token = trio.lowlevel.current_trio_token()
         self.to_upload = trio.open_memory_channel(0)
-        for _ in range(threads):
+        for _ in range(connections):
             t = threading.Thread(target=self._upload_loop)
             t.start()
             self.upload_threads.append(t)

@@ -16,7 +16,7 @@ benchmark.py
 
 This program measures S3QL write performance, uplink bandwidth and
 compression speed to determine the limiting factor. It also gives
-recommendation for compression algorithm and number of upload threads
+recommendation for compression algorithm and number of upload connections
 to achieve maximum performance.
 
 
