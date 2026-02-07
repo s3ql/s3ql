@@ -20,6 +20,7 @@ import time
 
 import pytest
 import pytest_trio
+from common import safe_sleep
 
 assert pytest_trio  # suppress unused import warning
 
@@ -99,3 +100,8 @@ def pytest_configure(config):
 # as early as possible.
 def pytest_runtest_teardown(item, nextitem):
     gc.collect()
+
+
+@pytest.fixture(autouse=True, scope='session')
+def install_safe_sleep():
+    time.sleep = safe_sleep

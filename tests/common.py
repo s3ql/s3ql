@@ -56,11 +56,6 @@ def safe_sleep(secs, _sleep_real=time.sleep):
         now = time.time()
 
 
-@pytest.fixture(autouse=True, scope='session')
-def install_safe_sleep():
-    time.sleep = safe_sleep
-
-
 def retry(timeout, fn, *a, **kw):
     """Wait for fn(*a, **kw) to return True.
 
