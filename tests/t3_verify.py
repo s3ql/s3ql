@@ -71,8 +71,8 @@ def test_missing(backend, db, full):
             backend.store(key, data)
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    async def backend_factory():
+        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
@@ -117,8 +117,8 @@ def test_corrupted_head(backend, db, full):
     backend.backend.store(key, data, meta)
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    async def backend_factory():
+        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
@@ -151,8 +151,8 @@ def test_corrupted_body(backend, db, full):
     backend.backend.store(key, raw, meta)
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    async def backend_factory():
+        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
@@ -185,8 +185,8 @@ def test_truncated_body(backend, db, full):
     backend.store(key, data)
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    async def backend_factory():
+        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
@@ -222,8 +222,8 @@ def test_corrupted_hash(backend, db):
     db.execute('UPDATE objects SET hash=? WHERE id=?', (sha256(b'foobar'), obj_ids[corrupted_idx]))
 
     # When using a single thread, we can fake the backend factory
-    def backend_factory():
-        return backend
+    async def backend_factory():
+        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()

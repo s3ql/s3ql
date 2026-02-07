@@ -39,6 +39,7 @@ from s3ql.database import (
 from s3ql.mount import get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
+from .async_bridge import run_async
 from .backends.common import AbstractBackend
 from .backends.comprenc import ComprencBackend
 from .common import (
@@ -229,7 +230,7 @@ def recover(backend: AbstractBackend, options: argparse.Namespace) -> None:
 @handle_on_return
 def clear(options: argparse.Namespace, on_return: contextlib.ExitStack) -> None:
     def backend_factory() -> AbstractBackend:
-        return options.backend_class(options)
+        return AbstractBackend(run_async(options.backend_class.create, options))
 
     backend = on_return.enter_context(backend_factory())
 

@@ -4,7 +4,8 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Protocol, TypeVar
 
 if TYPE_CHECKING:
-    from s3ql.backends.comprenc import ComprencBackend
+    from s3ql.backends.common import AsyncBackend
+    from s3ql.backends.comprenc import AsyncComprencBackend
 
 
 class HashFunction(Protocol):
@@ -44,7 +45,7 @@ BasicMappingT = dict[str, ElementaryT]
 class BackendFactory(Protocol):
     """Protocol for backend factory functions."""
 
-    def __call__(self) -> ComprencBackend: ...
+    async def __call__(self) -> AsyncComprencBackend: ...
 
     has_delete_multi: bool
 
@@ -52,7 +53,7 @@ class BackendFactory(Protocol):
 class BackendOptionsProtocol(Protocol):
     """Protocol for backend options object passed to backend constructors."""
 
-    backend_class: type
+    backend_class: type[AsyncBackend]
     storage_url: str
     backend_options: dict[str, str | bool]
     backend_login: str

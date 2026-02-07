@@ -33,7 +33,7 @@ from t2_block_cache import DummyQueue
 
 from s3ql import ROOT_INODE, fs
 from s3ql.backends import local
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.database import Connection, FsAttributes, create_tables
@@ -74,17 +74,15 @@ some_ctx = Ctx()
 async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    plain_backend = await trio.to_thread.run_sync(
-        local.Backend, Namespace(storage_url='local://' + ctx.backend_dir)
-    )
 
-    def factory():
-        return ComprencBackend(b'schwubl', ('zlib', 6), plain_backend)
+    async def factory():
+        plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
+        return await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
 
     factory.has_delete_multi = True
     ctx.backend_pool = BackendPool(factory)
 
-    ctx.backend = await trio.to_thread.run_sync(ctx.backend_pool.pop_conn)
+    ctx.backend = ComprencBackend.from_async_backend(await ctx.backend_pool.pop_conn())
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
 

@@ -419,7 +419,7 @@ class BlockCache:
                 self.transfer_completed.notify_all()
 
         try:
-            with self.backend_pool() as backend:
+            with self.backend_pool.sync() as backend:
                 el.seek(0)
                 if log.isEnabledFor(logging.DEBUG):
                     time_ = time.time()
@@ -656,7 +656,7 @@ class BlockCache:
             if tmp in (FlushSentinel, QuitSentinel) and ids:
                 log.debug('removing: %s', ids)
                 try:
-                    with self.backend_pool() as backend:
+                    with self.backend_pool.sync() as backend:
                         backend.delete_multi(['s3ql_data_%d' % i for i in ids])
                 except NoSuchObject:
                     log.warning('Backend lost object s3ql_data_%d' % ids.pop(0))
@@ -681,7 +681,7 @@ class BlockCache:
             if id_ is QuitSentinel:
                 break
             assert isinstance(id_, int)
-            with self.backend_pool() as backend:
+            with self.backend_pool.sync() as backend:
                 try:
                     backend.delete('s3ql_data_%d' % id_)
                 except NoSuchObject:
@@ -780,7 +780,7 @@ class BlockCache:
                     await self.mlock.release(obj_id)
 
                     def with_lock_released():
-                        with self.backend_pool() as backend:
+                        with self.backend_pool.sync() as backend:
                             backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
 
                     await trio.to_thread.run_sync(with_lock_released)

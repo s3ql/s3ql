@@ -17,14 +17,16 @@ import os
 import signal
 import sys
 import textwrap
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from queue import Full as QueueFull
 from queue import Queue
 from typing import IO
 
 from s3ql.types import BackendFactory
 
-from .backends.common import AbstractBackend, CorruptedObjectError, NoSuchObject
+from .async_bridge import run_async
+from .backends.common import CorruptedObjectError, NoSuchObject
+from .backends.comprenc import ComprencBackend
 from .common import AsyncFn, get_backend_factory, pretty_print_size, sha256_fh
 from .database import Connection
 from .logging import delay_eval, setup_logging, setup_warnings
@@ -121,10 +123,10 @@ def main(args: Sequence[str] | None = None) -> None:
     options = parse_args(args)
     setup_logging(options)
 
-    backend_factory = get_backend_factory(options)
+    backend_factory = run_async(get_backend_factory, options)
 
     # Retrieve metadata
-    with backend_factory() as backend:
+    with ComprencBackend.from_async_backend(run_async(backend_factory)) as backend:
         (_, db) = get_metadata(backend, options.cachepath)
 
     retrieve_objects(
@@ -147,7 +149,7 @@ def main(args: Sequence[str] | None = None) -> None:
 
 def retrieve_objects(
     db: Connection,
-    backend_factory: Callable[[], AbstractBackend],
+    backend_factory: BackendFactory,
     corrupted_fh: IO[str],
     missing_fh: IO[str],
     thread_count: int = 1,
@@ -251,7 +253,7 @@ def _retrieve_loop(
     Terminate when None is received.
     '''
 
-    with backend_factory() as backend:
+    with ComprencBackend.from_async_backend(run_async(backend_factory)) as backend:
         buf = io.BytesIO()
         while True:
             el = queue.get()

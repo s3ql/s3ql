@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import _thread
 import argparse
-import atexit
 import faulthandler
 import logging
 import os
@@ -216,17 +215,10 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     # Get paths
     cachepath = options.cachepath
 
-    # TODO: Temporary, should transition to get_async_backend_factory
-    backend_factory = await trio.to_thread.run_sync(get_backend_factory, options)
+    backend_factory = await get_backend_factory(options)
     backend_pool = BackendPool(backend_factory)
-    atexit.register(backend_pool.flush)
-
-    # TODO: Temporary, should transition to async version
-    def in_thread():
-        with backend_pool() as backend:
-            return get_metadata(backend, cachepath)
-
-    (param, db) = await trio.to_thread.run_sync(in_thread)
+    sync_backend = ComprencBackend.from_async_backend(await backend_factory())
+    (param, db) = await trio.to_thread.run_sync(get_metadata, sync_backend, cachepath)
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param.data_block_size / 2
@@ -251,7 +243,8 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
 
     metadata_upload_task = MetadataUploadTask(param, backend_pool, db, options)
 
-    async with trio.open_nursery() as nursery, AsyncExitStack() as cm:
+    async with AsyncExitStack() as cm:
+        nursery = await cm.enter_async_context(trio.open_nursery())
         block_cache = BlockCache(
             backend_pool,
             db,
@@ -306,11 +299,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         write_params(cachepath, param)
 
         # TODO: Switch to async API
-        def upload_in_thread():
-            with backend_pool() as backend:
-                upload_params(backend, param)
-
-        await trio.to_thread.run_sync(upload_in_thread)
+        await trio.to_thread.run_sync(upload_params, sync_backend, param)
         block_cache.init(options.max_connections)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
@@ -378,15 +367,14 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.needs_fsck = True
 
     # TODO: Switch to async API
-    def upload_in_thread2():
-        with backend_pool() as backend:
-            param.last_modified = time.time()
-            upload_metadata(backend, db, param)
-            write_params(cachepath, param)
-            upload_params(backend, param)
-            expire_objects(backend)
+    def upload_in_thread():
+        param.last_modified = time.time()
+        upload_metadata(sync_backend, db, param)
+        write_params(cachepath, param)
+        upload_params(sync_backend, param)
+        expire_objects(sync_backend)
 
-    await trio.to_thread.run_sync(upload_in_thread2)
+    await trio.to_thread.run_sync(upload_in_thread)
 
     log.info('All done.')
 
@@ -761,7 +749,7 @@ class MetadataUploadTask:
             # Upload twice without blocking writes, to reduce the amount of data left for
             # the final upload (which is needed for a consistent snapshot).
             def first_upload():
-                with self.backend_pool() as backend:
+                with self.backend_pool.sync() as backend:
                     self.db.sync_checkpoint()
                     for _ in range(2):
                         upload_metadata(
@@ -777,7 +765,7 @@ class MetadataUploadTask:
             self.params.last_modified = time.time()
 
             def second_upload():
-                with self.backend_pool() as backend:
+                with self.backend_pool.sync() as backend:
                     upload_metadata(
                         backend,
                         self.db,

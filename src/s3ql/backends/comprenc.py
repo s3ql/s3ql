@@ -623,6 +623,14 @@ class ComprencBackend(AbstractBackend):
 
     async_backend: AsyncComprencBackend
 
+    @staticmethod
+    def from_async_backend(async_backend: AsyncComprencBackend) -> ComprencBackend:
+        '''Create a ComprencBackend from an AsyncComprencBackend'''
+
+        b = ComprencBackend.__new__(ComprencBackend)
+        AbstractBackend.__init__(b, async_backend)
+        return b
+
     def __init__(
         self,
         passphrase: bytes | None,
@@ -636,7 +644,6 @@ class ComprencBackend(AbstractBackend):
             backend.async_backend,
         )
         super().__init__(async_comprenc)
-        self.async_backend = async_comprenc
 
     @property
     def passphrase(self) -> bytes | None:

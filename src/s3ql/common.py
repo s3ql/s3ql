@@ -39,7 +39,7 @@ from .logging import QuietError
 
 if TYPE_CHECKING:
     from .backends.common import AbstractBackend
-    from .backends.comprenc import ComprencBackend
+    from .backends.comprenc import AsyncComprencBackend, ComprencBackend
     from .database import Connection
 
 log = logging.getLogger(__name__)
@@ -246,33 +246,42 @@ def get_backend(options, raw: bool = False) -> ComprencBackend | AbstractBackend
     ComprencBackend.
     '''
 
+    from .async_bridge import run_async
+    from .backends.common import AbstractBackend as AbstractBackendCls
+    from .backends.comprenc import ComprencBackend as ComprencBackendCls
+
     if raw:
-        return options.backend_class(options)
-    else:
-        return get_backend_factory(options)()
+        return AbstractBackendCls(run_async(options.backend_class.create, options))
+
+    async def _helper():
+        factory = await get_backend_factory(options)
+        return await factory()
+
+    return ComprencBackendCls.from_async_backend(run_async(_helper))
 
 
-def get_backend_factory(options) -> BackendFactory:
+async def get_backend_factory(options) -> BackendFactory:
     '''Return factory producing backend objects'''
 
     from .backends.common import (
+        AsyncBackend,
         AuthenticationError,
         AuthorizationError,
         CorruptedObjectError,
         DanglingStorageURLError,
         NoSuchObject,
     )
-    from .backends.comprenc import ComprencBackend
+    from .backends.comprenc import AsyncComprencBackend as AsyncComprencBackendCls
 
-    backend: AbstractBackend | None = None
+    backend: AsyncBackend | None = None
     try:
         try:
-            backend = options.backend_class(options)
+            backend = await options.backend_class.create(options)
 
             # Do not use backend.lookup(), this would use a HEAD request and
             # not provide any useful error messages if something goes wrong
             # (e.g. wrong credentials)
-            backend.fetch('s3ql_passphrase')
+            await backend.fetch('s3ql_passphrase')
 
         except AuthenticationError:
             raise QuietError('Invalid credentials (or skewed system clock?).', exitcode=14)
@@ -297,7 +306,7 @@ def get_backend_factory(options) -> BackendFactory:
             encrypted = True
     except:
         if backend is not None:
-            backend.close()
+            await backend.close()
         raise
 
     if encrypted and not hasattr(options, 'fs_passphrase'):
@@ -320,10 +329,12 @@ def get_backend_factory(options) -> BackendFactory:
     compress = getattr(options, 'compress', ('lzma', 2))
 
     assert backend is not None
-    with ComprencBackend(fs_passphrase_bytes, compress, backend) as tmp_backend:
+    async with await AsyncComprencBackendCls.create(
+        fs_passphrase_bytes, compress, backend
+    ) as tmp_backend:
         if encrypted:
             try:
-                data_pw = tmp_backend.fetch('s3ql_passphrase')[0]
+                data_pw = (await tmp_backend.fetch('s3ql_passphrase'))[0]
             except CorruptedObjectError:
                 raise QuietError(
                     'Wrong file system passphrase (or file system '
@@ -333,11 +344,14 @@ def get_backend_factory(options) -> BackendFactory:
         else:
             data_pw = None
             # Allow for old versions, since this function is also used during upgrades
-            if not (backend.contains('s3ql_params') or backend.contains('s3ql_metadata')):
+            if not (
+                await backend.contains('s3ql_params') or await backend.contains('s3ql_metadata')
+            ):
                 raise QuietError('No S3QL file system found at given storage URL.', exitcode=18)
 
-    def factory() -> ComprencBackend:
-        return ComprencBackend(data_pw, compress, options.backend_class(options))
+    async def factory() -> AsyncComprencBackend:
+        async_plain = await options.backend_class.create(options)
+        return await AsyncComprencBackendCls.create(data_pw, compress, async_plain)
 
     factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
 

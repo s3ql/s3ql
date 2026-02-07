@@ -9,80 +9,70 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import logging
-import threading
-from collections.abc import Generator
-from contextlib import contextmanager
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager, contextmanager
 
-from s3ql.backends.comprenc import ComprencBackend
+import trio
+
+from s3ql.async_bridge import run_async
+from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
 from s3ql.types import BackendFactory
 
 log = logging.getLogger(__name__)
 
 
 class BackendPool:
-    '''A pool of backends
 
-    This class is threadsafe. All methods (except for internal methods
-    starting with underscore) may be called concurrently by different
-    threads.
-    '''
 
     factory: BackendFactory
-    pool: list[ComprencBackend]
-    lock: threading.Lock
+    pool: list[AsyncComprencBackend]
+    lock: trio.Lock
     has_delete_multi: bool
 
     def __init__(self, factory: BackendFactory) -> None:
-        '''Init pool
-
-        *factory* should be a callable that provides new
-        connections.
-        '''
-
         self.factory = factory
         self.pool = []
-        self.lock = threading.Lock()
+        self.lock = trio.Lock()
         self.has_delete_multi = factory.has_delete_multi
 
-    def pop_conn(self) -> ComprencBackend:
+    async def pop_conn(self) -> AsyncComprencBackend:
         '''Pop connection from pool'''
 
-        with self.lock:
+        async with self.lock:
             if self.pool:
                 return self.pool.pop()
-            else:
-                return self.factory()
+        return await self.factory()
 
-    def push_conn(self, conn: ComprencBackend) -> None:
+    async def push_conn(self, conn: AsyncComprencBackend) -> None:
         '''Push connection back into pool'''
 
-        conn.reset()
-        with self.lock:
+        await conn.reset()
+        async with self.lock:
             self.pool.append(conn)
 
-    def flush(self) -> None:
-        '''Close all backends in pool
+    async def flush(self) -> None:
+        '''Close all backends in pool'''
 
-        This method calls the `close` method on all backends
-        currently in the pool.
-        '''
-        with self.lock:
+        async with self.lock:
             while self.pool:
-                self.pool.pop().close()
+                await self.pool.pop().close()
 
-    @contextmanager
-    def __call__(self, close: bool = False) -> Generator[ComprencBackend, None, None]:
-        '''Provide connection from pool (context manager)
+    @asynccontextmanager
+    async def __call__(self) -> AsyncGenerator[AsyncComprencBackend, None]:
+        '''Provide async connection from pool (async context manager)'''
 
-        If *close* is True, the backend's close method is automatically called
-        (which frees any allocated resources, but may slow down reuse of the
-        backend object).
-        '''
-
-        conn = self.pop_conn()
+        conn = await self.pop_conn()
         try:
             yield conn
         finally:
-            if close:
-                conn.close()
-            self.push_conn(conn)
+            await self.push_conn(conn)
+
+    @contextmanager
+    def sync(self) -> Generator[ComprencBackend, None, None]:
+        '''Provide sync connection from pool (context manager for worker threads)'''
+
+        conn = run_async(self.pop_conn)
+        try:
+            yield ComprencBackend.from_async_backend(conn)
+        finally:
+            run_async(self.push_conn, conn)

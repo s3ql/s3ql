@@ -29,9 +29,10 @@ import pytest
 import trio
 from common import safe_sleep
 
+from s3ql.async_bridge import run_async
 from s3ql.backends import local
 from s3ql.backends.common import AbstractBackend
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache, QuitSentinel
 from s3ql.common import time_ns
@@ -81,16 +82,12 @@ async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
-    # TODO: Migrate to async API
-    def factory():
-        return ComprencBackend(
-            b'foobar',
-            ('zlib', 6),
-            local.Backend(Namespace(storage_url='local://' + ctx.backend_dir)),
-        )
+    async def factory():
+        plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
+        return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), plain)
 
     factory.has_delete_multi = True
-    ctx.backend_pool = await trio.to_thread.run_sync(BackendPool, factory)
+    ctx.backend_pool = BackendPool(factory)
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
@@ -206,7 +203,9 @@ async def test_expire(ctx):
 
     # We want to expire 4 entries, 2 of which are already flushed
     ctx.cache.cache.max_entries = 16
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=2)
+    ctx.cache.backend_pool = await trio.to_thread.run_sync(
+        lambda: MockBackendPool(ctx.backend_pool, no_write=2)
+    )
     await ctx.cache.expire()
     ctx.cache.backend_pool.verify()
     assert len(ctx.cache.cache) == 16
@@ -531,12 +530,13 @@ class MockBackendPool(AbstractBackend):
         self.no_write = no_write
         self.no_del = no_del
         self.backend_pool = backend_pool
-        self.backend = backend_pool.pop_conn()
+        self._async_conn = run_async(backend_pool.pop_conn)
+        self.backend = ComprencBackend.from_async_backend(self._async_conn)
         self.lock = threading.Lock()
 
     def __del__(self):
         # TODO: Re-enable once we have migrated to async API
-        # self.backend_pool.push_conn(self.backend)
+        # run_async(self.backend_pool.push_conn, self._async_conn)
         pass
 
     def verify(self):
@@ -548,7 +548,7 @@ class MockBackendPool(AbstractBackend):
             raise RuntimeError('Got too few delete calls')
 
     @contextmanager
-    def __call__(self):
+    def sync(self):
         '''Provide connection from pool (context manager)'''
 
         with self.lock:

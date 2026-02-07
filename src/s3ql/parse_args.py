@@ -46,7 +46,7 @@ from collections.abc import Sequence
 from getpass import getpass
 
 from . import RELEASE
-from .backends import prefix_map
+from .backends import async_prefix_map
 from .common import escape
 
 DEFAULT_USAGE: object = object()
@@ -355,7 +355,7 @@ class ArgumentParser(argparse.ArgumentParser):
 
         backend = hit.group(1)
         try:
-            backend_class = prefix_map[backend]
+            backend_class = async_prefix_map[backend]
         except KeyError:
             self.exit(11, 'No such backend: ' + backend)
 
