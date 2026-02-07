@@ -33,7 +33,7 @@ from t2_block_cache import DummyQueue
 
 from s3ql import ROOT_INODE, fs
 from s3ql.backends import local
-from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.database import Connection, FsAttributes, create_tables

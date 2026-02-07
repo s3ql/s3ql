@@ -8,11 +8,12 @@ This work can be distributed under the terms of the GNU GPLv3.
 '''
 
 import argparse
-import atexit
 import logging
 import sys
 
-from s3ql.common import get_backend
+import trio
+
+from s3ql.common import async_get_backend
 from s3ql.logging import setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 
@@ -48,13 +49,15 @@ def main(args=None):
     options = parse_args(args)
     setup_logging(options)
 
-    backend = get_backend(options, raw=True)
-    atexit.register(backend.close)
+    trio.run(main_async, options)
 
-    for line in options.file:
-        key = line.rstrip()
-        log.info('Deleting %s', key)
-        backend.delete(key)
+
+async def main_async(options: argparse.Namespace) -> None:
+    async with await async_get_backend(options, raw=True) as backend:
+        for line in options.file:
+            key = line.rstrip()
+            log.info('Deleting %s', key)
+            await backend.delete(key)
 
 
 if __name__ == '__main__':

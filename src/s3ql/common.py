@@ -9,23 +9,18 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import binascii
-import contextlib
 import errno
-import functools
 import hashlib
 import logging
 import os
 import posixpath
 import subprocess
 import sys
-import threading
 import time
-import traceback
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from collections.abc import Callable, Iterator, Sequence
 from getpass import getpass
-from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal, NewType, TypeVar, overload
 
 import pyfuse3
@@ -38,8 +33,8 @@ from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
 
 if TYPE_CHECKING:
-    from .backends.common import AbstractBackend, AsyncBackend
-    from .backends.comprenc import AsyncComprencBackend, ComprencBackend
+    from .backends.common import AsyncBackend
+    from .backends.comprenc import AsyncComprencBackend
     from .database import Connection
 
 log = logging.getLogger(__name__)
@@ -232,35 +227,6 @@ def assert_s3ql_mountpoint(mountpoint: str) -> str:
 
 
 @overload
-def get_backend(options, raw: Literal[True]) -> AbstractBackend: ...
-
-
-@overload
-def get_backend(options, raw: Literal[False] = ...) -> ComprencBackend: ...
-
-
-def get_backend(options, raw: bool = False) -> ComprencBackend | AbstractBackend:
-    '''Return backend for given storage-url
-
-    If *raw* is true, don't attempt to unlock and don't wrap into
-    ComprencBackend.
-    '''
-
-    from .async_bridge import run_async
-    from .backends.common import AbstractBackend as AbstractBackendCls
-    from .backends.comprenc import ComprencBackend as ComprencBackendCls
-
-    if raw:
-        return AbstractBackendCls(run_async(options.backend_class.create, options))
-
-    async def _helper():
-        factory = await get_backend_factory(options)
-        return await factory()
-
-    return ComprencBackendCls.from_async_backend(run_async(_helper))
-
-
-@overload
 async def async_get_backend(options, raw: Literal[True]) -> AsyncBackend: ...
 
 
@@ -412,80 +378,6 @@ def pretty_print_size(bytes_: int) -> str:
     return form % (i, unit)
 
 
-ExcInfoT = tuple[type[BaseException], BaseException, TracebackType]
-
-
-class ExceptionStoringThread(threading.Thread):
-    def __init__(self) -> None:
-        super().__init__()
-        self._exc_info: ExcInfoT | None = None
-        self._joined = False
-
-    def run_protected(self) -> None:
-        pass
-
-    def run(self) -> None:
-        try:
-            self.run_protected()
-        except:  # noqa: E722 # auto-added, needs manual check!
-            # This creates a circular reference chain
-            self._exc_info = sys.exc_info()  # type: ignore[assignment]
-            log.exception('Thread %s terminated with exception', self.name)
-
-    def join_get_exc(self) -> ExcInfoT | None:
-        self._joined = True
-        self.join()
-        return self._exc_info
-
-    def join_and_raise(self, timeout: float | None = None) -> None:
-        '''Wait for the thread to finish, raise any occurred exceptions'''
-
-        self._joined = True
-        if self.is_alive():
-            self.join(timeout=timeout)
-
-        if self._exc_info is not None:
-            # Break reference chain
-            exc_info = self._exc_info
-            self._exc_info = None
-            raise EmbeddedException(exc_info, self.name)
-
-    def __del__(self) -> None:
-        if not self._joined:
-            raise RuntimeError(
-                "ExceptionStoringThread instance was destroyed without calling join_and_raise()!"
-            )
-
-
-class EmbeddedException(Exception):
-    '''Encapsulates an exception that happened in a different thread'''
-
-    def __init__(self, exc_info: ExcInfoT, threadname: str) -> None:
-        super().__init__()
-        self.exc_info = exc_info
-        self.threadname = threadname
-
-    def __str__(self) -> str:
-        return ''.join(
-            [
-                'caused by an exception in thread %s.\n' % self.threadname,
-                'Original/inner traceback (most recent call last): \n',
-            ]
-            + traceback.format_exception(*self.exc_info)
-        )
-
-
-class AsyncFn(ExceptionStoringThread):
-    def __init__(self, fn: Callable, *args, **kwargs) -> None:
-        super().__init__()
-        self.target = fn
-        self.args = args
-        self.kwargs = kwargs
-
-    def run_protected(self) -> None:
-        self.target(*self.args, **self.kwargs)
-
-
 @overload
 def split_by_n(seq: str, n: int) -> Iterator[str]: ...
 @overload
@@ -498,19 +390,6 @@ def split_by_n(seq: Sequence[T], n: int) -> Iterator[Sequence[T]]:
     while seq:
         yield seq[:n]
         seq = seq[n:]
-
-
-def handle_on_return(fn: Callable[..., T]) -> Callable[..., T]:
-    '''Provide fresh ExitStack instance in `on_return` argument'''
-
-    @functools.wraps(fn)
-    def wrapper(*a, **kw) -> T:
-        assert 'on_return' not in kw
-        with contextlib.ExitStack() as on_return:
-            kw['on_return'] = on_return
-            return fn(*a, **kw)
-
-    return wrapper
 
 
 def _get_actual_type(type_spec: type | NewType) -> type:

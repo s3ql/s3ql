@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Protocol, TypeVar
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from s3ql.backends.common import AsyncBackend
@@ -33,9 +32,6 @@ class CompressorProtocol(Protocol):
 
     def flush(self) -> bytes: ...
 
-
-# Type variables
-T = TypeVar('T')
 
 # Type aliases
 ElementaryT = int | float | str | bytes | complex | bool | None
@@ -74,7 +70,3 @@ class BinaryOutput(Protocol):
     def write(self, data: bytes, /) -> int: ...
     def tell(self) -> int: ...
     def seek(self, offset: int, whence: int = 0, /) -> int: ...
-
-
-# Type alias for functions decorated with handle_on_return
-OnReturnFn = Callable[..., T]
