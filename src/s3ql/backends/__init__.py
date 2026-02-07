@@ -6,23 +6,10 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-from s3ql.backends.common import AbstractBackend, AsyncBackend
+from s3ql.backends.common import AsyncBackend
 
 from . import gs, local, rackspace, s3, s3c, s3c4, swift, swiftks
 from .b2 import b2_backend as b2
-
-#: Mapping from storage URL prefixes to backend classes
-prefix_map: dict[str, type[AbstractBackend]] = {
-    's3': s3.Backend,
-    'local': local.Backend,
-    'gs': gs.Backend,
-    's3c': s3c.Backend,
-    's3c4': s3c4.Backend,
-    'swift': swift.Backend,
-    'swiftks': swiftks.Backend,
-    'rackspace': rackspace.Backend,
-    'b2': b2.B2Backend,
-}
 
 async_prefix_map: dict[str, type[AsyncBackend]] = {
     's3': s3.AsyncBackend,

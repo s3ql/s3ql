@@ -12,13 +12,12 @@ import re
 import urllib.parse
 from urllib.parse import urlsplit
 
-from s3ql.async_bridge import run_async
 from s3ql.http import CaseInsensitiveDict, HTTPConnection
 from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import swift
-from .common import AbstractBackend, AuthorizationError, DanglingStorageURLError, retry
+from .common import AuthorizationError, DanglingStorageURLError, retry
 from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
@@ -227,14 +226,3 @@ class AsyncBackend(swift.AsyncBackend):
                 self.container_name,
                 'No accessible object storage service found in region %s' % self.region,
             )
-
-
-class Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncBackend.'''
-
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncBackend.create, options)
-        super().__init__(async_backend)

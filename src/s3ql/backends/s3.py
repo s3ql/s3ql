@@ -13,13 +13,12 @@ import re
 import ssl
 from xml.sax.saxutils import escape as xml_escape
 
-from s3ql.async_bridge import run_async
 from s3ql.http import CaseInsensitiveDict
 from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import s3c4
-from .common import AbstractBackend, retry
+from .common import retry
 from .s3c import get_S3Error
 
 log = logging.getLogger(__name__)
@@ -166,19 +165,3 @@ class AsyncBackend(s3c4.AsyncBackend):
 
         except:  # noqa: E722 # auto-added, needs manual check!
             await self.conn.co_discard()
-
-
-class Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncBackend.'''
-
-    async_backend: AsyncBackend
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncBackend.create, options)
-        super().__init__(async_backend)
-
-    @property
-    def bucket_name(self) -> str:
-        return self.async_backend.bucket_name

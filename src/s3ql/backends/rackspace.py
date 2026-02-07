@@ -9,12 +9,10 @@ This work can be distributed under the terms of the GNU GPLv3.
 import logging
 import re
 
-from s3ql.async_bridge import run_async
 from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import swiftks
-from .common import AbstractBackend
 
 log = logging.getLogger(__name__)
 
@@ -55,14 +53,3 @@ class AsyncBackend(swiftks.AsyncBackend):
         self.container_name = containername
         self.prefix = prefix
         self.region = region
-
-
-class Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncBackend.'''
-
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncBackend.create, options)
-        super().__init__(async_backend)

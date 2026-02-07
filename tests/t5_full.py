@@ -110,7 +110,7 @@ class RemoteTest:
 
 
 # Dynamically generate tests for other backends
-for backend_name in backends.prefix_map:
+for backend_name in backends.async_prefix_map:
     if backend_name == 'local':
         continue
 

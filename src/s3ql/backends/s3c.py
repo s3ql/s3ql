@@ -31,7 +31,6 @@ from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
 
-from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -46,7 +45,6 @@ from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, Binar
 from ..logging import QuietError
 from .common import (
     _FACTORY_SENTINEL,
-    AbstractBackend,
     AuthenticationError,
     AuthorizationError,
     CorruptedObjectError,
@@ -1037,14 +1035,3 @@ class RequestTimeTooSkewedError(S3Error):
 
 class NoSuchBucketError(S3Error, DanglingStorageURLError):
     pass
-
-
-class Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncBackend.'''
-
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncBackend.create, options)
-        super().__init__(async_backend)

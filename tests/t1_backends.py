@@ -78,7 +78,7 @@ def _get_backend_info():
     info.append(bi)
 
     # Backends talking to actual remote servers (if available)
-    for name in backends.prefix_map:
+    for name in backends.async_prefix_map:
         if name == 'local':  # local backend has already been handled
             continue
 

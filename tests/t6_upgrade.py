@@ -130,10 +130,10 @@ class TestUpgrade(t4_fuse.TestFuse):
         with open('/dev/null', 'wb') as devnull:
             retry(
                 5,
-                lambda: subprocess.call(
-                    ['fuser', '-m', self.mnt_dir], stdout=devnull, stderr=devnull
-                )
-                == 1,
+                lambda: (
+                    subprocess.call(['fuser', '-m', self.mnt_dir], stdout=devnull, stderr=devnull)
+                    == 1
+                ),
             )
 
         proc = Popen_old(
@@ -290,7 +290,7 @@ class RemoteUpgradeTest:
 
 
 # Dynamically generate tests for other backends
-for backend_name in backends.prefix_map:
+for backend_name in backends.async_prefix_map:
     if backend_name == 'local':
         continue
 

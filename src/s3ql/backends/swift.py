@@ -20,7 +20,6 @@ from itertools import count
 from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
 
-from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -34,7 +33,6 @@ from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
 from ..logging import LOG_ONCE, QuietError
 from .common import (
     _FACTORY_SENTINEL,
-    AbstractBackend,
     AuthorizationError,
     CorruptedObjectError,
     DanglingStorageURLError,
@@ -1019,14 +1017,3 @@ class Features:
 
     def __ne__(self, other):
         return repr(self) != repr(other)
-
-
-class Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncBackend.'''
-
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncBackend.create, options)
-        super().__init__(async_backend)

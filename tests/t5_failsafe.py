@@ -26,7 +26,9 @@ from common import NoTestSection, get_remote_test_info
 
 import s3ql.ctrl
 from s3ql import BUFSIZE
+from s3ql.async_bridge import run_async
 from s3ql.backends import gs
+from s3ql.backends.common import AbstractBackend
 
 
 @pytest.mark.usefixtures('pass_reg_output')
@@ -48,12 +50,15 @@ class TestFailsafe(t4_fuse.TestFuse):
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
-        self.backend = gs.Backend(
-            Namespace(
-                storage_url=self.storage_url,
-                backend_login=backend_login,
-                backend_password=backend_pw,
-                backend_options={},
+        self.backend = AbstractBackend(
+            run_async(
+                gs.AsyncBackend.create,
+                Namespace(
+                    storage_url=self.storage_url,
+                    backend_login=backend_login,
+                    backend_password=backend_pw,
+                    backend_options={},
+                ),
             )
         )
 

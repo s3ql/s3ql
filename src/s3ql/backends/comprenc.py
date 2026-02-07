@@ -631,20 +631,6 @@ class ComprencBackend(AbstractBackend):
         AbstractBackend.__init__(b, async_backend)
         return b
 
-    def __init__(
-        self,
-        passphrase: bytes | None,
-        compression: tuple[str | None, int],
-        backend: AbstractBackend,
-    ) -> None:
-        async_comprenc = run_async(
-            AsyncComprencBackend.create,
-            passphrase,
-            compression,
-            backend.async_backend,
-        )
-        super().__init__(async_comprenc)
-
     @property
     def passphrase(self) -> bytes | None:
         return self.async_backend.passphrase

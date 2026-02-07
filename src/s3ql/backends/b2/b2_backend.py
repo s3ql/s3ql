@@ -23,7 +23,6 @@ from itertools import count
 from typing import Any, Optional
 from urllib.parse import urlparse
 
-from s3ql.async_bridge import run_async
 from s3ql.http import (
     BodyFollowing,
     CaseInsensitiveDict,
@@ -32,12 +31,11 @@ from s3ql.http import (
     HTTPConnection,
     is_temp_network_error,
 )
-from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
+from s3ql.types import BinaryInput, BinaryOutput
 
 from ...logging import QuietError
 from ..common import (
     _FACTORY_SENTINEL,
-    AbstractBackend,
     AsyncBackend,
     CorruptedObjectError,
     DanglingStorageURLError,
@@ -697,7 +695,7 @@ class AsyncB2Backend(AsyncBackend):
 
         s = str(s)
         encoded_s = urllib.parse.quote(s.encode('utf-8'), safe='/\\')
-        encoded_s = B2Backend._b2_escape_backslashes(encoded_s)
+        encoded_s = AsyncB2Backend._b2_escape_backslashes(encoded_s)
 
         return encoded_s
 
@@ -713,7 +711,7 @@ class AsyncB2Backend(AsyncBackend):
         # the decoding to work properly.
 
         s = str(s)
-        decoded_s = B2Backend._b2_unescape_backslashes(s)
+        decoded_s = AsyncB2Backend._b2_unescape_backslashes(s)
         if decode_plus:
             decoded_s = urllib.parse.unquote_plus(decoded_s)
         else:
@@ -840,14 +838,3 @@ class AsyncB2Backend(AsyncBackend):
 
     def __str__(self):
         return 'b2://%s/%s' % (self.bucket_name, self.prefix)
-
-
-class B2Backend(AbstractBackend):
-    '''Synchronous wrapper for AsyncB2Backend.'''
-
-    needs_login = AsyncBackend.needs_login
-    known_options = AsyncBackend.known_options
-
-    def __init__(self, options: BackendOptionsProtocol) -> None:
-        async_backend = run_async(AsyncB2Backend.create, options)
-        super().__init__(async_backend)
