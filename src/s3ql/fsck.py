@@ -1060,15 +1060,7 @@ class Fsck:
     def check_objects_temp(self) -> None:
         """Remove temporary objects"""
 
-        # Tests may provide a plain backend directly, but in regular operation
-        # we'll always work with an AsyncComprencBackend (even if there is neither
-        # compression nor encryption)
-        if isinstance(self.backend, AsyncComprencBackend):
-            plain_backend = self.backend.backend
-        else:
-            assert isinstance(self.backend, LocalAsyncBackend)
-            plain_backend = self.backend
-
+        plain_backend = self.backend.backend
         if not isinstance(plain_backend, LocalAsyncBackend):
             return
 

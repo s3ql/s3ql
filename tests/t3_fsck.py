@@ -28,6 +28,7 @@ import trio
 
 from s3ql import ROOT_INODE
 from s3ql.backends import local
+from s3ql.backends.comprenc import ComprencBackend
 from s3ql.common import time_ns
 from s3ql.database import Connection, FsAttributes, NoSuchRowError, create_tables
 from s3ql.fsck import Fsck
@@ -41,7 +42,8 @@ def sha256(s):
 class fsck_tests(unittest.TestCase):
     def setUp(self):
         self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-        self.backend = local.Backend(Namespace(storage_url='local://' + self.backend_dir))
+        self.raw_backend = local.Backend(Namespace(storage_url='local://' + self.backend_dir))
+        self.backend = ComprencBackend(None, (None, 0), self.raw_backend)
         self.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
         self.max_obj_size = 1024
 
@@ -577,7 +579,7 @@ class fsck_tests(unittest.TestCase):
         objname = 's3ql_data_38375'
         self.backend.store(objname, b'bla')
         self.backend.delete(objname)
-        path = self.backend._key_to_path(objname)
+        path = self.raw_backend._key_to_path(objname)
         tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
         with open(tmpname, 'wb') as fh:
             fh.write(b'Hello, world')
