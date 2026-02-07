@@ -25,20 +25,30 @@ from pytest_checklogs import assert_logs
 
 from s3ql import verify
 from s3ql.backends import local
-from s3ql.backends.comprenc import ComprencBackend, sha256
+from s3ql.backends.comprenc import AsyncComprencBackend, sha256
 from s3ql.database import Connection, create_tables
 from s3ql.mkfs import init_tables
 
 
 @pytest.fixture()
-def backend():
+async def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    plain_backend = local.Backend(Namespace(storage_url='local://' + backend_dir))
-    backend = ComprencBackend(b'schnorz', ('zlib', 6), plain_backend)
+    storage_url = 'local://' + backend_dir
+    plain_backend = local.AsyncBackend(options=Namespace(storage_url=storage_url))
+    backend = await AsyncComprencBackend.create(b'schnorz', ('zlib', 6), plain_backend)
+
+    # Factory creates independent AsyncComprencBackend instances sharing the same
+    # storage directory — each can be closed independently by _retrieve_loop.
+    async def factory():
+        raw = local.AsyncBackend(options=Namespace(storage_url=storage_url))
+        return await AsyncComprencBackend.create(b'schnorz', ('zlib', 6), raw)
+
+    factory.has_delete_multi = True  # type: ignore[attr-defined]
+    backend.test_factory = factory  # type: ignore[attr-defined]
     try:
         yield backend
     finally:
-        backend.close()
+        await backend.close()
         shutil.rmtree(backend_dir)
 
 
@@ -55,7 +65,7 @@ def db():
 
 
 @pytest.mark.parametrize("full", (True, False))
-def test_missing(backend, db, full):
+async def test_missing(backend, db, full):
     # Create two objects, one will be missing
     obj_ids = (22, 25)
     missing_idx = 1
@@ -68,24 +78,20 @@ def test_missing(backend, db, full):
 
         if id_ != obj_ids[missing_idx]:
             key = 's3ql_data_%d' % obj_ids[0]
-            backend.store(key, data)
-
-    # When using a single thread, we can fake the backend factory
-    async def backend_factory():
-        return backend.async_backend
+            await backend.store(key, data)
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
     with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING):
-        verify.retrieve_objects(
-            db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+        await verify.retrieve_objects(
+            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
         )
     assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[missing_idx]
     assert corrupted_fh.getvalue() == ''
 
 
 @pytest.mark.parametrize("full", (True, False))
-def test_corrupted_head(backend, db, full):
+async def test_corrupted_head(backend, db, full):
     obj_ids = (30, 31)
     corrupted_idx = 1
     for id_ in obj_ids:
@@ -96,12 +102,12 @@ def test_corrupted_head(backend, db, full):
         )
 
         key = 's3ql_data_%d' % id_
-        backend.store(key, data)
+        await backend.store(key, data)
 
     # Introduce checksum error in metadata
     key = 's3ql_data_%d' % obj_ids[corrupted_idx]
     data = b'some data that will be broken on a metadata check'
-    backend.store(
+    await backend.store(
         key,
         data,
         {
@@ -109,29 +115,25 @@ def test_corrupted_head(backend, db, full):
             'meta-key2': 'the metadata size so that we can tamper with it',
         },
     )
-    meta = backend.backend.lookup(key)
+    meta = await backend.backend.lookup(key)
     raw = bytearray(meta['data'])
     assert len(raw) > 20
     raw[-10:-6] = b'forg'
     meta['data'] = raw
-    backend.backend.store(key, data, meta)
-
-    # When using a single thread, we can fake the backend factory
-    async def backend_factory():
-        return backend.async_backend
+    await backend.backend.store(key, data, meta)
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
     with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
-        verify.retrieve_objects(
-            db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+        await verify.retrieve_objects(
+            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
         )
     assert missing_fh.getvalue() == ''
     assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[1]
 
 
 @pytest.mark.parametrize("full", (True, False))
-def test_corrupted_body(backend, db, full):
+async def test_corrupted_body(backend, db, full):
     obj_ids = (35, 40)
     corrupted_idx = 1
     for id_ in obj_ids:
@@ -140,41 +142,37 @@ def test_corrupted_body(backend, db, full):
             'INSERT INTO objects (id, refcount, phys_size, length, hash) VALUES(?, ?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data), sha256(data)),
         )
-        backend.store('s3ql_data_%d' % id_, data)
+        await backend.store('s3ql_data_%d' % id_, data)
 
     # Introduce checksum error
     key = 's3ql_data_%d' % obj_ids[corrupted_idx]
-    (raw, meta) = backend.backend.fetch(key)
+    (raw, meta) = await backend.backend.fetch(key)
     raw = bytearray(raw)
     assert len(raw) > 20
     raw[-10:-6] = b'forg'
-    backend.backend.store(key, raw, meta)
-
-    # When using a single thread, we can fake the backend factory
-    async def backend_factory():
-        return backend.async_backend
+    await backend.backend.store(key, raw, meta)
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
 
     if full:
         with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
-            verify.retrieve_objects(
-                db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+            await verify.retrieve_objects(
+                db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
             )
             assert missing_fh.getvalue() == ''
             assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[corrupted_idx]
     else:
         # Should not show up when looking just at HEAD
-        verify.retrieve_objects(
-            db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+        await verify.retrieve_objects(
+            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == ''
 
 
 @pytest.mark.parametrize("full", (True, False))
-def test_truncated_body(backend, db, full):
+async def test_truncated_body(backend, db, full):
     id_ = 35
     data = b'just some data that no-one really cares about'
     db.execute(
@@ -182,32 +180,28 @@ def test_truncated_body(backend, db, full):
         (id_, 1, 27 * id_, len(data) + 1),
     )
     key = 's3ql_data_%d' % id_
-    backend.store(key, data)
-
-    # When using a single thread, we can fake the backend factory
-    async def backend_factory():
-        return backend.async_backend
+    await backend.store(key, data)
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
 
     if full:
         with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
-            verify.retrieve_objects(
-                db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+            await verify.retrieve_objects(
+                db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
             )
             assert missing_fh.getvalue() == ''
             assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % id_
     else:
         # Should not show up when looking just at HEAD
-        verify.retrieve_objects(
-            db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=full
+        await verify.retrieve_objects(
+            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == ''
 
 
-def test_corrupted_hash(backend, db):
+async def test_corrupted_hash(backend, db):
     obj_ids = (35, 40)
     corrupted_idx = 0
     for id_ in obj_ids:
@@ -216,21 +210,17 @@ def test_corrupted_hash(backend, db):
             'INSERT INTO objects (id, refcount, phys_size, length, hash) VALUES(?, ?, ?, ?, ?)',
             (id_, 1, 27 * id_, len(data), sha256(data)),
         )
-        backend.store('s3ql_data_%d' % id_, data)
+        await backend.store('s3ql_data_%d' % id_, data)
 
     # Introduce checksum error
     db.execute('UPDATE objects SET hash=? WHERE id=?', (sha256(b'foobar'), obj_ids[corrupted_idx]))
-
-    # When using a single thread, we can fake the backend factory
-    async def backend_factory():
-        return backend.async_backend
 
     missing_fh = io.StringIO()
     corrupted_fh = io.StringIO()
 
     with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
-        verify.retrieve_objects(
-            db, backend_factory, corrupted_fh, missing_fh, thread_count=1, full=True
+        await verify.retrieve_objects(
+            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=True
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[corrupted_idx]

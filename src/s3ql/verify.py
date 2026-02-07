@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import atexit
 import faulthandler
-import functools
 import io
 import logging
 import os
@@ -19,18 +18,14 @@ import signal
 import sys
 import textwrap
 from collections.abc import Sequence
-from queue import Full as QueueFull
-from queue import Queue
 from typing import IO
 
 import trio
 
 from s3ql.types import BackendFactory
 
-from .async_bridge import run_async
 from .backends.common import CorruptedObjectError, NoSuchObject
-from .backends.comprenc import ComprencBackend
-from .common import AsyncFn, get_backend_factory, pretty_print_size, sha256_fh
+from .common import get_backend_factory, pretty_print_size, sha256_fh
 from .database import Connection
 from .logging import delay_eval, setup_logging, setup_warnings
 from .mount import get_metadata
@@ -135,17 +130,14 @@ async def main_async(options: argparse.Namespace) -> None:
     # Retrieve metadata
     (_, db) = await get_metadata(await backend_factory(), options.cachepath)
 
-    await trio.to_thread.run_sync(
-        functools.partial(
-            retrieve_objects,
-            db,
-            backend_factory,
-            options.corrupted_file,
-            options.missing_file,
-            thread_count=options.parallel,
-            full=options.data,
-            offset=options.start_with,
-        )
+    await retrieve_objects(
+        db,
+        backend_factory,
+        options.corrupted_file,
+        options.missing_file,
+        worker_count=options.parallel,
+        full=options.data,
+        offset=options.start_with,
     )
 
     if options.corrupted_file.tell() or options.missing_file.tell():
@@ -156,28 +148,18 @@ async def main_async(options: argparse.Namespace) -> None:
         sys.exit(0)
 
 
-def retrieve_objects(
+async def retrieve_objects(
     db: Connection,
     backend_factory: BackendFactory,
     corrupted_fh: IO[str],
     missing_fh: IO[str],
-    thread_count: int = 1,
+    worker_count: int = 1,
     full: bool = False,
     offset: int = 0,
 ) -> None:
     """Attempt to retrieve every object"""
 
     log.info('Reading all objects...')
-
-    queue: Queue[tuple[int, bytes | None, int] | None] = Queue(thread_count)
-    threads: list[AsyncFn] = []
-    for _ in range(thread_count):
-        t = AsyncFn(_retrieve_loop, queue, backend_factory, corrupted_fh, missing_fh, full)
-        # Don't wait for worker threads, gives deadlock if main thread
-        # terminates with exception
-        t.daemon = True
-        t.start()
-        threads.append(t)
 
     total_size_raw = db.get_val('SELECT SUM(phys_size) FROM objects WHERE phys_size > 0')
     total_count_raw = db.get_val('SELECT COUNT(id) FROM objects')
@@ -187,98 +169,92 @@ def retrieve_objects(
     total_count: int = total_count_raw if total_count_raw is not None else 0
     size_acc = 0
 
-    sql = 'SELECT id, phys_size, hash, length FROM objects ORDER BY id'
-    i = 0  # Make sure this is set if there are zero objects
+    send_channel, receive_channel = trio.open_memory_channel[tuple[int, bytes | None, int]](
+        max_buffer_size=worker_count
+    )
 
-    # Can't use query_typed because hash_ may be None
-    for i, (obj_id, obj_size, hash_, block_size) in enumerate(db.query(sql)):
-        assert isinstance(obj_id, int)
-        assert isinstance(obj_size, int)
-        assert isinstance(block_size, int)
-
-        # TODO: Check if we're handling None correctly here
-        assert hash_ is None or isinstance(hash_, bytes)
-
-        i += 1  # start at 1
-        extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
-        if full:
-            log.info(
-                'Checked %d objects (%.2f%%) / %s (%.2f%%)',
-                i,
-                i / total_count * 100 if total_count else 0,
-                delay_eval(pretty_print_size, size_acc),
-                size_acc / total_size * 100 if total_size else 0,
-                extra=extra,
+    async with trio.open_nursery() as nursery:
+        for _ in range(worker_count):
+            nursery.start_soon(
+                _retrieve_loop,
+                receive_channel.clone(),
+                backend_factory,
+                corrupted_fh,
+                missing_fh,
+                full,
             )
-        else:
-            log.info(
-                'Checked %d objects (%.2f%%)',
-                i,
-                i / total_count * 100 if total_count else 0,
-                extra=extra,
-            )
+        # Close original receive end — workers each have their own clone
+        await receive_channel.aclose()
 
-        size_acc += obj_size
-        if i < offset:
-            continue
+        sql = 'SELECT id, phys_size, hash, length FROM objects ORDER BY id'
+        i = 0  # Make sure this is set if there are zero objects
 
-        # Avoid blocking if all threads terminated
-        while True:
-            try:
-                queue.put((obj_id, hash_, block_size), timeout=1)
-            except QueueFull:
-                pass
-            else:
-                break
-            for t in threads:
-                if not t.is_alive():
-                    t.join_and_raise()
+        # Can't use query_typed because hash_ may be None
+        async with send_channel:
+            for i, (obj_id, obj_size, hash_, block_size) in enumerate(db.query(sql)):
+                assert isinstance(obj_id, int)
+                assert isinstance(obj_size, int)
+                assert isinstance(block_size, int)
 
-    queue.maxsize += len(threads)
-    for t in threads:  # noqa: B007 # auto-added, needs manual check!
-        queue.put(None)
+                # TODO: Check if we're handling None correctly here
+                assert hash_ is None or isinstance(hash_, bytes)
 
-    for t in threads:
-        t.join_and_raise()
+                i += 1  # start at 1
+                extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}
+                if full:
+                    log.info(
+                        'Checked %d objects (%.2f%%) / %s (%.2f%%)',
+                        i,
+                        i / total_count * 100 if total_count else 0,
+                        delay_eval(pretty_print_size, size_acc),
+                        size_acc / total_size * 100 if total_size else 0,
+                        extra=extra,
+                    )
+                else:
+                    log.info(
+                        'Checked %d objects (%.2f%%)',
+                        i,
+                        i / total_count * 100 if total_count else 0,
+                        extra=extra,
+                    )
+
+                size_acc += obj_size
+                if i < offset:
+                    continue
+
+                await send_channel.send((obj_id, hash_, block_size))
 
     log.info('Verified all %d storage objects.', i)
 
 
-def _retrieve_loop(
-    queue: Queue[tuple[int, bytes, int] | None],
+async def _retrieve_loop(
+    receive_channel: trio.MemoryReceiveChannel[tuple[int, bytes | None, int]],
     backend_factory: BackendFactory,
     corrupted_fh: IO[str],
     missing_fh: IO[str],
     full: bool = False,
 ) -> None:
-    '''Retrieve object ids arriving in *queue* from *backend*
+    '''Retrieve objects arriving via *receive_channel* from *backend*
 
     If *full* is False, lookup and read metadata. If *full* is True,
     read entire object.
 
     Corrupted objects are written into *corrupted_fh*. Missing objects
     are written into *missing_fh*.
-
-    Terminate when None is received.
     '''
 
-    with ComprencBackend.from_async_backend(run_async(backend_factory)) as backend:
+    async with receive_channel, await backend_factory() as backend:
         buf = io.BytesIO()
-        while True:
-            el = queue.get()
-            if el is None:
-                break
-            (obj_id, exp_hash, exp_size) = el
-
+        async for obj_id, exp_hash, exp_size in receive_channel:
             log.debug('reading object %s', obj_id)
             key = 's3ql_data_%d' % obj_id
             try:
                 if full:
                     buf.seek(0)
-                    backend.readinto_fh(key, buf, size_hint=exp_size)
+                    await backend.readinto_fh(key, buf, size_hint=exp_size)
                     buf.truncate()
                 else:
-                    backend.lookup(key)
+                    await backend.lookup(key)
             except NoSuchObject:
                 log.warning('Backend seems to have lost object %d', obj_id)
                 print(key, file=missing_fh)
