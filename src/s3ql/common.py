@@ -38,7 +38,7 @@ from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
 
 if TYPE_CHECKING:
-    from .backends.common import AbstractBackend
+    from .backends.common import AbstractBackend, AsyncBackend
     from .backends.comprenc import AsyncComprencBackend, ComprencBackend
     from .database import Connection
 
@@ -260,11 +260,32 @@ def get_backend(options, raw: bool = False) -> ComprencBackend | AbstractBackend
     return ComprencBackendCls.from_async_backend(run_async(_helper))
 
 
+@overload
+async def async_get_backend(options, raw: Literal[True]) -> AsyncBackend: ...
+
+
+@overload
+async def async_get_backend(options, raw: Literal[False] = ...) -> AsyncComprencBackend: ...
+
+
+async def async_get_backend(options, raw: bool = False) -> AsyncComprencBackend | AsyncBackend:
+    '''Return async backend for given storage-url
+
+    If *raw* is true, don't attempt to unlock and don't wrap into
+    AsyncComprencBackend.
+    '''
+
+    if raw:
+        return await options.backend_class.create(options)
+
+    factory = await get_backend_factory(options)
+    return await factory()
+
+
 async def get_backend_factory(options) -> BackendFactory:
     '''Return factory producing backend objects'''
 
     from .backends.common import (
-        AsyncBackend,
         AuthenticationError,
         AuthorizationError,
         CorruptedObjectError,
