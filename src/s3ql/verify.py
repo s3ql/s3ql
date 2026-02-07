@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import atexit
 import faulthandler
+import functools
 import io
 import logging
 import os
@@ -21,6 +22,8 @@ from collections.abc import Sequence
 from queue import Full as QueueFull
 from queue import Queue
 from typing import IO
+
+import trio
 
 from s3ql.types import BackendFactory
 
@@ -123,20 +126,29 @@ def main(args: Sequence[str] | None = None) -> None:
     options = parse_args(args)
     setup_logging(options)
 
-    backend_factory = run_async(get_backend_factory, options)
+    trio.run(main_async, options)
+
+
+async def main_async(options: argparse.Namespace) -> None:
+    backend_factory = await get_backend_factory(options)
 
     # Retrieve metadata
-    with ComprencBackend.from_async_backend(run_async(backend_factory)) as backend:
-        (_, db) = get_metadata(backend, options.cachepath)
+    sync_backend = ComprencBackend.from_async_backend(await backend_factory())
+    (_, db) = await trio.to_thread.run_sync(
+        functools.partial(get_metadata, sync_backend, options.cachepath)
+    )
 
-    retrieve_objects(
-        db,
-        backend_factory,
-        options.corrupted_file,
-        options.missing_file,
-        thread_count=options.parallel,
-        full=options.data,
-        offset=options.start_with,
+    await trio.to_thread.run_sync(
+        functools.partial(
+            retrieve_objects,
+            db,
+            backend_factory,
+            options.corrupted_file,
+            options.missing_file,
+            thread_count=options.parallel,
+            full=options.data,
+            offset=options.start_with,
+        )
     )
 
     if options.corrupted_file.tell() or options.missing_file.tell():
