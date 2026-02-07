@@ -14,11 +14,12 @@ import hmac
 import io
 import logging
 import lzma
+import os
 import struct
 import time
 import zlib
 from collections.abc import AsyncIterator, Awaitable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
@@ -104,6 +105,22 @@ class AsyncComprencBackend(AsyncBackend):
     passphrase: bytes | None
     compression: tuple[str | None, int]
     backend: AsyncBackend
+
+    _max_threads: ClassVar[int] = max(1, (os.cpu_count() or 2) // 2)
+    _thread_limiter: ClassVar[trio.CapacityLimiter | None] = None
+
+    @classmethod
+    def set_max_threads(cls, n: int) -> None:
+        '''Set the maximum number of concurrent compression/encryption threads.'''
+        cls._max_threads = n
+        if cls._thread_limiter is not None:
+            cls._thread_limiter.total_tokens = n
+
+    @classmethod
+    def _get_thread_limiter(cls) -> trio.CapacityLimiter:
+        if cls._thread_limiter is None:
+            cls._thread_limiter = trio.CapacityLimiter(cls._max_threads)
+        return cls._thread_limiter
 
     @classmethod
     async def create(  # type: ignore[override]
@@ -287,10 +304,11 @@ class AsyncComprencBackend(AsyncBackend):
             use_async = size_hint > SYNC_DECOMPRESSION_THRESHOLD[compr_alg]
 
         # If not compressed, decrypt directly into `fh`.
+        limiter = self._get_thread_limiter()
         if compr_alg == 'None':
             if data_key is not None:
                 if use_async:
-                    await trio.to_thread.run_sync(decrypt_fh, buf, fh, data_key)
+                    await trio.to_thread.run_sync(decrypt_fh, buf, fh, data_key, limiter=limiter)
                 else:
                     decrypt_fh(buf, fh, data_key)
             else:
@@ -298,12 +316,14 @@ class AsyncComprencBackend(AsyncBackend):
                 # the code more complicated and we'd need two requests (first one to determine the
                 # compression algorithm, second one to fetch the data).
                 if use_async:
-                    await trio.to_thread.run_sync(copyfh, buf, fh)
+                    await trio.to_thread.run_sync(copyfh, buf, fh, limiter=limiter)
                 else:
                     copyfh(buf, fh)
         else:
             if use_async:
-                await trio.to_thread.run_sync(self._decompress_sync, compr_alg, data_key, buf, fh)
+                await trio.to_thread.run_sync(
+                    self._decompress_sync, compr_alg, data_key, buf, fh, limiter=limiter
+                )
             else:
                 self._decompress_sync(compr_alg, data_key, buf, fh)
 
@@ -372,7 +392,13 @@ class AsyncComprencBackend(AsyncBackend):
             # we wanted to do something differently.
             uploader = (
                 await trio.to_thread.run_sync(
-                    self._compress_sync, key, fh, len_, meta, dont_compress
+                    self._compress_sync,
+                    key,
+                    fh,
+                    len_,
+                    meta,
+                    dont_compress,
+                    limiter=self._get_thread_limiter(),
                 )
             )[0]
         else:

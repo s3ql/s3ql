@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING
 import pyfuse3
 import trio
 
-from s3ql.backends.comprenc import ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
 
 from . import fs
 from .backends.pool import BackendPool
@@ -129,6 +129,10 @@ def main(args: list[str] | None = None) -> None:
     # This is not foolproof but should prevent common mistakes
     if is_mounted(options.storage_url):
         raise QuietError('File system already mounted elsewhere on this machine.', exitcode=40)
+
+    if options.max_threads is None:
+        options.max_threads = determine_threads(options)
+    AsyncComprencBackend.set_max_threads(options.max_threads)
 
     avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     if avail_fd == resource.RLIM_INFINITY:
@@ -680,6 +684,14 @@ def parse_args(args: list[str]) -> Namespace:
         default=32,
         metavar='<no>',
         help='Number of parallel upload connections to use (default: %(default)d).',
+    )
+    parser.add_argument(
+        "--max-threads",
+        action="store",
+        type=int,
+        default=None,
+        metavar='<no>',
+        help='Number of parallel compression/encryption threads to use (default: auto).',
     )
     parser.add_argument(
         "--nfs",

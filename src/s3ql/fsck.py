@@ -27,9 +27,11 @@ from typing import TYPE_CHECKING, Literal, cast
 import apsw
 from pyfuse3 import InodeT
 
+from s3ql.mount import determine_threads
+
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends.common import NoSuchObject
-from .backends.comprenc import ComprencBackend
+from .backends.comprenc import AsyncComprencBackend, ComprencBackend
 from .backends.local import Backend as LocalBackend
 from .common import (
     get_backend,
@@ -1264,6 +1266,14 @@ def parse_args(args: list[str]) -> Namespace:
         default=False,
         help="Run a faster, less thorough check.",
     )
+    parser.add_argument(
+        "--max-threads",
+        action="store",
+        type=int,
+        default=None,
+        metavar='<no>',
+        help='Number of parallel compression/encryption threads to use (default: auto).',
+    )
     options = parser.parse_args(args)
 
     return options
@@ -1276,6 +1286,10 @@ def main(args: list[str] | None = None) -> None:
     setup_warnings()
     options = parse_args(args)
     setup_logging(options)
+
+    if options.max_threads is None:
+        options.max_threads = determine_threads(options)
+    AsyncComprencBackend.set_max_threads(options.max_threads)
 
     # Check if fs is mounted on this computer
     # This is not foolproof but should prevent common mistakes
