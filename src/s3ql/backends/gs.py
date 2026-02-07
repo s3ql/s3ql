@@ -9,7 +9,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import builtins
-import hashlib
 import json
 import logging
 import re
@@ -746,9 +745,3 @@ def _unwrap_user_meta(json_resp: dict[str, object]) -> BasicMappingT:
             meta[k] = v2
 
     return meta
-
-
-def md5sum_b64(buf: bytes) -> str:
-    '''Return base64 encoded MD5 sum'''
-
-    return b64encode(hashlib.md5(buf).digest()).decode('ascii')

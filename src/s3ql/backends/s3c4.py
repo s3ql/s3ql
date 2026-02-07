@@ -18,9 +18,6 @@ from . import s3c
 
 log = logging.getLogger(__name__)
 
-# Maximum number of keys that can be deleted at once
-MAX_KEYS = 1000
-
 # Pylint goes berserk with false positives
 # pylint: disable=E1002,E1101
 

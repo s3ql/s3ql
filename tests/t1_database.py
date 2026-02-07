@@ -171,13 +171,6 @@ def test_checkpoint():
         db.close()
 
 
-async def get_metadata_obj_count(backend: AsyncComprencBackend):
-    i = 0
-    async for _ in backend.list('s3ql_metadata_'):
-        i += 1
-    return i
-
-
 async def test_versioning(backend):
     sqlite3ext.reset()
     rows = 11

@@ -468,62 +468,6 @@ async def test_remove_db(ctx):
         assert fh.read(42) == b''
 
 
-class MockMultiLock:
-    def __init__(self, real_mlock):
-        self.cond = real_mlock.cond
-        self.cleared = set()
-        self.real_mlock = real_mlock
-
-    def yield_to(self, thread, block=True):
-        '''Allow *thread* to proceed'''
-
-        me = threading.current_thread()
-        log.debug('%s blocked in yield_to(), phase 1', me.name)
-        with self.cond:
-            self.cleared.add(thread)
-            self.cond.notify_all()
-
-        if not block:
-            return
-        log.debug('%s blocked in yield_to(), phase 2', me.name)
-        with self.cond:
-            if not self.cond.wait_for(lambda: thread not in self.cleared, 10):
-                pytest.fail('Timeout waiting for lock')
-        log.debug('%s completed yield_to()', me.name)
-
-    @contextmanager
-    def __call__(self, *key):
-        self.acquire(*key)
-        try:
-            yield
-        finally:
-            self.release(*key)
-
-    def acquire(self, *key, timeout=None):
-        if timeout == 0:
-            return False
-        me = threading.current_thread()
-        log.debug('%s blocked in acquire()', me.name)
-        with self.cond:
-            if not self.cond.wait_for(lambda: me in self.cleared, 10):
-                pytest.fail('Timeout waiting for lock')
-            self.real_mlock.locked_keys.add(key)
-        log.debug('%s got lock', me.name)
-        return True
-
-    def release(self, *key, noerror=False):
-        me = threading.current_thread()
-        log.debug('%s blocked in release()', me.name)
-        with self.cond:
-            self.cleared.remove(me)
-            self.cond.notify_all()
-            if noerror:
-                self.real_mlock.locked_keys.discard(key)
-            else:
-                self.real_mlock.locked_keys.remove(key)
-        log.debug('%s released lock', me.name)
-
-
 class MockBackendPool(AbstractBackend):
     def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
         self.no_read = no_read
@@ -622,20 +566,3 @@ async def start_flush(cache, inode, block=None):
             continue
 
         await cache.upload_if_dirty(el)
-
-
-class MockLock:
-    def __call__(self):
-        return self
-
-    def acquire(self, timeout=None):
-        pass
-
-    def release(self):
-        pass
-
-    def __enter__(self):
-        pass
-
-    def __exit__(self, *args):
-        pass

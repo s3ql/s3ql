@@ -556,11 +556,6 @@ class TestFsck:
 
         await self.assert_fsck(self.fsck.check_ext_attributes_name)
 
-    @staticmethod
-    def random_data(len_):
-        with open("/dev/urandom", "rb") as fd:
-            return fd.read(len_)
-
     @pytest.mark.trio
     async def test_loops(self):
         # Create some directory inodes
