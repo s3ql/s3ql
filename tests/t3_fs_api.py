@@ -19,7 +19,6 @@ import logging
 import os
 import shutil
 import stat
-import tempfile
 from argparse import Namespace
 from random import randint
 
@@ -70,34 +69,35 @@ some_ctx = Ctx()
 
 
 @pytest.fixture
-async def ctx():
+async def ctx(tmp_path):
     ctx = Namespace()
-    ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+    ctx.backend_dir = tmp_path / 'backend'
+    ctx.backend_dir.mkdir()
 
     async def factory():
-        plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
+        plain = await local.AsyncBackend.create(
+            Namespace(storage_url='local://' + str(ctx.backend_dir))
+        )
         return await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
 
     factory.has_delete_multi = True
     ctx.backend_pool = BackendPool(factory)
 
     ctx.backend = await ctx.backend_pool.pop_conn()
-    ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
+    ctx.cachedir = tmp_path / 'cache'
+    ctx.cachedir.mkdir()
+
     ctx.max_obj_size = 1024
+    ctx.dbfile = tmp_path / 'db.sqlite'
 
-    # Destructors are not guaranteed to run, and we can't unlink
-    # the file immediately because apsw refers to it by name.
-    # Therefore, we unlink the file manually in tearDown()
-    ctx.dbfile = tempfile.NamedTemporaryFile(delete=False)  # noqa: SIM115
-
-    ctx.db = Connection(ctx.dbfile.name)
+    ctx.db = Connection(str(ctx.dbfile))
     create_tables(ctx.db)
     init_tables(ctx.db)
 
     cache = BlockCache(
         ctx.backend_pool,
         ctx.db,
-        ctx.cachedir + "/cache",
+        str(ctx.cachedir),
         ctx.max_obj_size * 5,
         upload_send=None,  # type: ignore[assignment]
         remove_send=None,  # type: ignore[assignment]
@@ -118,9 +118,6 @@ async def ctx():
     ctx.server.inodes.destroy()
     await ctx.cache.destroy()
     ctx.db.close()
-    os.unlink(ctx.dbfile.name)
-    shutil.rmtree(ctx.cachedir)
-    shutil.rmtree(ctx.backend_dir)
 
 
 def random_data(len_):
@@ -132,7 +129,7 @@ async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
     fsck = Fsck(
-        ctx.cachedir + '/cache',
+        str(ctx.cachedir),
         ctx.backend,
         FsAttributes(
             data_block_size=ctx.max_obj_size,
@@ -955,10 +952,6 @@ async def test_failsafe(ctx):
         with assert_logs('^Backend lost block', count=1, level=logging.ERROR):
             await ctx.server.read(fh, 5, len_ // 2)
     assert cm.value.errno == errno.EIO
-
-    # Don't call fsck, we're missing a block
-    # Just call ctx.dbfile.close() to mute resource leak warning
-    ctx.dbfile.close()
 
 
 async def test_create_open(ctx):
