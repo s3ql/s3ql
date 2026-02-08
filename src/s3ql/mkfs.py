@@ -149,7 +149,11 @@ def main(args: Sequence[str] | None = None) -> None:
 
 
 async def main_async(options: argparse.Namespace) -> None:
-    plain_backend = await options.backend_class.create(options)
+    async with await options.backend_class.create(options) as plain_backend:
+        await main_inner(options, plain_backend)
+
+
+async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     backend: AsyncComprencBackend | None = None
 
     log.info(

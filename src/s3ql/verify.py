@@ -128,7 +128,8 @@ async def main_async(options: argparse.Namespace) -> None:
     backend_factory = await get_backend_factory(options)
 
     # Retrieve metadata
-    (_, db) = await get_metadata(await backend_factory(), options.cachepath)
+    async with await backend_factory() as backend:
+        (_, db) = await get_metadata(backend, options.cachepath)
 
     await retrieve_objects(
         db,

@@ -144,8 +144,8 @@ async def main_async(options: argparse.Namespace) -> None:
         return
 
     if options.action == 'recover-key':
-        backend = await async_get_backend(options, raw=True)
-        await recover(backend, options)
+        async with await async_get_backend(options, raw=True) as backend:
+            await recover(backend, options)
         return
 
     async with await async_get_backend(options) as backend:

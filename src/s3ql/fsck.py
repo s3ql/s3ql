@@ -1293,8 +1293,11 @@ async def main_async(options: Namespace) -> None:
     if is_mounted(options.storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
-    backend = await async_get_backend(options)
+    async with await async_get_backend(options) as backend:
+        await main_inner(options, backend)
 
+
+async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     if options.fast:
         log.info('Starting fast fsck of %s', options.storage_url)
     else:

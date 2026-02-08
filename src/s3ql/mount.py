@@ -215,9 +215,9 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     # Get paths
     cachepath = options.cachepath
 
-    backend_factory = await get_backend_factory(options)
-    backend_pool = BackendPool(backend_factory)
-    (param, db) = await get_metadata(await backend_factory(), cachepath)
+    backend_pool = BackendPool(await get_backend_factory(options))
+    async with backend_pool() as backend:
+        (param, db) = await get_metadata(backend, cachepath)
 
     # Handle --cachesize
     rec_cachesize = options.max_cache_entries * param.data_block_size / 2
@@ -299,7 +299,8 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.is_mounted = True
         write_params(cachepath, param)
 
-        await upload_params(await backend_factory(), param)
+        async with backend_pool() as backend:
+            await upload_params(backend, param)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
@@ -366,11 +367,13 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.needs_fsck = True
 
     param.last_modified = time.time()
-    backend = await backend_factory()
-    await upload_metadata(backend, db, param)
-    write_params(cachepath, param)
-    await upload_params(backend, param)
-    await expire_objects(backend)
+    async with backend_pool() as backend:
+        await upload_metadata(backend, db, param)
+        write_params(cachepath, param)
+        await upload_params(backend, param)
+        await expire_objects(backend)
+
+    await backend_pool.flush()
 
     log.info('All done.')
 
