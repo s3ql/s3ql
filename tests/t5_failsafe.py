@@ -26,9 +26,7 @@ from common import NoTestSection, get_remote_test_info
 
 import s3ql.ctrl
 from s3ql import BUFSIZE
-from s3ql.async_bridge import run_async
 from s3ql.backends import gs
-from s3ql.backends.common import AbstractBackend
 
 
 @pytest.mark.usefixtures('pass_reg_output')
@@ -50,19 +48,7 @@ class TestFailsafe(t4_fuse.TestFuse):
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
 
-        self.backend = AbstractBackend(
-            run_async(
-                gs.AsyncBackend.create,
-                Namespace(
-                    storage_url=self.storage_url,
-                    backend_login=backend_login,
-                    backend_password=backend_pw,
-                    backend_options={},
-                ),
-            )
-        )
-
-    def test(self):
+    async def test(self):
         self.mkfs(max_obj_size=10 * 1024**2)
         self.mount()
 
@@ -83,9 +69,17 @@ class TestFailsafe(t4_fuse.TestFuse):
         # Unmount required to avoid reading from kernel cache
         self.umount()
 
-        # Modify
-        (val, meta) = self.backend.fetch('s3ql_data_1')
-        self.backend.store('s3ql_data_1', val[:500] + b'oops' + val[500:], meta)
+        # Corrupt a data block via the backend directly
+        async with await gs.AsyncBackend.create(
+            Namespace(
+                storage_url=self.storage_url,
+                backend_login=self.backend_login,
+                backend_password=self.backend_passphrase,
+                backend_options={},
+            ),
+        ) as backend:
+            (val, meta) = await backend.fetch('s3ql_data_1')
+            await backend.store('s3ql_data_1', val[:500] + b'oops' + val[500:], meta)
 
         # Try to read
 
