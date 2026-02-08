@@ -24,6 +24,7 @@ import threading
 from argparse import Namespace
 from contextlib import contextmanager
 from queue import Full as QueueFull
+from queue import Queue
 
 import pytest
 import trio
@@ -127,18 +128,25 @@ async def ctx():
         ),
     )
 
-    cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache", ctx.max_obj_size * 100)
-    cache.trio_token = trio.lowlevel.current_trio_token()
+    cache = BlockCache(
+        ctx.backend_pool,
+        ctx.db,
+        ctx.cachedir + "/cache",
+        ctx.max_obj_size * 100,
+        trio_token=trio.lowlevel.current_trio_token(),
+        to_upload=trio.open_memory_channel(0),
+        to_remove=Queue(1000),
+    )
     ctx.cache = cache
 
     # Monkeypatch around the need for removal and upload threads
-    cache.to_remove = DummyQueue(cache)
+    cache.to_remove = DummyQueue(cache)  # type: ignore[assignment]
 
     class DummyChannel:
         async def send(self, arg):
             await trio.to_thread.run_sync(cache._do_upload, *arg)
 
-    cache.to_upload = (DummyChannel(), None)
+    cache.to_upload = (DummyChannel(), None)  # type: ignore[assignment]
 
     try:
         yield ctx

@@ -205,15 +205,12 @@ class BlockCache:
     upload_threads: list[threading.Thread]
     removal_threads: list[threading.Thread]
     transfer_completed: trio.Condition
-    to_upload: (
-        tuple[
-            trio.MemorySendChannel[tuple[CacheEntry, int] | object],
-            trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
-        ]
-        | None
-    )
-    to_remove: Queue[int | object] | None
-    trio_token: trio.lowlevel.TrioToken | None
+    to_upload: tuple[
+        trio.MemorySendChannel[tuple[CacheEntry, int] | object],
+        trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
+    ]
+    to_remove: Queue[int | object]
+    trio_token: trio.lowlevel.TrioToken
     fs: Operations | None
 
     def __init__(
@@ -223,6 +220,13 @@ class BlockCache:
         cachedir: str,
         max_size: int,
         max_entries: int = 768,
+        *,
+        trio_token: trio.lowlevel.TrioToken,
+        to_upload: tuple[
+            trio.MemorySendChannel[tuple[CacheEntry, int] | object],
+            trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
+        ],
+        to_remove: Queue[int | object],
     ) -> None:
         log.debug('Initializing')
 
@@ -232,14 +236,12 @@ class BlockCache:
         self.cache = CacheDict(max_size, max_entries)
         self.mlock = MultiLock()
         self.in_transit = set()
-        self.upload_threads = []
-        self.removal_threads = []
+        self.upload_threads: list[threading.Thread] = []
+        self.removal_threads: list[threading.Thread] = []
         self.transfer_completed = trio.Condition()
-
-        # Will be initialized once threads are available
-        self.to_upload = None
-        self.to_remove = None
-        self.trio_token = None
+        self.trio_token = trio_token
+        self.to_upload = to_upload
+        self.to_remove = to_remove
 
         if os.path.exists(self.path):
             self.load_cache()
@@ -250,6 +252,35 @@ class BlockCache:
         # Initialized from the outside to prevent cyclic dependency,
         # used only to set failsafe attribute
         self.fs = None
+
+    @classmethod
+    async def create(
+        cls,
+        backend_pool: BackendPool,
+        db: Connection,
+        cachedir: str,
+        max_size: int,
+        max_entries: int = 768,
+        connections: int = 1,
+    ) -> BlockCache:
+        '''Create and initialize a BlockCache, including worker threads.'''
+
+        trio_token = trio.lowlevel.current_trio_token()
+        to_upload = trio.open_memory_channel[tuple[CacheEntry, int] | object](0)
+        to_remove: Queue[int | object] = Queue(1000)
+
+        instance = cls(
+            backend_pool,
+            db,
+            cachedir,
+            max_size,
+            max_entries,
+            trio_token=trio_token,
+            to_upload=to_upload,
+            to_remove=to_remove,
+        )
+        instance._start_threads(connections)
+        return instance
 
     def load_cache(self) -> None:
         '''Initialize cache from disk'''
@@ -269,17 +300,13 @@ class BlockCache:
         '''Get number of objects in cache'''
         return len(self.cache)
 
-    def init(self, connections: int = 1) -> None:
-        '''Start worker threads'''
+    def _start_threads(self, connections: int) -> None:
+        '''Start upload and removal worker threads.'''
 
-        self.trio_token = trio.lowlevel.current_trio_token()
-        self.to_upload = trio.open_memory_channel(0)
         for _ in range(connections):
             t = threading.Thread(target=self._upload_loop)
             t.start()
             self.upload_threads.append(t)
-
-        self.to_remove = Queue(1000)
 
         if self.backend_pool.has_delete_multi:
             t = threading.Thread(target=self._removal_loop_multi)
@@ -333,19 +360,14 @@ class BlockCache:
             t.join()
 
         assert len(self.in_transit) == 0
-        # in an error condition destroy() may be called before init()
-        if self.to_remove is not None:
-            try:
-                while self.to_remove.get_nowait() is QuitSentinel:
-                    pass
-            except QueueEmpty:
+        try:
+            while self.to_remove.get_nowait() is QuitSentinel:
                 pass
-            else:
-                log.error('Could not complete object removals, no removal threads left alive')
+        except QueueEmpty:
+            pass
+        else:
+            log.error('Could not complete object removals, no removal threads left alive')
 
-        self.to_upload = None
-        self.to_remove = None
-        self.trio_token = None
         self.upload_threads = []
         self.removal_threads = []
 
@@ -362,7 +384,6 @@ class BlockCache:
 
         while True:
             log.debug('reading from upload queue...')
-            assert self.to_upload is not None
             tmp = trio.from_thread.run(self.to_upload[1].receive, trio_token=self.trio_token)
 
             if tmp is QuitSentinel:
@@ -562,7 +583,6 @@ class BlockCache:
     async def _queue_upload(self, obj: tuple[CacheEntry, int] | object) -> None:
         '''Put *obj* into upload queue'''
 
-        assert self.to_upload is not None
         while True:
             with trio.move_on_after(5):
                 await self.to_upload[0].send(obj)
@@ -576,7 +596,6 @@ class BlockCache:
     def _queue_removal(self, obj: int | object) -> None:
         '''Put *obj* into removal queue'''
 
-        assert self.to_remove is not None
         while True:
             try:
                 self.to_remove.put(obj, timeout=5)
@@ -623,7 +642,6 @@ class BlockCache:
             # this object would just give us another error.
             return
 
-        assert self.to_remove is not None
         try:
             self.to_remove.put(obj_id, block=False)
         except QueueFull:
@@ -644,7 +662,6 @@ class BlockCache:
         # that we read as many objects from the queue as we can without
         # blocking, and then hand them over to the backend all at once.
 
-        assert self.to_remove is not None
         ids: list[int] = []
         while True:
             try:
@@ -674,7 +691,6 @@ class BlockCache:
         This method runs in a separate thread outside the trio event loop.
         '''
 
-        assert self.to_remove is not None
         while True:
             log.debug('reading from queue..')
             id_ = self.to_remove.get()
@@ -991,11 +1007,8 @@ class BlockCache:
                 dirty_size += el.size
                 dirty_cnt += 1
 
-        if self.to_remove is None:
-            remove_cnt = 0
-        else:
-            # This is an estimate which may be negative
-            remove_cnt = max(0, self.to_remove.qsize())
+        # This is an estimate which may be negative
+        remove_cnt = max(0, self.to_remove.qsize())
 
         return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 

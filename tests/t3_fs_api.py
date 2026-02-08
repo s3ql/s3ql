@@ -21,6 +21,7 @@ import shutil
 import stat
 import tempfile
 from argparse import Namespace
+from queue import Queue
 from random import randint
 
 import pytest
@@ -95,20 +96,27 @@ async def ctx():
     create_tables(ctx.db)
     init_tables(ctx.db)
 
-    cache = BlockCache(ctx.backend_pool, ctx.db, ctx.cachedir + "/cache", ctx.max_obj_size * 5)
-    cache.trio_token = trio.lowlevel.current_trio_token()
+    cache = BlockCache(
+        ctx.backend_pool,
+        ctx.db,
+        ctx.cachedir + "/cache",
+        ctx.max_obj_size * 5,
+        trio_token=trio.lowlevel.current_trio_token(),
+        to_upload=trio.open_memory_channel(0),
+        to_remove=Queue(1000),
+    )
     ctx.cache = cache
     ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size, InodeCache(ctx.db, 0))
     ctx.server.init()
 
     # Monkeypatch around the need for removal and upload threads
-    cache.to_remove = DummyQueue(cache)
+    cache.to_remove = DummyQueue(cache)  # type: ignore[assignment]
 
     class DummyChannel:
         async def send(self, arg):
             await trio.to_thread.run_sync(cache._do_upload, *arg)
 
-    cache.to_upload = (DummyChannel(), None)
+    cache.to_upload = (DummyChannel(), None)  # type: ignore[assignment]
 
     # Keep track of unused filenames
     ctx.name_cnt = 0

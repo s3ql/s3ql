@@ -244,12 +244,13 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
 
     async with AsyncExitStack() as cm:
         nursery = await cm.enter_async_context(trio.open_nursery())
-        block_cache = BlockCache(
+        block_cache = await BlockCache.create(
             backend_pool,
             db,
             cachepath + '-cache',
             options.cachesize * 1024,
-            options.max_cache_entries,
+            max_entries=options.max_cache_entries,
+            connections=options.max_connections,
         )
         cm.push_async_callback(block_cache.destroy, options.keep_cache)
 
@@ -298,7 +299,6 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         write_params(cachepath, param)
 
         await upload_params(await backend_factory(), param)
-        block_cache.init(options.max_connections)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
