@@ -251,6 +251,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
             options.cachesize * 1024,
             max_entries=options.max_cache_entries,
             connections=options.max_connections,
+            nursery=nursery,
         )
         cm.push_async_callback(block_cache.destroy, options.keep_cache)
 

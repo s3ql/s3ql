@@ -16,61 +16,62 @@ if __name__ == '__main__':
 
 import logging
 import os
-import queue
 import shutil
 import stat
 import tempfile
-import threading
 from argparse import Namespace
-from contextlib import contextmanager
-from queue import Full as QueueFull
-from queue import Queue
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import pytest
 import trio
 from common import safe_sleep
 
-from s3ql.async_bridge import run_async
 from s3ql.backends import local
-from s3ql.backends.common import AbstractBackend
-from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.backends.pool import BackendPool
-from s3ql.block_cache import BlockCache, QuitSentinel
+from s3ql.block_cache import BlockCache
 from s3ql.common import time_ns
 from s3ql.database import Connection, create_tables
 from s3ql.mkfs import init_tables
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
 log = logging.getLogger(__name__)
 
 
-# A dummy removal queue to monkeypatch around the need for removal threads
-class DummyQueue:
-    def __init__(self, cache):
-        self.obj = None
+class DummyRemovalChannel:
+    """Replacement for the removal send channel that processes removals inline."""
+
+    def __init__(self, cache: BlockCache) -> None:
         self.cache = cache
 
-    def get_nowait(self):
-        return self.get(block=False)
+    async def send(self, obj_id: int) -> None:
+        log.debug('DummyRemovalChannel: removing object %d inline', obj_id)
+        async with self.cache.backend_pool() as backend:
+            from s3ql.backends.common import NoSuchObject
 
-    def put(self, obj, block=True, timeout=None):
-        if not block:
-            raise QueueFull()
-        self.obj = obj
-        self.cache._removal_loop_simple()
+            try:
+                await backend.delete('s3ql_data_%d' % obj_id)
+            except NoSuchObject:
+                log.warning('Backend lost object s3ql_data_%d', obj_id)
+                if self.cache.fs is not None:
+                    self.cache.fs.failsafe = True
 
-    def get(self, block=True):
-        if self.obj is None:
-            raise queue.Empty()
-        elif self.obj is QuitSentinel:
-            self.obj = None
-            return QuitSentinel
-        else:
-            tmp = self.obj
-            self.obj = QuitSentinel
-            return tmp
+    async def aclose(self) -> None:
+        pass
 
-    def qsize(self):
-        return 0
+
+class DummyUploadChannel:
+    """Replacement for the upload send channel that processes uploads inline."""
+
+    def __init__(self, cache: BlockCache) -> None:
+        self.cache = cache
+
+    async def send(self, arg: tuple) -> None:
+        await self.cache._do_upload(*arg)
+
+    async def aclose(self) -> None:
+        pass
 
 
 def random_data(len_):
@@ -133,20 +134,14 @@ async def ctx():
         ctx.db,
         ctx.cachedir + "/cache",
         ctx.max_obj_size * 100,
-        trio_token=trio.lowlevel.current_trio_token(),
-        to_upload=trio.open_memory_channel(0),
-        to_remove=Queue(1000),
+        upload_send=None,  # type: ignore[assignment]
+        remove_send=None,  # type: ignore[assignment]
     )
     ctx.cache = cache
 
-    # Monkeypatch around the need for removal and upload threads
-    cache.to_remove = DummyQueue(cache)  # type: ignore[assignment]
-
-    class DummyChannel:
-        async def send(self, arg):
-            await trio.to_thread.run_sync(cache._do_upload, *arg)
-
-    cache.to_upload = (DummyChannel(), None)  # type: ignore[assignment]
+    # Monkeypatch: process uploads and removals inline instead of using worker tasks
+    cache._upload_send = DummyUploadChannel(cache)  # type: ignore[assignment]
+    cache._remove_send = DummyRemovalChannel(cache)  # type: ignore[assignment]
 
     try:
         yield ctx
@@ -161,8 +156,26 @@ async def ctx():
         os.unlink(ctx.dbfile.name)
 
 
-# TODO: Add a test that ensures that we don't deadlock if uploads threads or removal
-# threads have died and we try to expire or terminate
+@pytest.mark.trio
+async def test_dead_worker_channel_error():
+    """Sending on a channel raises BrokenResourceError after all receiver clones close.
+
+    This is the mechanism that prevents deadlocks in BlockCache when upload or
+    removal workers have died: each worker holds a clone of the receive end, and
+    once all clones are closed, sends fail immediately instead of blocking.
+    """
+    send, recv = trio.open_memory_channel[int](0)
+
+    async def worker(recv_clone: trio.MemoryReceiveChannel[int]) -> None:
+        async with recv_clone:
+            pass
+
+    async with trio.open_nursery() as nursery:
+        nursery.start_soon(worker, recv.clone())
+        await recv.aclose()
+
+        with pytest.raises(trio.BrokenResourceError):
+            await send.send(42)
 
 
 async def test_get(ctx):
@@ -211,9 +224,7 @@ async def test_expire(ctx):
 
     # We want to expire 4 entries, 2 of which are already flushed
     ctx.cache.cache.max_entries = 16
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=2)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=2)
     await ctx.cache.expire()
     ctx.cache.backend_pool.verify()
     assert len(ctx.cache.cache) == 16
@@ -237,9 +248,7 @@ async def test_upload(ctx):
     data3 = random_data(datalen)
 
     # Case 1: create new object
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
@@ -248,9 +257,7 @@ async def test_upload(ctx):
     ctx.cache.backend_pool.verify()
 
     # Case 2: Link new object
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data1)
@@ -259,9 +266,7 @@ async def test_upload(ctx):
     ctx.cache.backend_pool.verify()
 
     # Case 3: Upload old object, still has references
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data2)
@@ -269,9 +274,7 @@ async def test_upload(ctx):
     ctx.cache.backend_pool.verify()
 
     # Case 4: Upload old object, no references left
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_del=1, no_write=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1, no_write=1)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data3)
@@ -279,9 +282,7 @@ async def test_upload(ctx):
     ctx.cache.backend_pool.verify()
 
     # Case 5: Link old object, no references left
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_del=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data2)
@@ -290,9 +291,7 @@ async def test_upload(ctx):
 
     # Case 6: Link old object, still has references
     # (Need to create another object first)
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     async with ctx.cache.get(inode, blockno3) as fh:
         fh.seek(0)
         fh.write(data1)
@@ -300,9 +299,7 @@ async def test_upload(ctx):
     assert await ctx.cache.upload_if_dirty(el3)
     ctx.cache.backend_pool.verify()
 
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
@@ -318,9 +315,7 @@ async def test_remove_referenced(ctx):
     blockno2 = 24
     data = random_data(datalen)
 
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data)
@@ -330,9 +325,7 @@ async def test_remove_referenced(ctx):
     await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
 
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool)
-    )
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
     await ctx.cache.remove(inode, blockno1)
     ctx.cache.backend_pool.verify()
 
@@ -437,14 +430,12 @@ async def test_remove_cache_db(ctx):
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         fh.write(data1)
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     await start_flush(ctx.cache, inode)
     ctx.cache.backend_pool.verify()
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_del=1)
-    )
+
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
     await ctx.cache.remove(inode, 1)
     ctx.cache.backend_pool.verify()
 
@@ -461,14 +452,12 @@ async def test_remove_db(ctx):
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         fh.write(data1)
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_write=1)
-    )
+
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
     await ctx.cache.drop()
     ctx.cache.backend_pool.verify()
-    ctx.cache.backend_pool = await trio.to_thread.run_sync(
-        lambda: MockBackendPool(ctx.backend_pool, no_del=1)
-    )
+
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
     await ctx.cache.remove(inode, 1)
     ctx.cache.backend_pool.verify()
     async with ctx.cache.get(inode, 1) as fh:
@@ -476,22 +465,30 @@ async def test_remove_db(ctx):
         assert fh.read(42) == b''
 
 
-class MockBackendPool(AbstractBackend):
-    def __init__(self, backend_pool, no_read=0, no_write=0, no_del=0):
+class MockBackendPool:
+    """A mock backend pool that tracks expected call counts.
+
+    Provides the async context manager protocol matching BackendPool.__call__().
+    """
+
+    def __init__(
+        self,
+        backend_pool: BackendPool,
+        no_read: int = 0,
+        no_write: int = 0,
+        no_del: int = 0,
+    ) -> None:
         self.no_read = no_read
         self.no_write = no_write
         self.no_del = no_del
         self.backend_pool = backend_pool
-        self._async_conn = run_async(backend_pool.pop_conn)
-        self.backend = ComprencBackend.from_async_backend(self._async_conn)
-        self.lock = threading.Lock()
+        self._mock = _MockAsyncBackend(self)
 
-    def __del__(self):
-        # TODO: Re-enable once we have migrated to async API
-        # run_async(self.backend_pool.push_conn, self._async_conn)
-        pass
+    @property
+    def has_delete_multi(self) -> bool:
+        return self.backend_pool.has_delete_multi
 
-    def verify(self):
+    def verify(self) -> None:
         if self.no_read != 0:
             raise RuntimeError('Got too few readinto_fh calls')
         if self.no_write != 0:
@@ -499,62 +496,80 @@ class MockBackendPool(AbstractBackend):
         if self.no_del != 0:
             raise RuntimeError('Got too few delete calls')
 
-    @contextmanager
-    def sync(self):
-        '''Provide connection from pool (context manager)'''
+    @asynccontextmanager
+    async def __call__(self) -> AsyncGenerator['_MockAsyncBackend', None]:
+        '''Provide mock async connection (async context manager)'''
+        yield self._mock
 
-        with self.lock:
-            yield self
 
-    def lookup(self, key):
-        return self.backend.lookup(key)
+class _MockAsyncBackend:
+    """Wraps a real async backend connection, counting operations."""
 
-    def readinto_fh(self, key, fh):
-        self.no_read -= 1
-        if self.no_read < 0:
+    def __init__(self, pool: MockBackendPool) -> None:
+        self._pool = pool
+        self._conn: AsyncComprencBackend | None = None
+
+    async def _get_conn(self) -> AsyncComprencBackend:
+        if self._conn is None:
+            self._conn = await self._pool.backend_pool.pop_conn()
+        return self._conn
+
+    async def readinto_fh(
+        self, key: str, fh: BinaryOutput, size_hint: int | None = None
+    ) -> BasicMappingT:
+        self._pool.no_read -= 1
+        if self._pool.no_read < 0:
             raise RuntimeError('Got too many readinto_fh calls')
-        return self.backend.readinto_fh(key, fh)
+        conn = await self._get_conn()
+        return await conn.readinto_fh(key, fh, size_hint=size_hint)
 
-    def write_fh(self, key, fh, len_, metadata=None, dont_compress=False):
-        self.no_write -= 1
-        if self.no_write < 0:
+    async def write_fh(
+        self,
+        key: str,
+        fh: BinaryInput,
+        len_: int,
+        metadata: BasicMappingT | None = None,
+        dont_compress: bool = False,
+    ) -> int:
+        self._pool.no_write -= 1
+        if self._pool.no_write < 0:
             raise RuntimeError('Got too many write_fh calls')
+        conn = await self._get_conn()
+        return await conn.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
 
-        return self.backend.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
-
-    def is_temp_failure(self, exc):
-        return self.backend.is_temp_failure(exc)
-
-    def contains(self, key):
-        return self.backend.contains(key)
-
-    def delete(self, key):
-        self.no_del -= 1
-        if self.no_del < 0:
+    async def delete(self, key: str) -> None:
+        self._pool.no_del -= 1
+        if self._pool.no_del < 0:
             raise RuntimeError('Got too many delete calls')
+        conn = await self._get_conn()
+        return await conn.delete(key)
 
-        return self.backend.delete(key)
+    async def delete_multi(self, keys: list[str]) -> None:
+        self._pool.no_del -= len(keys)
+        if self._pool.no_del < 0:
+            raise RuntimeError('Got too many delete calls')
+        conn = await self._get_conn()
+        await conn.delete_multi(keys)
 
-    def list(self, prefix=''):
-        '''List keys in backend
+    async def lookup(self, key: str) -> object:
+        conn = await self._get_conn()
+        return await conn.lookup(key)
 
-        Returns an iterator over all keys in the backend.
-        '''
-        return self.backend.list(prefix)
+    async def contains(self, key: str) -> bool:
+        conn = await self._get_conn()
+        return await conn.contains(key)
 
-    def copy(self, src, dest, metadata=None):
-        return self.backend.copy(src, dest, metadata)
+    async def list(self, prefix: str = '') -> object:
+        conn = await self._get_conn()
+        return conn.list(prefix)
 
-    def rename(self, src, dest, metadata=None):
-        return self.backend.rename(src, dest, metadata)
+    async def get_size(self, key: str) -> int:
+        conn = await self._get_conn()
+        return await conn.get_size(key)
 
-    def update_meta(self, key, metadata):
-        return self.backend.update_meta(key, metadata)
-
-    def get_size(self, key):
-        '''Return size of object stored under *key*'''
-
-        return self.backend.get_size(key)
+    async def reset(self) -> None:
+        if self._conn is not None:
+            await self._conn.reset()
 
 
 async def start_flush(cache, inode, block=None):

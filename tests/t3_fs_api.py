@@ -21,16 +21,14 @@ import shutil
 import stat
 import tempfile
 from argparse import Namespace
-from queue import Queue
 from random import randint
 
 import pytest
-import trio
 from common import CLOCK_GRANULARITY, safe_sleep
 from pyfuse3 import FUSEError
 from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
-from t2_block_cache import DummyQueue
+from t2_block_cache import DummyRemovalChannel, DummyUploadChannel
 
 from s3ql import ROOT_INODE, fs
 from s3ql.backends import local
@@ -101,22 +99,16 @@ async def ctx():
         ctx.db,
         ctx.cachedir + "/cache",
         ctx.max_obj_size * 5,
-        trio_token=trio.lowlevel.current_trio_token(),
-        to_upload=trio.open_memory_channel(0),
-        to_remove=Queue(1000),
+        upload_send=None,  # type: ignore[assignment]
+        remove_send=None,  # type: ignore[assignment]
     )
     ctx.cache = cache
     ctx.server = fs.Operations(cache, ctx.db, ctx.max_obj_size, InodeCache(ctx.db, 0))
     ctx.server.init()
 
-    # Monkeypatch around the need for removal and upload threads
-    cache.to_remove = DummyQueue(cache)  # type: ignore[assignment]
-
-    class DummyChannel:
-        async def send(self, arg):
-            await trio.to_thread.run_sync(cache._do_upload, *arg)
-
-    cache.to_upload = (DummyChannel(), None)  # type: ignore[assignment]
+    # Monkeypatch: process uploads and removals inline instead of using worker tasks
+    cache._upload_send = DummyUploadChannel(cache)  # type: ignore[assignment]
+    cache._remove_send = DummyRemovalChannel(cache)  # type: ignore[assignment]
 
     # Keep track of unused filenames
     ctx.name_cnt = 0

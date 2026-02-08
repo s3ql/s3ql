@@ -12,15 +12,11 @@ import logging
 import os
 import re
 import sys
-import threading
 import time
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import BufferedRandom
-from queue import Empty as QueueEmpty
-from queue import Full as QueueFull
-from queue import Queue
 from typing import TYPE_CHECKING, cast
 
 import trio
@@ -33,28 +29,17 @@ from .backends.common import NoSuchObject
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
 
+UploadChannelSend = trio.MemorySendChannel[tuple['CacheEntry', int]]
+UploadChannelRecv = trio.MemoryReceiveChannel[tuple['CacheEntry', int]]
+RemovalChannelSend = trio.MemorySendChannel[int]
+RemovalChannelRecv = trio.MemoryReceiveChannel[int]
+
 if TYPE_CHECKING:
     from .backends.pool import BackendPool
     from .database import Connection
 
 # standard logger for this module
 log = logging.getLogger(__name__)
-
-# Special queue entry that signals threads to terminate
-QuitSentinel = object()
-
-# Special queue entry that signals that removal queue should
-# be flushed
-FlushSentinel = object()
-
-
-class NoWorkerThreads(Exception):
-    '''
-    Raised when trying to enqueue an object, but there
-    are no active consumer threads.
-    '''
-
-    pass
 
 
 class CacheEntry:
@@ -187,13 +172,12 @@ class BlockCache:
     :cache: ordered dictionary of cache entries
     :mlock: MultiLock to synchronize access to objects and cache entries
     :in_transit: set of cache entries that are currently being uploaded
-    :to_upload: distributes objects to upload to worker threads
-    :to_remove: distributes objects to remove to worker threads
-    :transfer_complete: signals completion of an object upload
-    :upload_threads: list of threads processing upload queue
-    :removal_threads: list of threads processing removal queue
+    :_upload_send: channel to distribute upload work to worker tasks
+    :_remove_send: channel to distribute removal work to worker tasks
+    :transfer_completed: signals completion of an object upload
     :db: Handle to SQL DB
     :backend_pool: BackendPool instance
+    :nursery: Trio nursery that owns the worker tasks
     """
 
     path: str
@@ -202,15 +186,9 @@ class BlockCache:
     cache: CacheDict
     mlock: MultiLock
     in_transit: set[CacheEntry]
-    upload_threads: list[threading.Thread]
-    removal_threads: list[threading.Thread]
     transfer_completed: trio.Condition
-    to_upload: tuple[
-        trio.MemorySendChannel[tuple[CacheEntry, int] | object],
-        trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
-    ]
-    to_remove: Queue[int | object]
-    trio_token: trio.lowlevel.TrioToken
+    _upload_send: UploadChannelSend
+    _remove_send: RemovalChannelSend
     fs: Operations | None
 
     def __init__(
@@ -219,14 +197,9 @@ class BlockCache:
         db: Connection,
         cachedir: str,
         max_size: int,
+        upload_send: UploadChannelSend,
+        remove_send: RemovalChannelSend,
         max_entries: int = 768,
-        *,
-        trio_token: trio.lowlevel.TrioToken,
-        to_upload: tuple[
-            trio.MemorySendChannel[tuple[CacheEntry, int] | object],
-            trio.MemoryReceiveChannel[tuple[CacheEntry, int] | object],
-        ],
-        to_remove: Queue[int | object],
     ) -> None:
         log.debug('Initializing')
 
@@ -236,12 +209,9 @@ class BlockCache:
         self.cache = CacheDict(max_size, max_entries)
         self.mlock = MultiLock()
         self.in_transit = set()
-        self.upload_threads: list[threading.Thread] = []
-        self.removal_threads: list[threading.Thread] = []
         self.transfer_completed = trio.Condition()
-        self.trio_token = trio_token
-        self.to_upload = to_upload
-        self.to_remove = to_remove
+        self._upload_send = upload_send
+        self._remove_send = remove_send
 
         if os.path.exists(self.path):
             self.load_cache()
@@ -262,24 +232,45 @@ class BlockCache:
         max_size: int,
         max_entries: int = 768,
         connections: int = 1,
+        *,
+        nursery: trio.Nursery,
     ) -> BlockCache:
-        '''Create and initialize a BlockCache, including worker threads.'''
-
-        trio_token = trio.lowlevel.current_trio_token()
-        to_upload = trio.open_memory_channel[tuple[CacheEntry, int] | object](0)
-        to_remove: Queue[int | object] = Queue(1000)
+        '''Create and initialize a BlockCache, including worker tasks.'''
+        upload_send, upload_recv = trio.open_memory_channel[tuple[CacheEntry, int]](0)
+        remove_send, remove_recv = trio.open_memory_channel[int](1000)
 
         instance = cls(
             backend_pool,
             db,
             cachedir,
             max_size,
-            max_entries,
-            trio_token=trio_token,
-            to_upload=to_upload,
-            to_remove=to_remove,
+            max_entries=max_entries,
+            upload_send=upload_send,
+            remove_send=remove_send,
         )
-        instance._start_threads(connections)
+
+        # TODO: We are awkwardly splitting the number of connections between
+        # removal and upload threads. Instead, we should let the BackendPool
+        # limit the number of connections it gives out, and start `connections`
+        # tasks for both upload and removal.
+
+        # Each worker receives its own clone of the receive channel. When a worker exits (normally
+        # or due to a bug), its clone is closed. Once all clones are closed, subsequent sends raise
+        # `trio.BrokenResourceError` instead of blocking forever — preventing deadlocks when all
+        # workers have died.
+        if backend_pool.has_delete_multi:
+            nursery.start_soon(instance._removal_task_multi, remove_recv)
+            connections -= 1
+        else:
+            for _ in range(connections // 2 + 1):
+                nursery.start_soon(instance._removal_task_simple, remove_recv.clone())
+                connections -= 1
+            await remove_recv.aclose()
+
+        for _ in range(max(1, connections)):
+            nursery.start_soon(instance._upload_task, upload_recv.clone())
+        await upload_recv.aclose()
+
         return instance
 
     def load_cache(self) -> None:
@@ -300,115 +291,68 @@ class BlockCache:
         '''Get number of objects in cache'''
         return len(self.cache)
 
-    def _start_threads(self, connections: int) -> None:
-        '''Start upload and removal worker threads.'''
-
-        for _ in range(connections):
-            t = threading.Thread(target=self._upload_loop)
-            t.start()
-            self.upload_threads.append(t)
-
-        if self.backend_pool.has_delete_multi:
-            t = threading.Thread(target=self._removal_loop_multi)
-            t.daemon = True  # interruption will do no permanent harm
-            t.start()
-            self.removal_threads.append(t)
-        else:
-            for _ in range(20):
-                t = threading.Thread(target=self._removal_loop_simple)
-                t.daemon = True  # interruption will do no permanent harm
-                t.start()
-                self.removal_threads.append(t)
-
     async def destroy(self, keep_cache: bool = False) -> None:
-        '''Clean up and stop worker threads'''
+        '''Clean up and close worker channels'''
 
         log.debug('Flushing cache...')
-        try:
-            if keep_cache:
-                await self.flush()
-                for el in self.cache.values():
-                    assert not el.dirty
-                    el.close()
-            else:
-                await self.drop()
-        except NoWorkerThreads:
-            log.error('Unable to flush cache, no upload threads left alive')
+        if keep_cache:
+            await self.flush()
+            for el in self.cache.values():
+                assert not el.dirty
+                el.close()
+        else:
+            await self.drop()
 
-        # Signal termination to worker threads. If some of them
-        # terminated prematurely, continue gracefully.
-        log.debug('Signaling upload threads...')
-        try:
-            for t in self.upload_threads:  # noqa: B007 # auto-added, needs manual check!
-                await self._queue_upload(QuitSentinel)
-        except NoWorkerThreads:
-            pass
+        # Close channels — workers will exit when they see EndOfChannel
+        log.debug('Closing upload channel...')
+        await self._upload_send.aclose()
 
-        log.debug('Signaling removal threads...')
-        try:
-            for t in self.removal_threads:  # noqa: B007 # auto-added, needs manual check!
-                self._queue_removal(QuitSentinel)
-        except NoWorkerThreads:
-            pass
-
-        log.debug('waiting for upload threads...')
-        for t in self.upload_threads:
-            await trio.to_thread.run_sync(t.join)
-
-        log.debug('waiting for removal threads...')
-        for t in self.removal_threads:
-            t.join()
+        log.debug('Closing removal channel...')
+        await self._remove_send.aclose()
 
         assert len(self.in_transit) == 0
-        try:
-            while self.to_remove.get_nowait() is QuitSentinel:
-                pass
-        except QueueEmpty:
-            pass
-        else:
-            log.error('Could not complete object removals, no removal threads left alive')
-
-        self.upload_threads = []
-        self.removal_threads = []
 
         if not keep_cache:
             os.rmdir(self.path)
 
         log.debug('cleanup done.')
 
-    def _upload_loop(self) -> None:
-        '''Process upload queue.
+    async def _upload_task(self, recv: UploadChannelRecv) -> None:
+        '''Process upload queue as a Trio task.'''
 
-        This method runs in a separate thread outside the trio event loop.
-        '''
+        async with recv:
+            try:
+                async for el, obj_id in recv:
+                    log.debug('got upload work for obj %d', obj_id)
+                    await self._do_upload(el, obj_id)
+            except trio.EndOfChannel:
+                pass
+        log.debug('upload task exiting')
 
-        while True:
-            log.debug('reading from upload queue...')
-            tmp = trio.from_thread.run(self.to_upload[1].receive, trio_token=self.trio_token)
-
-            if tmp is QuitSentinel:
-                log.debug('got QuitSentinel')
-                break
-            log.debug('got work')
-
-            assert isinstance(tmp, tuple)
-            self._do_upload(tmp[0], tmp[1])
-
-    def _do_upload(self, el: CacheEntry, obj_id: int) -> None:
-        '''Upload object.
-
-        This method runs in a separate thread outside the trio event loop.
-        '''
+    async def _do_upload(self, el: CacheEntry, obj_id: int) -> None:
+        '''Upload object using async backend.'''
 
         success = False
+        try:
+            async with self.backend_pool() as backend:
+                el.seek(0)
+                if log.isEnabledFor(logging.DEBUG):
+                    time_ = time.time()
+                    obj_size = await backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
+                    time_ = time.time() - time_
+                    rate = el.size / (1024**2 * time_) if time_ != 0 else 0
+                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
+                else:
+                    obj_size = await backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
+            success = True
+        finally:
+            self.in_transit.discard(el)
 
-        async def with_event_loop(
-            exc_info: tuple[type[BaseException], BaseException, object] | tuple[None, None, None],
-        ) -> None:
             if success:
                 self.db.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
                 el.dirty = False
             else:
+                exc_info = sys.exc_info()
                 exc = exc_info[1]
                 log.debug('upload of %d failed (%s: %s)', obj_id, type(exc).__name__, exc)
                 # At this point we have to remove references to this storage
@@ -438,22 +382,6 @@ class BlockCache:
             await self.mlock.release(el.inode, el.blockno)
             async with self.transfer_completed:
                 self.transfer_completed.notify_all()
-
-        try:
-            with self.backend_pool.sync() as backend:
-                el.seek(0)
-                if log.isEnabledFor(logging.DEBUG):
-                    time_ = time.time()
-                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
-                    time_ = time.time() - time_
-                    rate = el.size / (1024**2 * time_) if time_ != 0 else 0
-                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
-                else:
-                    obj_size = backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
-            success = True
-        finally:
-            self.in_transit.remove(el)
-            trio.from_thread.run(with_event_loop, sys.exc_info(), trio_token=self.trio_token)
 
     async def wait(self) -> None:
         '''Wait until an object has been uploaded
@@ -545,7 +473,7 @@ class BlockCache:
 
                 await self.mlock.acquire(obj_id)
                 obj_lock_taken = True
-                await self._queue_upload((el, obj_id))
+                await self._upload_send.send((el, obj_id))
 
             # There is a block with the same hash
             else:
@@ -580,36 +508,6 @@ class BlockCache:
 
         return obj_lock_taken
 
-    async def _queue_upload(self, obj: tuple[CacheEntry, int] | object) -> None:
-        '''Put *obj* into upload queue'''
-
-        while True:
-            with trio.move_on_after(5):
-                await self.to_upload[0].send(obj)
-                return
-            for t in self.upload_threads:
-                if t.is_alive():
-                    break
-            else:
-                raise NoWorkerThreads('no upload threads')
-
-    def _queue_removal(self, obj: int | object) -> None:
-        '''Put *obj* into removal queue'''
-
-        while True:
-            try:
-                self.to_remove.put(obj, timeout=5)
-            except QueueFull:
-                pass
-            else:
-                return
-
-            for t in self.removal_threads:
-                if t.is_alive():
-                    break
-            else:
-                raise NoWorkerThreads('no removal threads')
-
     async def _deref_obj(self, obj_id: int) -> None:
         '''Decrease reference count for *obj_id*
 
@@ -642,67 +540,72 @@ class BlockCache:
             # this object would just give us another error.
             return
 
-        try:
-            self.to_remove.put(obj_id, block=False)
-        except QueueFull:
-            await trio.to_thread.run_sync(self._queue_removal, obj_id)
+        await self._remove_send.send(obj_id)
 
     def transfer_in_progress(self) -> bool:
         '''Return True if there are any cache entries being uploaded'''
 
         return len(self.in_transit) > 0
 
-    def _removal_loop_multi(self) -> None:
-        '''Process removal queue.
+    async def _removal_task_multi(self, recv: RemovalChannelRecv) -> None:
+        '''Process removal queue using batch deletes, as a Trio task.
 
-        This method runs in a separate thread outside the trio event loop.
+        Reads as many IDs as possible without blocking after the first
+        blocking receive, then issues a single delete_multi call.
         '''
-
-        # This method may look more complicated than necessary, but it ensures
-        # that we read as many objects from the queue as we can without
-        # blocking, and then hand them over to the backend all at once.
 
         ids: list[int] = []
-        while True:
+        async with recv:
             try:
-                log.debug('reading from queue (blocking=%s)', len(ids) == 0)
-                tmp = self.to_remove.get(block=len(ids) == 0)
-            except QueueEmpty:
-                tmp = FlushSentinel
+                async for obj_id in recv:
+                    ids.append(obj_id)
+                    # Drain any additional items available without blocking
+                    while True:
+                        try:
+                            obj_id = recv.receive_nowait()
+                        except trio.WouldBlock:
+                            break
+                        ids.append(obj_id)
 
-            if tmp in (FlushSentinel, QuitSentinel) and ids:
-                log.debug('removing: %s', ids)
-                try:
-                    with self.backend_pool.sync() as backend:
-                        backend.delete_multi(['s3ql_data_%d' % i for i in ids])
-                except NoSuchObject:
-                    log.warning('Backend lost object s3ql_data_%d' % ids.pop(0))
-                    self.fs.failsafe = True  # type: ignore[union-attr]
-                ids = []
-            elif isinstance(tmp, int):
-                ids.append(tmp)
+                    log.debug('removing: %s', ids)
+                    try:
+                        async with self.backend_pool() as backend:
+                            await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+                    except NoSuchObject:
+                        log.warning('Backend lost object s3ql_data_%d', ids[0])
+                        self.fs.failsafe = True  # type: ignore[union-attr]
+                    ids = []
+            except trio.EndOfChannel:
+                pass
 
-            if tmp is QuitSentinel:
-                break
+        # Flush any remaining accumulated IDs
+        if ids:
+            log.debug('final removal flush: %s', ids)
+            try:
+                async with self.backend_pool() as backend:
+                    await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+            except NoSuchObject:
+                log.warning('Backend lost object s3ql_data_%d', ids[0])
+                self.fs.failsafe = True  # type: ignore[union-attr]
 
-    def _removal_loop_simple(self) -> None:
-        '''Process removal queue.
+        log.debug('removal task (multi) exiting')
 
-        This method runs in a separate thread outside the trio event loop.
-        '''
+    async def _removal_task_simple(self, recv: RemovalChannelRecv) -> None:
+        '''Process removal queue one object at a time, as a Trio task.'''
 
-        while True:
-            log.debug('reading from queue..')
-            id_ = self.to_remove.get()
-            if id_ is QuitSentinel:
-                break
-            assert isinstance(id_, int)
-            with self.backend_pool.sync() as backend:
-                try:
-                    backend.delete('s3ql_data_%d' % id_)
-                except NoSuchObject:
-                    log.warning('Backend lost object s3ql_data_%d' % id_)
-                    self.fs.failsafe = True  # type: ignore[union-attr]
+        async with recv:
+            try:
+                async for obj_id in recv:
+                    log.debug('removing object %d', obj_id)
+                    async with self.backend_pool() as backend:
+                        try:
+                            await backend.delete('s3ql_data_%d' % obj_id)
+                        except NoSuchObject:
+                            log.warning('Backend lost object s3ql_data_%d', obj_id)
+                            self.fs.failsafe = True  # type: ignore[union-attr]
+            except trio.EndOfChannel:
+                pass
+        log.debug('removal task (simple) exiting')
 
     @asynccontextmanager
     async def get(
@@ -795,14 +698,11 @@ class BlockCache:
                     await self.mlock.acquire(obj_id)
                     await self.mlock.release(obj_id)
 
-                    def with_lock_released():
-                        with self.backend_pool.sync() as backend:
-                            backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
-
-                    await trio.to_thread.run_sync(with_lock_released)
+                    async with self.backend_pool() as backend:
+                        await backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
 
                     tmpfh.flush()
-                    os.fsync(tmpfh.fileno())
+                    await trio.to_thread.run_sync(os.fsync, tmpfh.fileno())
                     os.rename(tmpfh.name, filename)
                 except:
                     os.unlink(tmpfh.name)
@@ -1007,8 +907,9 @@ class BlockCache:
                 dirty_size += el.size
                 dirty_cnt += 1
 
-        # This is an estimate which may be negative
-        remove_cnt = max(0, self.to_remove.qsize())
+        # Removal channel statistics are not readily available,
+        # TODO: Update clients to remove this value entirely
+        remove_cnt = 0
 
         return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 
