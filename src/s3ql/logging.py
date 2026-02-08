@@ -48,7 +48,7 @@ SYSTEMD_LOG_LEVEL_MAP = {
 class SystemdFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         s = super().format(record)
-        prefix = SYSTEMD_LOG_LEVEL_MAP.get(record.levelno, None)
+        prefix = SYSTEMD_LOG_LEVEL_MAP.get(record.levelno)
         if prefix:
             s = '<%d>%s' % (prefix, s)
         return s

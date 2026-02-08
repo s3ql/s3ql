@@ -721,7 +721,7 @@ def _unwrap_user_meta(json_resp: dict[str, object]) -> BasicMappingT:
     ):
         parts: list[str] = []
         for i in count():
-            part = meta_raw.get('%03d' % i, None)
+            part = meta_raw.get('%03d' % i)
             if part is None:
                 break
             parts.append(part)
