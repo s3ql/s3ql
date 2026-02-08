@@ -21,7 +21,7 @@ import textwrap
 import threading
 import time
 from abc import ABCMeta, abstractmethod
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Callable
 from functools import wraps
 from io import BytesIO
 from typing import TYPE_CHECKING, Literal, Optional, TypeVar
@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 import trio
 
 from s3ql import BUFSIZE
-from s3ql.async_bridge import run_async
 from s3ql.http import HTTPConnection
 from s3ql.logging import LOG_ONCE, QuietError
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
@@ -39,7 +38,6 @@ if TYPE_CHECKING:
 
 F = TypeVar('F', bound=Callable[..., object])
 T = TypeVar('T', bound='AsyncBackend')
-T2 = TypeVar('T2', bound='AbstractBackend')
 
 
 class _FactorySentinel:
@@ -661,118 +659,3 @@ async def copy_from_http(
             ofh.write(buf)
         if update is not None:
             update(buf)
-
-
-# TODO: Remove this after async transition is complete
-class AbstractBackend:
-    '''Synchronous wrapper for AsyncBackend.
-
-    The name of this class is misleading, and the class only exists transitionally until
-    all code has been converted to async.
-    '''
-
-    needs_login: bool
-    known_options: set[str]
-
-    def __init__(self, async_backend: AsyncBackend) -> None:
-        self.async_backend = async_backend
-
-    def __enter__(self: T2) -> T2:
-        return self
-
-    def __exit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc_value: BaseException | None,
-        tb: object,
-    ) -> Literal[False]:
-        self.close()
-        return False
-
-    @property
-    def has_delete_multi(self) -> bool:
-        return self.async_backend.has_delete_multi
-
-    def reset(self) -> None:
-        run_async(self.async_backend.reset)
-
-    def fetch(self, key: str) -> tuple[bytes, BasicMappingT]:
-        return run_async(self.async_backend.fetch, key)
-
-    def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
-        return run_async(self.async_backend.store, key, val, metadata)
-
-    def lookup(self, key: str) -> BasicMappingT:
-        return run_async(self.async_backend.lookup, key)
-
-    def get_size(self, key: str) -> int:
-        return run_async(self.async_backend.get_size, key)
-
-    def contains(self, key: str) -> bool:
-        return run_async(self.async_backend.contains, key)
-
-    def delete(self, key: str) -> None:
-        run_async(self.async_backend.delete, key)
-
-    def delete_multi(self, keys: list[str]) -> None:
-        run_async(self.async_backend.delete_multi, keys)
-
-    def list(self, prefix: str = '') -> Iterator[str]:
-        '''Collect all items from AsyncIterator, return sync Iterator.'''
-
-        async def collect() -> list[str]:
-            result = []
-            async for key in self.async_backend.list(prefix):
-                result.append(key)
-            return result
-
-        return iter(run_async(collect))
-
-    def close(self) -> None:
-        run_async(self.async_backend.close)
-
-    def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
-        return run_async(self.async_backend.readinto_fh, key, fh)
-
-    def write_fh(
-        self,
-        key: str,
-        fh: BinaryInput,
-        len_: int,
-        metadata: BasicMappingT | None = None,
-    ) -> int:
-        return run_async(self.async_backend.write_fh, key, fh, len_, metadata)
-
-    @property
-    def is_temp_failure(self) -> Callable[[BaseException], bool]:
-        return self.async_backend.is_temp_failure
-
-    # Set by unit tests
-    @is_temp_failure.setter
-    def is_temp_failure(self, value: Callable[[BaseException], bool]) -> None:
-        self.async_backend.is_temp_failure = value  # type: ignore[method-assign,assignment]
-
-    @property
-    def prefix(self) -> str:
-        return self.async_backend.prefix  # type: ignore[attr-defined]
-
-    @prefix.setter
-    def prefix(self, value: str) -> None:
-        self.async_backend.prefix = value  # type: ignore[attr-defined]
-
-    @property
-    def options(self) -> BackendOptionsProtocol:
-        return self.async_backend.options  # type: ignore[attr-defined]
-
-    @property
-    def unittest_info(self) -> object:
-        return self.async_backend.unittest_info  # type: ignore[attr-defined]
-
-    # Set by unit tests
-    @unittest_info.setter
-    def unittest_info(self, value: object) -> None:
-        self.async_backend.unittest_info = value  # type: ignore[attr-defined]
-
-    @property
-    def conn(self) -> object:
-        return self.async_backend.conn  # type: ignore[attr-defined]

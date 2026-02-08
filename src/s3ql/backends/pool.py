@@ -9,13 +9,12 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncGenerator, Generator
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 
 import trio
 
-from s3ql.async_bridge import run_async
-from s3ql.backends.comprenc import AsyncComprencBackend, ComprencBackend
+from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.types import BackendFactory
 
 log = logging.getLogger(__name__)
@@ -64,13 +63,3 @@ class BackendPool:
             yield conn
         finally:
             await self.push_conn(conn)
-
-    @contextmanager
-    def sync(self) -> Generator[ComprencBackend, None, None]:
-        '''Provide sync connection from pool (context manager for worker threads)'''
-
-        conn = run_async(self.pop_conn)
-        try:
-            yield ComprencBackend.from_async_backend(conn)
-        finally:
-            run_async(self.push_conn, conn)

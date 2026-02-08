@@ -25,7 +25,6 @@ import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
 import trio
 
-from s3ql.async_bridge import run_async
 from s3ql.types import (
     BasicMappingT,
     BinaryInput,
@@ -38,7 +37,6 @@ from .. import BUFSIZE
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import (
     _FACTORY_SENTINEL,
-    AbstractBackend,
     AsyncBackend,
     CorruptedObjectError,
     checksum_basic_mapping,
@@ -612,53 +610,3 @@ class ObjectNotEncrypted(Exception):
     '''
 
     pass
-
-
-# TODO: Remove this after async transition is complete
-class ComprencBackend(AbstractBackend):
-    '''Synchronous wrapper for AsyncComprencBackend.
-
-    For transitional use only, until all code has been converted to async.
-    '''
-
-    async_backend: AsyncComprencBackend
-
-    @staticmethod
-    def from_async_backend(async_backend: AsyncComprencBackend) -> ComprencBackend:
-        '''Create a ComprencBackend from an AsyncComprencBackend'''
-
-        b = ComprencBackend.__new__(ComprencBackend)
-        AbstractBackend.__init__(b, async_backend)
-        return b
-
-    @property
-    def passphrase(self) -> bytes | None:
-        return self.async_backend.passphrase
-
-    @passphrase.setter
-    def passphrase(self, value: bytes | None) -> None:
-        self.async_backend.passphrase = value
-
-    @property
-    def compression(self) -> tuple[str | None, int]:
-        return self.async_backend.compression
-
-    @property
-    def backend(self) -> AbstractBackend:
-        '''Access underlying raw backend (wrapped as sync)'''
-        return AbstractBackend(self.async_backend.backend)
-
-    def readinto_fh(
-        self, key: str, fh: BinaryOutput, size_hint: int | None = None
-    ) -> BasicMappingT:
-        return run_async(self.async_backend.readinto_fh, key, fh, size_hint)
-
-    def write_fh(
-        self,
-        key: str,
-        fh: BinaryInput,
-        len_: int,
-        metadata: BasicMappingT | None = None,
-        dont_compress: bool = False,
-    ) -> int:
-        return run_async(self.async_backend.write_fh, key, fh, len_, metadata, dont_compress)
