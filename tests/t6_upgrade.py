@@ -262,12 +262,16 @@ class RemoteUpgradeTest:
     def setup_method(self, method, name):
         super().setup_method(method)
         try:
-            (backend_login, backend_pw, self.storage_url) = get_remote_test_info(name)
+            (backend_login, backend_pw, backend_options, self.storage_url) = get_remote_test_info(
+                name
+            )
         except NoTestSection as exc:
+            # super().setup_method() created directories that we need to clean up
             super().teardown_method(method)
             pytest.skip(exc.reason)
         self.backend_login = backend_login
         self.backend_passphrase = backend_pw
+        self.backend_options = backend_options
 
     def populate(self):
         populate_dir(self.ref_dir, entries=50, size=5 * 1024 * 1024)
@@ -275,11 +279,11 @@ class RemoteUpgradeTest:
     def teardown_method(self, method):
         super().teardown_method(method)
 
-        proc = subprocess.Popen(
-            ['s3qladm', '--quiet', '--authfile', '/dev/null', 'clear', self.storage_url],
-            stdin=subprocess.PIPE,
-            universal_newlines=True,
-        )
+        args = ['s3qladm', '--quiet', '--authfile', '/dev/null']
+        if self.backend_options is not None:
+            args += ['--backend-options', self.backend_options]
+        args += ['clear', self.storage_url]
+        proc = subprocess.Popen(args, stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:
             print(self.backend_login, file=proc.stdin)
             print(self.backend_passphrase, file=proc.stdin)

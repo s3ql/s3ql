@@ -306,6 +306,9 @@ def get_remote_test_info(name):
         fs_name = config.get(name, 'test-fs')
         backend_login = config.get(name, 'backend-login')
         backend_password = config.get(name, 'backend-password')
+        backend_options = config.get(name, 'backend-options', fallback=None)
+        if isinstance(backend_options, str) and not backend_options.strip():
+            backend_options = None
     except (configparser.NoOptionError, configparser.NoSectionError):
         raise NoTestSection("Authentication file does not have %s section" % name)
 
@@ -314,4 +317,4 @@ def get_remote_test_info(name):
         fs_name += '/'
     fs_name += 's3ql_test_%d/' % time.time()
 
-    return (backend_login, backend_password, fs_name)
+    return (backend_login, backend_password, backend_options, fs_name)
