@@ -54,6 +54,7 @@ class TestFuse:
         self.passphrase = 'oeut3d'
         self.backend_login = None
         self.backend_passphrase = None
+        self.backend_options = None
 
         self.mount_process = None
         self.name_cnt = 0
@@ -73,6 +74,8 @@ class TestFuse:
             '/dev/null',
             self.storage_url,
         ]
+        if self.backend_options is not None:
+            argv += ['--backend-options', self.backend_options]
         if self.passphrase is None:
             argv.append('--plain')
 
@@ -106,9 +109,12 @@ class TestFuse:
             '--authfile',
             '/dev/null',
         ]
+        if self.backend_options is not None:
+            cmd += ['--backend-options', self.backend_options]
         if in_foreground:
             cmd += ["--fg"]
         cmd += extra_args
+
         self.mount_process = subprocess.Popen(cmd, stdin=subprocess.PIPE, universal_newlines=True)
         if self.backend_login is not None:
             print(self.backend_login, file=self.mount_process.stdin)
@@ -148,7 +154,11 @@ class TestFuse:
 
     def fsck(self, expect_retcode=0, args=None):
         if args is None:
-            args = []
+            extra_args = []
+        else:
+            extra_args = args[:]
+        if self.backend_options is not None:
+            extra_args += ['--backend-options', self.backend_options]
         proc = subprocess.Popen(
             [
                 'fsck.s3ql',
@@ -162,7 +172,7 @@ class TestFuse:
                 '/dev/null',
                 self.storage_url,
             ]
-            + args,
+            + extra_args,
             stdin=subprocess.PIPE,
             universal_newlines=True,
         )

@@ -40,8 +40,9 @@ class TestFailsafe(t4_fuse.TestFuse):
     def setup_method(self, method):
         super().setup_method(method)
         try:
-            (backend_login, backend_pw, self.storage_url) = get_remote_test_info('gs-test')
+            (backend_login, backend_pw, _, self.storage_url) = get_remote_test_info('gs-test')
         except NoTestSection as exc:
+            # super().setup_method() created directories that we need to clean up
             super().teardown_method(method)
             pytest.skip(exc.reason)
 

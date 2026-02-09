@@ -41,6 +41,7 @@ from s3ql.backends.comprenc import (
 )
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
 from s3ql.http import ConnectionClosed
+from s3ql.parse_args import suboptions_type
 from s3ql.types import BasicMappingT
 
 log = logging.getLogger(__name__)
@@ -83,7 +84,11 @@ def _get_backend_info():
             continue
 
         try:
-            (login, password, storage_url) = get_remote_test_info(name + '-test')
+            (login, password, options, storage_url) = get_remote_test_info(name + '-test')
+            if options is None:
+                options = {}
+            else:
+                options = suboptions_type(options)
         except NoTestSection as exc:
             log.info('Not running remote tests for %s backend: %s', name, exc.reason)
             continue
@@ -94,6 +99,7 @@ def _get_backend_info():
         bi.storage_url = storage_url
         bi.login = login
         bi.password = password
+        bi.options = options
         info.append(bi)
 
     # Backends talking to local mock servers
@@ -258,7 +264,7 @@ async def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
             storage_url=storage_url,
             backend_login=bi.login,
             backend_password=bi.password,
-            backend_options={},
+            backend_options=bi.options,
         )
     )
 
