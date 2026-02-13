@@ -24,7 +24,6 @@ if ! python3 -c 'import sys; from Cython.Compiler.Version import version as cyth
 fi
 
 ./build_docs.sh
-(cd doc/pdf && latexmk)
 uv build --sdist
 
 # Ideally we'd use -z here to embed the signature in the gz header.
@@ -33,7 +32,7 @@ signify-openbsd -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
 #mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
 echo "Uploading documentation..."
-rsync -aHv --del doc/html/ doc/pdf/manual.pdf ebox.rath.org:/srv/www.rath.org/s3ql-docs/
+rsync -aHv --del doc/html/ ebox.rath.org:/srv/www.rath.org/s3ql-docs/
 
 echo "Contributors from ${PREV_TAG} to ${TAG}:"
 git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | \

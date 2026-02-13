@@ -9,8 +9,8 @@ RUN apt-get update \
  && apt-get install -y lsb-release sudo curl build-essential manpages \
                        git libbz2-dev libssl-dev libreadline-dev libffi-dev libsqlite3-dev \
                        zlib1g-dev libsqlite3-dev wget curl llvm libncurses5-dev xz-utils libxml2-dev libxmlsec1-dev liblzma-dev \
-                       libsystemd-dev gcc psmisc pkg-config libattr1-dev libsqlite3-dev libjs-sphinxdoc texlive-latex-base \
-                       texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended python3-pip python3-setuptools \
+                       libsystemd-dev gcc psmisc pkg-config libattr1-dev libsqlite3-dev
+                       libjs-sphinxdoc python3-pip python3-setuptools \
                        ninja-build udev libudev1 libudev-dev meson \
  && mkdir /build \
  && ln -sf /usr/bin/pip3 /usr/bin/pip && ln -sf /usr/bin/python3 /usr/bin/python \
