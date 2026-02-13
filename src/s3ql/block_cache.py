@@ -664,16 +664,19 @@ class BlockCache:
         except KeyError:
             filename = os.path.join(self.path, '%d-%d' % (inode, blockno))
             try:
-                obj_id, size = self.db.get_row_typed(
-                    (int, int),
+                row = self.db.get_row(
                     '''
-                    SELECT obj_id, length
+                    SELECT obj_id, length, hash
                     FROM inode_blocks
                     JOIN objects ON inode_blocks.obj_id=objects.id
                     WHERE inode=? AND blockno=?
                     ''',
                     (inode, blockno),
                 )
+                obj_id, size, hash_ = row
+                assert isinstance(obj_id, int)
+                assert isinstance(size, int)
+                assert hash_ is None or isinstance(hash_, bytes)
 
             # No corresponding object
             except NoSuchRowError:
@@ -681,6 +684,16 @@ class BlockCache:
                 el = CacheEntry(inode, blockno, filename)
                 self.cache[(inode, blockno)] = el
                 return el
+
+            if hash_ is None:
+                log.warning(
+                    'Object %d referenced by inode %d block %d has NULL hash '
+                    '- filesystem corruption, setting failsafe mode',
+                    obj_id,
+                    inode,
+                    blockno,
+                )
+                self.fs.failsafe = True  # type: ignore[union-attr]
 
             # Need to download corresponding object
             log.debug('downloading object %d..', obj_id)

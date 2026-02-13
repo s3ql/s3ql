@@ -249,8 +249,7 @@ class Fsck:
 
             # Check if stored object has same checksum
             try:
-                (obj_id, hash_is) = self.conn.get_row_typed(
-                    (int, bytes),
+                row = self.conn.get_row(
                     'SELECT obj_id, hash '
                     'FROM inode_blocks JOIN objects ON obj_id = objects.id '
                     'WHERE inode=? AND blockno=?',
@@ -262,7 +261,12 @@ class Fsck:
             except NoSuchRowError:
                 pass
             else:
-                if hash_should == hash_is:
+                (obj_id, hash_is) = row
+                assert isinstance(obj_id, int)
+                assert hash_is is None or isinstance(hash_is, bytes)
+                if hash_is is None:
+                    log.debug('Object %d has NULL hash, treating cached block as dirty', obj_id)
+                elif hash_should == hash_is:
                     if not keep_cache:
                         os.unlink(os.path.join(self.cachedir, filename))
                     continue

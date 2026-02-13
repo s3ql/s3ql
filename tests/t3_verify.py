@@ -176,8 +176,8 @@ async def test_truncated_body(backend, db, full):
     id_ = 35
     data = b'just some data that no-one really cares about'
     db.execute(
-        'INSERT INTO objects (id, refcount, phys_size, length) VALUES(?, ?, ?, ?)',
-        (id_, 1, 27 * id_, len(data) + 1),
+        'INSERT INTO objects (id, refcount, phys_size, length, hash) VALUES(?, ?, ?, ?, ?)',
+        (id_, 1, 27 * id_, len(data) + 1, sha256(b'other data')),
     )
     key = 's3ql_data_%d' % id_
     await backend.store(key, data)
