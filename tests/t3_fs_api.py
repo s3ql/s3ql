@@ -81,7 +81,7 @@ async def ctx(tmp_path):
         return await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
 
     factory.has_delete_multi = True
-    ctx.backend_pool = BackendPool(factory)
+    ctx.backend_pool = BackendPool(factory, max_connections=10)
 
     ctx.backend = await ctx.backend_pool.pop_conn()
     ctx.cachedir = tmp_path / 'cache'

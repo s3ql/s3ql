@@ -231,7 +231,6 @@ class BlockCache:
         cachedir: str,
         max_size: int,
         max_entries: int = 768,
-        connections: int = 1,
         *,
         nursery: trio.Nursery,
     ) -> BlockCache:
@@ -249,25 +248,22 @@ class BlockCache:
             remove_send=remove_send,
         )
 
-        # TODO: We are awkwardly splitting the number of connections between
-        # removal and upload threads. Instead, we should let the BackendPool
-        # limit the number of connections it gives out, and start `connections`
-        # tasks for both upload and removal.
+        task_count = backend_pool.max_connections
 
         # Each worker receives its own clone of the receive channel. When a worker exits (normally
         # or due to a bug), its clone is closed. Once all clones are closed, subsequent sends raise
         # `trio.BrokenResourceError` instead of blocking forever — preventing deadlocks when all
         # workers have died.
-        if backend_pool.has_delete_multi:
-            nursery.start_soon(instance._removal_task_multi, remove_recv)
-            connections -= 1
-        else:
-            for _ in range(connections // 2 + 1):
-                nursery.start_soon(instance._removal_task_simple, remove_recv.clone())
-                connections -= 1
-            await remove_recv.aclose()
+        removal_task = (
+            instance._removal_task_multi
+            if backend_pool.has_delete_multi
+            else instance._removal_task_simple
+        )
+        for _ in range(task_count):
+            nursery.start_soon(removal_task, remove_recv.clone())
+        await remove_recv.aclose()
 
-        for _ in range(max(1, connections)):
+        for _ in range(task_count):
             nursery.start_soon(instance._upload_task, upload_recv.clone())
         await upload_recv.aclose()
 

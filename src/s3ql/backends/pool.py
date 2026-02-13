@@ -21,38 +21,46 @@ log = logging.getLogger(__name__)
 
 
 class BackendPool:
-    factory: BackendFactory
-    pool: list[AsyncComprencBackend]
-    lock: trio.Lock
-    has_delete_multi: bool
+    def __init__(self, factory: BackendFactory, max_connections: int) -> None:
+        if max_connections < 1:
+            raise ValueError('max_connections must be at least 1')
 
-    def __init__(self, factory: BackendFactory) -> None:
         self.factory = factory
-        self.pool = []
-        self.lock = trio.Lock()
+        self.max_connections = max_connections
+        self.pool: list[AsyncComprencBackend] = []
         self.has_delete_multi = factory.has_delete_multi
+        self._semaphore = trio.Semaphore(max_connections)
 
     async def pop_conn(self) -> AsyncComprencBackend:
-        '''Pop connection from pool'''
+        '''Pop connection from pool, blocking if max_connections are checked out'''
 
-        async with self.lock:
+        await self._semaphore.acquire()
+        try:
             if self.pool:
-                return self.pool.pop()
-        return await self.factory()
+                conn = self.pool.pop()
+            else:
+                log.debug('creating new backend connection')
+                conn = await self.factory()
+        except BaseException:
+            # Ensure semaphore is released if backend acquisition/creation fails
+            self._semaphore.release()
+            raise
+        return conn
 
     async def push_conn(self, conn: AsyncComprencBackend) -> None:
         '''Push connection back into pool'''
 
-        await conn.reset()
-        async with self.lock:
+        try:
+            await conn.reset()
             self.pool.append(conn)
+        finally:
+            self._semaphore.release()
 
     async def flush(self) -> None:
         '''Close all backends in pool'''
 
-        async with self.lock:
-            while self.pool:
-                await self.pool.pop().close()
+        while self.pool:
+            await self.pool.pop().close()
 
     @asynccontextmanager
     async def __call__(self) -> AsyncGenerator[AsyncComprencBackend, None]:

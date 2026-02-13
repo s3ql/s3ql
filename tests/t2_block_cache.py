@@ -89,7 +89,7 @@ async def ctx():
         return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), plain)
 
     factory.has_delete_multi = True
-    ctx.backend_pool = BackendPool(factory)
+    ctx.backend_pool = BackendPool(factory, max_connections=10)
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024

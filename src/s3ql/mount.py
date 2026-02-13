@@ -215,7 +215,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     # Get paths
     cachepath = options.cachepath
 
-    backend_pool = BackendPool(await get_backend_factory(options))
+    backend_pool = BackendPool(await get_backend_factory(options), options.max_connections)
     async with backend_pool() as backend:
         (param, db) = await get_metadata(backend, cachepath)
 
@@ -250,7 +250,6 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
             cachepath + '-cache',
             options.cachesize * 1024,
             max_entries=options.max_cache_entries,
-            connections=options.max_connections,
             nursery=nursery,
         )
         cm.push_async_callback(block_cache.destroy, options.keep_cache)
