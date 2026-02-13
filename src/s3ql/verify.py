@@ -170,7 +170,7 @@ async def retrieve_objects(
     total_count: int = total_count_raw if total_count_raw is not None else 0
     size_acc = 0
 
-    send_channel, receive_channel = trio.open_memory_channel[tuple[int, bytes | None, int]](
+    send_channel, receive_channel = trio.open_memory_channel[tuple[int, bytes, int]](
         max_buffer_size=worker_count
     )
 
@@ -197,8 +197,12 @@ async def retrieve_objects(
                 assert isinstance(obj_size, int)
                 assert isinstance(block_size, int)
 
-                # TODO: Check if we're handling None correctly here
-                assert hash_ is None or isinstance(hash_, bytes)
+                if hash_ is None:
+                    raise RuntimeError(
+                        f'Object {obj_id} has NULL hash (likely failed upload), run '
+                        'fsck.s3ql to fix this before verifying data integrity.',
+                    )
+                assert isinstance(hash_, bytes)
 
                 i += 1  # start at 1
                 extra = {'rate_limit': 1, 'update_console': True, 'is_last': i == total_count}

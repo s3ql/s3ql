@@ -186,19 +186,20 @@ async def test_truncated_body(backend, db, full):
     corrupted_fh = io.StringIO()
 
     if full:
-        with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
+        with assert_logs('^Object %d has NULL hash', count=1, level=logging.WARNING):
             await verify.retrieve_objects(
                 db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
             )
             assert missing_fh.getvalue() == ''
             assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % id_
     else:
-        # Should not show up when looking just at HEAD
-        await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
-        )
-        assert missing_fh.getvalue() == ''
-        assert corrupted_fh.getvalue() == ''
+        # NULL hash objects are flagged as corrupted even without full verification
+        with assert_logs('^Object %d has NULL hash', count=1, level=logging.WARNING):
+            await verify.retrieve_objects(
+                db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+            )
+            assert missing_fh.getvalue() == ''
+            assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % id_
 
 
 async def test_corrupted_hash(backend, db):
