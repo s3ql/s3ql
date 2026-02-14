@@ -821,16 +821,28 @@ async def download_metadata(
     with open(db_file, 'w+b', buffering=0) as fh:
         for blockno, candidates in block_list.items():
             off = blockno * blocksize
+            # In filesafe mode we do not have accurate file size information, so there may be
+            # valid data beyond `file_size`.
             if off >= file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
             try:
                 seq_no = first_le_than(candidates, params.seq_no)
             except ValueError:
-                # In filesafe mode we do not have accurate file size information, so
-                # the file may be shorter than this offset.
-                if not failsafe:
-                    raise
+                if failsafe:
+                    log.warning(
+                        'No metadata block found for block %d with seq_no <= %x, '
+                        'database may be corrupted.',
+                        blockno,
+                        params.seq_no,
+                    )
+                    # Maybe this is better than nothing
+                    seq_no = min(candidates)
+                else:
+                    raise RuntimeError(
+                        f'No metadata block found for block {blockno} '
+                        f'with seq_no <= {params.seq_no:x}'
+                    )
 
             processed += 1
             log.info(
