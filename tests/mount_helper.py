@@ -4,15 +4,12 @@ This file reproduces mount.s3ql, with pyfuse3.invalidate_inode patched
 for the t5_cp.py::TestCp::test_cp_inode_invalidate test.
 '''
 
-import os.path
 import sys
 
-basedir = os.path.abspath(os.path.join(os.path.dirname(sys.argv[0]), '..'))
-sys.path = [os.path.join(basedir, 'src')] + sys.path
+import pyfuse3
 
 # Override pyfuse3.invalidate_inode : Drop kernel dentries and inodes cache
 # just before calling pyfuse3.invalidate_inode
-import pyfuse3  # noqa: E402 # auto-added, needs manual check!
 
 pyfuse3_invalidate_inode = pyfuse3.invalidate_inode
 
@@ -26,6 +23,6 @@ def patched_pyfuse3_invalidate_inode(inode: pyfuse3.InodeT, attr_only=False) -> 
 
 pyfuse3.invalidate_inode = patched_pyfuse3_invalidate_inode
 
-import s3ql.mount  # noqa: E402 # auto-added, needs manual check!
+import s3ql.mount  # noqa: E402
 
 s3ql.mount.main(sys.argv[1:])

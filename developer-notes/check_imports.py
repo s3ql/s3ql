@@ -21,11 +21,11 @@ def get_definitions(path):
 
 def _iter_definitions(node):
     if isinstance(node, ast.Assign):
-        for node in node.targets:  # noqa: B020 # auto-added, needs manual check!
-            while isinstance(node, ast.Attribute):
-                node = node.value
-            assert isinstance(node, ast.Name)
-            yield node.id
+        for target in node.targets:
+            while isinstance(target, ast.Attribute):
+                target = target.value
+            assert isinstance(target, ast.Name)
+            yield target.id
     elif isinstance(node, (ast.FunctionDef, ast.ClassDef)):
         yield node.name
     elif isinstance(node, ast.If):
@@ -56,8 +56,8 @@ def iter_imports(path):
                 for snode in node.names:
                     yield (node.level, prefix + (snode.name,))
             elif isinstance(node, ast.Import):
-                for node in node.names:  # noqa: B020 # auto-added, needs manual check!
-                    yield (0, tuple(node.name.split('.')))
+                for alias in node.names:
+                    yield (0, tuple(alias.name.split('.')))
 
 
 def yield_modules(path):

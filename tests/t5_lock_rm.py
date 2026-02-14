@@ -45,7 +45,7 @@ class TestLockRemove(t4_fuse.TestFuse):
         # copy
         try:
             s3ql.lock.main([tempdir])
-        except:  # noqa: E722 # auto-added, needs manual check!
+        except:  # noqa: E722
             sys.excepthook(*sys.exc_info())
             pytest.fail("s3qllock raised exception")
 
@@ -59,7 +59,7 @@ class TestLockRemove(t4_fuse.TestFuse):
         # delete properly
         try:
             s3ql.remove.main([tempdir])
-        except:  # noqa: E722 # auto-added, needs manual check!
+        except:  # noqa: E722
             sys.excepthook(*sys.exc_info())
             pytest.fail("s3qlrm raised exception")
 

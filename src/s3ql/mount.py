@@ -100,7 +100,7 @@ def install_thread_excepthook() -> None:
                 run_old(*args, **kw)
             except SystemExit:
                 raise
-            except:  # noqa: E722 # auto-added, needs manual check!
+            except:  # noqa: E722
                 exc_type, exc_val, exc_tb = sys.exc_info()
                 assert exc_type is not None and exc_val is not None
                 sys.excepthook(exc_type, exc_val, exc_tb)
@@ -861,11 +861,11 @@ class CommitTask:
             # to be that bad:
             # >>> from timeit import timeit
             # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501 # auto-added, needs manual check!
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501
             # ... number=500)/500 * 1e3
             # 1.3769531380003173
             # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501 # auto-added, needs manual check!
+            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501
             # ... number=500)/500 * 1e3
             # 1.456586996000624
             for el in list(self.block_cache.cache.values()):

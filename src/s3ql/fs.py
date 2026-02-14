@@ -468,7 +468,8 @@ class Operations(pyfuse3.Operations):
                         queue.append(id_)
                     else:
                         if is_open:
-                            # This may fail with ENOTEMPTY in rare circumstances. See below for details.  # noqa: E501 # auto-added, needs manual check!
+                            # This may fail with ENOTEMPTY in rare circumstances. See below for
+                            # details.
                             pyfuse3.invalidate_entry_async(
                                 id_p, name, deleted=id_, ignore_enoent=True
                             )

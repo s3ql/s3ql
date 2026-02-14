@@ -263,7 +263,7 @@ class AsyncBackend(metaclass=ABCMeta):
 
         return False
 
-    async def reset(self) -> None:  # noqa: B027 # auto-added, needs manual check!
+    async def reset(self) -> None:  # noqa: B027
         '''Reset backend
 
         This resets the backend and ensures that it is ready to process requests. In most cases,

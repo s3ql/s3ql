@@ -6,16 +6,15 @@ Copyright © 2008 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-# (We must not import s3ql.logging.logging as s3ql.logging,
-# otherwise future imports of s3ql.logging will incorrectly
-# use s3ql.logging.logging).
 from typing import cast
 
+from pyfuse3 import ROOT_INODE, InodeT
+
+# (We must not import s3ql.logging.logging as s3ql.logging, otherwise future imports of s3ql.logging
+# will incorrectly use s3ql.logging.logging).
 from . import logging
 
 assert logging.LOG_ONCE  # prevent warnings about unused module
-
-from pyfuse3 import ROOT_INODE, InodeT  # noqa: E402 # auto-added, needs manual check!
 
 VERSION = '5.4.2'
 RELEASE = '%s' % VERSION

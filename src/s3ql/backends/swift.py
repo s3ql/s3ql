@@ -273,7 +273,7 @@ class AsyncBackend(AsyncBackendBase):
             raise
 
     def is_temp_failure(self, exc):  # IGNORE:W0613
-        if isinstance(exc, AuthenticationExpired):  # noqa: SIM114 # auto-added, needs manual check!
+        if isinstance(exc, AuthenticationExpired):  # noqa: SIM114
             return True
 
         # In doubt, we retry on 5xx (Server error). However, there are some
@@ -281,14 +281,14 @@ class AsyncBackend(AsyncBackendBase):
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
         # modifications. We also retry on 429 (Too Many Requests).
-        elif isinstance(exc, HTTPError) and (  # noqa: SIM114 # auto-added, needs manual check!
+        elif isinstance(exc, HTTPError) and (  # noqa: SIM114
             (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
             or exc.status in (408, 429)
             or 'client disconnected' in exc.msg.lower()
         ):
             return True
 
-        elif is_temp_network_error(exc):  # noqa: SIM114 # auto-added, needs manual check!
+        elif is_temp_network_error(exc):  # noqa: SIM114
             return True
 
         # Temporary workaround for
@@ -487,7 +487,8 @@ class AsyncBackend(AsyncBackendBase):
             if etag != md5.hexdigest():
                 raise BadDigestError(
                     'BadDigest',
-                    f'MD5 mismatch when sending {method} {path} (received: {etag}, sent: {md5.hexdigest()})',  # noqa: E501 # auto-added, needs manual check!
+                    f'MD5 mismatch when sending {method} {path} (received: {etag}, '
+                    f'sent: {md5.hexdigest()})',
                 )
 
         return resp

@@ -184,7 +184,7 @@ class AsyncBackend(AsyncBackendBase):
             self.conn.disconnect()
             return True
 
-        if isinstance(  # noqa: SIM114 # auto-added, needs manual check!
+        if isinstance(  # noqa: SIM114
             exc,
             (
                 InternalError,
@@ -804,7 +804,8 @@ class AsyncBackend(AsyncBackendBase):
             if etag != md5.hexdigest():
                 raise BadDigestError(
                     'BadDigest',
-                    f'MD5 mismatch when sending {method} {path} (received: {etag}, sent: {md5.hexdigest()})',  # noqa: E501 # auto-added, needs manual check!
+                    f'MD5 mismatch when sending {method} {path} (received: {etag}, '
+                    f'sent: {md5.hexdigest()})',
                 )
 
         return resp

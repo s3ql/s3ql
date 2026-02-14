@@ -918,9 +918,11 @@ async def test_failsafe(ctx):
     with open(datafile, 'rb+') as rfh:
         rfh.seek(560)
         rfh.write(b'blrub!')
-    with assert_raises(FUSEError) as cm:  # noqa: SIM117 # auto-added, needs manual check!
-        with assert_logs('^Backend returned malformed data for', count=1, level=logging.ERROR):
-            await ctx.server.read(fh, 0, len_)
+    with (
+        assert_raises(FUSEError) as cm,
+        assert_logs('^Backend returned malformed data for', count=1, level=logging.ERROR),
+    ):
+        await ctx.server.read(fh, 0, len_)
     assert cm.value.errno == errno.EIO
     assert ctx.server.failsafe
 
@@ -948,7 +950,7 @@ async def test_failsafe(ctx):
     os.unlink(datafile)
     await ctx.server.read(fh, 3, len_ // 2)
     await ctx.cache.drop()
-    with assert_raises(FUSEError) as cm:  # noqa: SIM117 # auto-added, needs manual check!
+    with assert_raises(FUSEError) as cm:  # noqa: SIM117
         with assert_logs('^Backend lost block', count=1, level=logging.ERROR):
             await ctx.server.read(fh, 5, len_ // 2)
     assert cm.value.errno == errno.EIO

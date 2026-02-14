@@ -53,10 +53,10 @@ def brace_expand(s):
     if not hit:
         return [s]
     (p, e, s) = hit.groups()
-    l = []  # noqa: E741 # auto-added, needs manual check!
+    result = []
     for el in e.split(','):
-        l.append(p + el + s)
-    return l
+        result.append(p + el + s)
+    return result
 
 
 def enable_temp_fail(backend):
