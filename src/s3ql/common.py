@@ -138,7 +138,7 @@ def get_path(id_: InodeT, conn: Connection, name: bytes | None = None) -> bytes:
         path.append(name2)
         maxdepth -= 1
         if maxdepth == 0:
-            raise RuntimeError('Failed to resolve name "%s" at inode %d to path', name, id_)
+            raise RuntimeError(f'Failed to resolve name "{name!r}" at inode {id_} to path')
 
     path.append(b'')
     path.reverse()
