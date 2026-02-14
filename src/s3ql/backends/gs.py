@@ -401,7 +401,7 @@ class AsyncBackend(AsyncBackendBase):
     @retry
     async def get_size(self, key: str) -> int:
         json_resp = await self._get_gs_meta(key)
-        return json_resp['size']  # type: ignore[return-value]
+        return int(json_resp['size'])  # type: ignore[call-overload] # GCS returns size as a string
 
     async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
