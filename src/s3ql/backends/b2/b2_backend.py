@@ -303,7 +303,8 @@ class AsyncB2Backend(AsyncBackend):
             )
             code = json_error_response['code'] if json_error_response else None
             message = json_error_response['message'] if json_error_response else response.reason
-            b2_error = B2Error(json_error_response['status'], code, message, response.headers)
+            status = json_error_response['status'] if json_error_response else response.status
+            b2_error = B2Error(status, code, message, response.headers)
             raise b2_error
 
         return response, response_body
