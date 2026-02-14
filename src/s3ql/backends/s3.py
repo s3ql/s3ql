@@ -165,3 +165,4 @@ class AsyncBackend(s3c4.AsyncBackend):
 
         except:  # noqa: E722 # auto-added, needs manual check!
             await self.conn.co_discard()
+            raise
