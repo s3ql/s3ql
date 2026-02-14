@@ -304,7 +304,7 @@ class AsyncBackend(AsyncBackendBase):
             if root_xmlns_prefix != self.xml_ns_prefix:
                 log.error(
                     'Unexpected server reply to list operation:\n%s',
-                    self._dump_response(resp, body=body),
+                    await self._dump_response(resp, body=body),
                 )
                 raise RuntimeError('List response has unknown namespace')
 
