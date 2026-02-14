@@ -163,6 +163,6 @@ class AsyncBackend(s3c4.AsyncBackend):
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
-        except:  # noqa: E722 # auto-added, needs manual check!
+        except:  # auto-added, needs manual check!
             await self.conn.co_discard()
             raise

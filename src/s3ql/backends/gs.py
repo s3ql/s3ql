@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import ssl
-import trio
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
@@ -21,6 +20,7 @@ from collections.abc import AsyncIterator
 from itertools import count
 
 import google.auth as g_auth
+import trio
 
 from s3ql.http import (
     BodyFollowing,

@@ -219,8 +219,8 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     async with backend_pool() as backend:
         (param, db) = await get_metadata(backend, cachepath)
 
-    # Handle --cachesize
-    rec_cachesize = options.max_cache_entries * param.data_block_size / 2
+    # Handle --cachesize (all values in KiB)
+    rec_cachesize = options.max_cache_entries * param.data_block_size / 2 / 1024
     avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
     if options.cachesize is None:
         options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
