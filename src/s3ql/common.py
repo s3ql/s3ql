@@ -365,7 +365,7 @@ def pretty_print_size(bytes_: int) -> str:
         i /= 1024**3
 
     else:
-        unit = 'TB'
+        unit = 'TiB'
         i /= 1024**4
 
     if i < 10:
