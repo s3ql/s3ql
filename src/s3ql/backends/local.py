@@ -208,7 +208,7 @@ class AsyncBackend(AsyncBackendBase):
 
         no = key[10:]
         path = [self.prefix, 's3ql_data_']
-        for i in range(0, len(no), 3):
+        for i in range(3, len(no), 3):
             path.append(no[:i])
         path.append(key)
 
