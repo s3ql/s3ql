@@ -479,7 +479,7 @@ async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.
         buf = input('Enter index to revert to: ')
         try:
             seq_no = backups[int(buf.strip())]
-        except:  # noqa: E722 # auto-added, needs manual check!
+        except (ValueError, IndexError):
             print('Invalid selection.')
 
     params = await read_remote_params(backend, seq_no=seq_no)
