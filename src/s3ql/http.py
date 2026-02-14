@@ -685,8 +685,6 @@ class HTTPConnection:
             try:
                 if self._sock is None:
                     raise ConnectionClosed('connection has been closed locally')
-                if self.trace_fh:
-                    self.trace_fh.write(buf)
                 len_ = self._sock.send(buf)
                 # An SSL socket has the nasty habit of returning zero
                 # instead of raising an exception when in non-blocking
@@ -719,6 +717,8 @@ class HTTPConnection:
                     raise
 
             log.debug('sent %d bytes', len_)
+            if self.trace_fh:
+                self.trace_fh.write(buf[:len_])
             buf = buf[len_:]
             if len(buf) == 0:
                 log.debug('done')
