@@ -552,7 +552,8 @@ def decrypt_fh(ifh: BinaryInput, ofh: BinaryOutput, key: bytes) -> None:
             raise CorruptedObjectError('Premature end of stream.')
         buf = decryptor.update(buf)
         hmac_.update(buf)
-        assert len(buf) == off_size
+        if len(buf) != off_size:
+            raise CorruptedObjectError('Short read during decryption')
         to_read = struct.unpack(b'<I', buf)[0]
         if to_read == 0:
             break
