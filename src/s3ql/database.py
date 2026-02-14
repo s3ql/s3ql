@@ -186,7 +186,6 @@ class Connection:
             self.conn = apsw.Connection(file_)
         self.file = file_
         self.blocksize = blocksize
-        self.tx_active = False
 
         # Event used to signal when inhibit_writes() context exits.
         # Set to a trio.Event while inhibit_writes is active, None otherwise.
