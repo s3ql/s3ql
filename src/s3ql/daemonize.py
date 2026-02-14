@@ -89,3 +89,5 @@ def redirect_stream(system_stream: IO[str], target_stream: IO[str] | None) -> No
     else:
         target_fd = target_stream.fileno()
     os.dup2(target_fd, system_stream.fileno())
+    if target_stream is None:
+        os.close(target_fd)
