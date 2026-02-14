@@ -79,7 +79,7 @@ class MultiLock:
     async def release(self, *key: Hashable, noerror: bool = False) -> None:
         """Release lock on given key
 
-        If noerror is False, do not raise exception if *key* is
+        If noerror is True, do not raise exception if *key* is
         not locked.
         """
 
