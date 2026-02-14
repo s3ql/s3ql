@@ -49,7 +49,7 @@ class SystemdFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
         s = super().format(record)
         prefix = SYSTEMD_LOG_LEVEL_MAP.get(record.levelno)
-        if prefix:
+        if prefix is not None:
             s = '<%d>%s' % (prefix, s)
         return s
 
