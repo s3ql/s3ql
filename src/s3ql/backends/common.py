@@ -580,10 +580,10 @@ def checksum_basic_mapping(metadata: BasicMappingT, key: bytes | None = None) ->
             val = b'\0s' + val.encode('utf-8') + b'\0'
         elif val is None:
             val = b'\0n'
-        elif isinstance(val, int):
-            val = b'\0i' + ('%d' % val).encode() + b'\0'
         elif isinstance(val, bool):
             val = b'\0t' if val else b'\0f'
+        elif isinstance(val, int):
+            val = b'\0i' + ('%d' % val).encode() + b'\0'
         elif isinstance(val, float):
             val = b'\0d' + struct.pack('<d', val)
         elif isinstance(val, (bytes, bytearray)):
