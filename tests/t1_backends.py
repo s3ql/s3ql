@@ -735,7 +735,7 @@ async def test_get_s3error(backend, monkeypatch):
 
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
     with assert_raises(OperationAbortedError):
-        await backend.fetch(value)
+        await backend.fetch(key)
 
     enable_temp_fail(backend)
     assert (await backend.fetch(key))[0] == value
