@@ -764,7 +764,7 @@ async def test_symlink(ctx):
     inode = await ctx.server.symlink(ROOT_INODE, name, target, some_ctx)
     inode_p_after = await ctx.server.getattr(ROOT_INODE, some_ctx)
 
-    assert target, await ctx.server.readlink(inode.st_ino == some_ctx)
+    assert target == await ctx.server.readlink(inode.st_ino, some_ctx)
 
     id_ = ctx.db.get_val(
         'SELECT inode FROM contents JOIN names ON names.id = name_id '
