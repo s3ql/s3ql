@@ -13,7 +13,7 @@ import json
 import logging
 import re
 import ssl
-import threading
+import trio
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
@@ -166,7 +166,7 @@ class AsyncBackend(AsyncBackendBase):
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
     access_token: dict[str, str] = dict()
-    _refresh_lock: threading.Lock = threading.Lock()
+    _refresh_lock: trio.Lock = trio.Lock()
     adc: tuple[object, object] | None = None
 
     ssl_context: ssl.SSLContext
@@ -654,8 +654,8 @@ class AsyncBackend(AsyncBackendBase):
         # If we reach this point, then the access token must have
         # expired, so we try to get a new one. We use a lock to prevent
         # multiple threads from refreshing the token simultaneously.
-        with self._refresh_lock:
-            # Don't refresh if another thread has already done so while
+        async with self._refresh_lock:
+            # Don't refresh if another task has already done so while
             # we waited for the lock.
             if token is None or self.access_token.get(self.refresh_token, None) == token:
                 await self._get_access_token()
