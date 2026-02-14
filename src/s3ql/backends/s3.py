@@ -158,7 +158,7 @@ class AsyncBackend(s3c4.AsyncBackend):
             errkey_text = error_tags[0].findtext(ns_p + 'Key')
             errkey = errkey_text[offset:] if errkey_text else '<unknown>'
 
-            if errcode == 'NoSuchKeyError':
+            if errcode == 'NoSuchKey':
                 pass
             else:
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
