@@ -1010,7 +1010,7 @@ class HTTPConnection:
         If *len_* is `None`, this method returns the entire response body.
         '''
 
-        log.debug('start (len=%d)', len_)
+        log.debug('start (len=%s)', len_)
 
         if self._in_remaining is RESPONSE_BODY_ERROR:
             assert isinstance(self._encoding, Exception)
