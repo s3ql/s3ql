@@ -404,7 +404,7 @@ def get_system_memory() -> int:
         try:
             return os.sysconf('SC_PHYS_PAGES') * os.sysconf('SC_PAGESIZE')
         except ValueError:
-            log.warning('Unable to determine number of CPU cores (sysconf failed).')
+            log.warning('Unable to determine system memory (sysconf failed).')
             return -1
 
 
