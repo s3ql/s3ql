@@ -427,10 +427,7 @@ class AsyncBackend(AsyncBackendBase):
         # If method == HEAD, server must not return response body
         # even in case of errors
         await self.conn.co_discard()
-        if method.upper() == 'HEAD':
-            raise HTTPError(resp.status, resp.reason, resp.headers)
-        else:
-            raise HTTPError(resp.status, resp.reason, resp.headers)
+        raise HTTPError(resp.status, resp.reason, resp.headers)
 
     # Including this code directly in _do_request would be very messy since
     # we can't `return` the response early, thus the separate method
