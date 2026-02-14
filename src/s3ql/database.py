@@ -209,7 +209,7 @@ class Connection:
         for s in (
             'PRAGMA synchronous = NORMAL',
             'PRAGMA foreign_keys = OFF',
-            'PRAGMA recursize_triggers = on',
+            'PRAGMA recursive_triggers = on',
             'PRAGMA temp_store = FILE',
             'PRAGMA legacy_file_format = off',
             # Read performance decreases linearly with increasing WAL size, so we do not
