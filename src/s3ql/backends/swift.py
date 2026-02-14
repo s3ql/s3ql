@@ -834,16 +834,18 @@ class AsyncBackend(AsyncBackendBase):
 
         body = await self.conn.co_readall()
         names = []
+        last_name = None
         count = 0
         for dataset in json.loads(body.decode(hit.group(1))):
             count += 1
             name = dataset['name']
+            last_name = name
             if name.endswith(TEMP_SUFFIX):
                 continue
             names.append(name)
 
-        if count == batch_size:
-            page_token = names[-1]
+        if last_name is not None and count == batch_size:
+            page_token = last_name
         else:
             page_token = None
 
