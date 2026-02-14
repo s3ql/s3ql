@@ -533,7 +533,7 @@ class AsyncBackend(AsyncBackendBase):
             raise _map_request_error(exc_, key) or exc_
         _parse_json_response(resp, await self.conn.co_readall())
 
-        return body_size
+        return len_
 
     async def close(self) -> None:
         if self.conn is not None:
