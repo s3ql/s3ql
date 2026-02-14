@@ -673,6 +673,30 @@ class Operations(pyfuse3.Operations):
 
         await self.forget([(inode.id, 1)])
 
+    async def _purge_inode(self, id_: InodeT, size: int) -> None:
+        '''Remove an inode that has no more references.
+
+        Removes all cached blocks, extended attributes, symlink targets,
+        and the inode itself from the database and inode cache.
+        '''
+        log.debug('purging inode %d', id_)
+        await self.cache.remove(id_, 0, int(math.ceil(size / self.max_obj_size)))
+        # Since the inode is not open, it's not possible that new blocks
+        # get created at this point and we can safely delete the inode
+        self.db.execute(
+            'UPDATE names SET refcount = refcount - 1 WHERE '
+            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+            (id_,),
+        )
+        self.db.execute(
+            'DELETE FROM names WHERE refcount=0 AND '
+            'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
+            (id_,),
+        )
+        self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
+        self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
+        del self.inodes[id_]
+
     async def _remove(self, id_p: InodeT, name: bytes, id_: InodeT, force: bool = False) -> None:
         '''Remove entry `name` with parent inode `id_p`
 
@@ -704,23 +728,7 @@ class Operations(pyfuse3.Operations):
         inode_p.ctime_ns = now_ns
 
         if inode.refcount == 0 and id_ not in self.open_inodes:
-            log.debug('removing from cache')
-            await self.cache.remove(id_, 0, int(math.ceil(inode.size / self.max_obj_size)))
-            # Since the inode is not open, it's not possible that new blocks
-            # get created at this point and we can safely delete the inode
-            self.db.execute(
-                'UPDATE names SET refcount = refcount - 1 WHERE '
-                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                (id_,),
-            )
-            self.db.execute(
-                'DELETE FROM names WHERE refcount=0 AND '
-                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                (id_,),
-            )
-            self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
-            self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
-            del self.inodes[id_]
+            await self._purge_inode(id_, inode.size)
 
         log.debug('finished')
 
@@ -895,18 +903,7 @@ class Operations(pyfuse3.Operations):
         inode_p_new.mtime_ns = now_ns
 
         if inode_new.refcount == 0 and id_new not in self.open_inodes:
-            await self.cache.remove(id_new, 0, int(math.ceil(inode_new.size / self.max_obj_size)))
-            # Since the inode is not open, it's not possible that new blocks
-            # get created at this point and we can safely delete the inode
-            self.db.execute(
-                'UPDATE names SET refcount = refcount - 1 WHERE '
-                'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                (id_new,),
-            )
-            self.db.execute('DELETE FROM names WHERE refcount=0')
-            self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_new,))
-            self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_new,))
-            del self.inodes[id_new]
+            await self._purge_inode(id_new, inode_new.size)
 
     async def link(
         self, id_: InodeT, new_id_p: InodeT, new_name: bytes, ctx: RequestContext
@@ -1399,23 +1396,7 @@ class Operations(pyfuse3.Operations):
 
                 inode = self.inodes[id_]
                 if inode.refcount == 0:
-                    log.debug('removing %d from cache', id_)
-                    await self.cache.remove(id_, 0, inode.size // self.max_obj_size + 1)
-                    # Since the inode is not open, it's not possible that new blocks
-                    # get created at this point and we can safely delete the inode
-                    self.db.execute(
-                        'UPDATE names SET refcount = refcount - 1 WHERE '
-                        'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                        (id_,),
-                    )
-                    self.db.execute(
-                        'DELETE FROM names WHERE refcount=0 AND '
-                        'id IN (SELECT name_id FROM ext_attributes WHERE inode=?)',
-                        (id_,),
-                    )
-                    self.db.execute('DELETE FROM ext_attributes WHERE inode=?', (id_,))
-                    self.db.execute('DELETE FROM symlink_targets WHERE inode=?', (id_,))
-                    del self.inodes[id_]
+                    await self._purge_inode(id_, inode.size)
 
     async def fsyncdir(self, fh: FileHandleT, datasync: bool) -> None:
         inode_id = cast(InodeT, fh)  # This filesystem re-uses InodeT values as FileHandleT
