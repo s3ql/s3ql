@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import _thread
+import builtins
 import logging
 import os
 import struct
@@ -151,7 +152,7 @@ class AsyncBackend(AsyncBackendBase):
             return False
         return True
 
-    async def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: builtins.list[str]) -> None:
         for i, key in enumerate(keys):
             try:
                 await self.delete(key)

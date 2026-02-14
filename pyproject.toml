@@ -46,6 +46,7 @@ dev = [
   "pyright>=1.1.407",
   "types-pygments>=2.19.0.20251121",
   "typing-extensions>=4.14.1",
+  "ty>=0.0.17",
 ]
 
 [project.urls]
@@ -127,26 +128,11 @@ ignore= [
   'UP045',  # Optional[X] is fine
 ]
 
-[tool.mypy]
-warn_unused_configs = true
+[tool.ty.src]
+exclude = [ "src/s3ql/http.py",
+           'tests/',
+           'rst/conf.py',
+           "src/s3ql/backends/b2/" ]
 
-# No type stubs available
-[[tool.mypy.overrides]]
-module = "pytest_trio"
-ignore_missing_imports = true
-
-# No type stubs available
-[[tool.mypy.overrides]]
-module = "google_auth_oauthlib.*"
-ignore_missing_imports = true
-
-[tool.pyright]
-# We should really be more restrictive here, but there's too many false
-# positives from old code that predates type-checking.
-typeCheckingMode = "basic"
-reportArgumentType = false
-reportAttributeAccessIssue = false
-reportOptionalCall = false
-reportOptionalMemberAccess = false
-reportOptionalOperand = false
-reportOptionalSubscript = false
+[tool.ty.rules]
+invalid-method-override = "ignore"

@@ -29,9 +29,9 @@ class PipeInclude(Include):
         # file and call the base class. Otherwise we'd have to copy & paste
         # all the code to handle start-line, end-line etc options.
 
-        source = self.state_machine.input_lines.source(
-            self.lineno - self.state_machine.input_offset - 1
-        )
+        source_lines = self.state_machine.input_lines
+        assert source_lines is not None
+        source = source_lines.source(self.lineno - self.state_machine.input_offset - 1)
         source_dir = os.path.dirname(os.path.abspath(source))
 
         command = self.arguments[0]

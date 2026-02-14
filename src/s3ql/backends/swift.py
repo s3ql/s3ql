@@ -219,7 +219,7 @@ class AsyncBackend(AsyncBackendBase):
         self.auth_prefix = None
 
         # Overwrite type, this will be initialized in create() right away
-        self.conn: HTTPConnection = None  # type: ignore[assignment]
+        self.conn: HTTPConnection = None
         self.password = options.backend_password
         self.login = options.backend_login
         self.features = Features()
@@ -404,7 +404,7 @@ class AsyncBackend(AsyncBackendBase):
         elif subres:
             path += '?%s' % subres
 
-        headers['X-Auth-Token'] = self.auth_token
+        headers['X-Auth-Token'] = self.auth_token  # ty:ignore[invalid-assignment]
         try:
             resp = await self._do_request_inner(
                 method, path, body=body, headers=headers, body_len=body_len
@@ -776,7 +776,7 @@ class AsyncBackend(AsyncBackendBase):
             # get returned when file name is too long
             error_code = 422
 
-        raise HTTPError(error_code, error_msg, {})
+        raise HTTPError(error_code, error_msg)
 
     @property
     def has_delete_multi(self):
@@ -952,7 +952,7 @@ class AsyncBackend(AsyncBackendBase):
         self.conn.disconnect()
         # Force constructing a new connection with a new token, otherwise
         # the connection will be reestablished with the same token.
-        self.conn = None
+        self.conn = None  # ty:ignore[invalid-assignment]
         raise AuthenticationExpired(reason)
 
 

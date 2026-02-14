@@ -590,6 +590,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # Error
         await self._parse_error_response(resp)
+        raise AssertionError("unreachable")
 
     async def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
         '''Handle error response from server
@@ -983,7 +984,7 @@ class NoSuchKeyError(S3Error):
     pass
 
 
-class AccessDeniedError(S3Error, AuthorizationError):  # type: ignore[misc]
+class AccessDeniedError(S3Error, AuthorizationError):
     pass
 
 
@@ -999,15 +1000,15 @@ class InternalError(S3Error):
     pass
 
 
-class InvalidAccessKeyIdError(S3Error, AuthenticationError):  # type: ignore[misc]
+class InvalidAccessKeyIdError(S3Error, AuthenticationError):
     pass
 
 
-class InvalidSecurityError(S3Error, AuthenticationError):  # type: ignore[misc]
+class InvalidSecurityError(S3Error, AuthenticationError):
     pass
 
 
-class SignatureDoesNotMatchError(S3Error, AuthenticationError):  # type: ignore[misc]
+class SignatureDoesNotMatchError(S3Error, AuthenticationError):
     pass
 
 

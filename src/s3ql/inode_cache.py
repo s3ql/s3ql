@@ -131,9 +131,10 @@ class _Inode:
         try:
             raise RuntimeError('BUG ALERT: Dirty inode was destroyed!')
         except RuntimeError:
-            exc_info = sys.exc_info()
+            exc_type, exc_val, exc_tb = sys.exc_info()
 
-        sys.excepthook(*exc_info)
+        assert exc_type is not None and exc_val is not None
+        sys.excepthook(exc_type, exc_val, exc_tb)
 
 
 class InodeCache:
@@ -234,7 +235,7 @@ class InodeCache:
 
         return inode
 
-    def create_inode(self, **kw: object) -> _Inode:
+    def create_inode(self, **kw) -> _Inode:
         bindings = tuple(kw[x] for x in ATTRIBUTES if x in kw)
         columns = ', '.join(x for x in ATTRIBUTES if x in kw)
         values = ', '.join('?' * len(kw))
@@ -309,6 +310,7 @@ class InodeCache:
         try:
             raise RuntimeError('InodeCache instance was destroyed without calling destroy()')
         except RuntimeError:
-            exc_info = sys.exc_info()
+            exc_type, exc_val, exc_tb = sys.exc_info()
 
-        sys.excepthook(*exc_info)
+        assert exc_type is not None and exc_val is not None
+        sys.excepthook(exc_type, exc_val, exc_tb)

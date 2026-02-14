@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
+import builtins
 import bz2
 import hashlib
 import hmac
@@ -23,6 +24,8 @@ from typing import TYPE_CHECKING, ClassVar
 
 import cryptography.hazmat.backends as crypto_backends
 import cryptography.hazmat.primitives.ciphers as crypto_ciphers
+import cryptography.hazmat.primitives.ciphers.algorithms
+import cryptography.hazmat.primitives.ciphers.modes  # noqa: F401
 import trio
 
 from s3ql.types import (
@@ -121,7 +124,7 @@ class AsyncComprencBackend(AsyncBackend):
         return cls._thread_limiter
 
     @classmethod
-    async def create(  # type: ignore[override]
+    async def create(
         cls,
         passphrase: bytes | None,
         compression: tuple[str | None, int],
@@ -462,7 +465,7 @@ class AsyncComprencBackend(AsyncBackend):
     async def delete(self, key: str) -> None:
         return await self.backend.delete(key)
 
-    async def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: builtins.list[str]) -> None:
         return await self.backend.delete_multi(keys)
 
     async def list(self, prefix: str = '') -> AsyncIterator[str]:

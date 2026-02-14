@@ -57,7 +57,7 @@ class AsyncBackend(s3c4.AsyncBackend):
         '''Create a new Amazon S3 backend instance.'''
         return cls(options=options)
 
-    def _parse_storage_url(  # type: ignore[override]
+    def _parse_storage_url(
         self, storage_url: str, ssl_context: ssl.SSLContext | None
     ) -> tuple[str, int, str, str]:
         hit = re.match(r'^s3s?://([^/]+)/([^/]+)(?:/(.*))?$', storage_url)

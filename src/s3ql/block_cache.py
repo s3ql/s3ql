@@ -924,7 +924,7 @@ class BlockCache:
 
     def __del__(self) -> None:
         # break reference loop
-        self.fs = None  # type: ignore[assignment]
+        self.fs = None
 
         for el in self.cache.values():
             if el.dirty:
@@ -937,6 +937,7 @@ class BlockCache:
         try:
             raise RuntimeError("BlockManager instance was destroyed without calling destroy()!")
         except RuntimeError:
-            exc_info = sys.exc_info()
+            exc_type, exc_val, exc_tb = sys.exc_info()
 
-        sys.excepthook(*exc_info)
+        assert exc_type is not None and exc_val is not None
+        sys.excepthook(exc_type, exc_val, exc_tb)

@@ -32,8 +32,10 @@ class AsyncBackend(s3c.AsyncBackend):
 
     def __init__(self, *, options: BackendOptionsProtocol) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
-        self.sig_region = options.backend_options.get('sig-region', 'us-east-1')
-        self.signing_key = None
+        sig_region = options.backend_options.get('sig-region', 'us-east-1')
+        assert isinstance(sig_region, str)
+        self.sig_region = sig_region
+        self.signing_key: tuple[bytes, str] | None = None
         super().__init__(options=options)
 
     @classmethod
@@ -104,6 +106,7 @@ class AsyncBackend(s3c.AsyncBackend):
 
         if self.signing_key is None or self.signing_key[1] != ymd:
             self.update_signing_key(ymd)
+        assert self.signing_key is not None
         signing_key = self.signing_key[0]
 
         sig = hmac_sha256(signing_key, str_to_sign.encode(), hex=True)

@@ -8,6 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
+import builtins
 import hashlib
 import hmac
 import inspect
@@ -161,7 +162,7 @@ def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B00
                     log.error(
                         '%s.%s(*): Timeout exceeded, re-raising %r exception',
                         self.__class__.__name__,
-                        method.__name__,
+                        getattr(method, '__name__', repr(method)),
                         exc,
                     )
                     raise TimeoutError() from exc
@@ -179,13 +180,14 @@ def retry(method: F, _tracker: RateTracker = RateTracker(60)) -> F:  # noqa: B00
                     type(exc).__name__,
                     exc,
                     self.__class__.__name__,
-                    method.__name__,
+                    getattr(method, '__name__', repr(method)),
                     retries,
                 )
 
-                if hasattr(exc, 'retry_after') and exc.retry_after:
-                    log.debug('retry_after is %.2f seconds', exc.retry_after)
-                    interval = exc.retry_after
+                retry_after = getattr(exc, 'retry_after', None)
+                if isinstance(retry_after, (int, float)) and retry_after:
+                    log.debug('retry_after is %.2f seconds', retry_after)
+                    interval = retry_after
 
             # Add some random variation to prevent flooding the
             # server with too many concurrent requests.
@@ -250,7 +252,7 @@ class AsyncBackend(metaclass=ABCMeta):
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,
-        tb: object,
+        tb,
     ) -> Literal[False]:
         await self.close()
         return False
@@ -378,7 +380,7 @@ class AsyncBackend(metaclass=ABCMeta):
         """
         pass
 
-    async def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: builtins.list[str]) -> None:
         """Delete objects stored under `keys`
 
         Deleted objects are removed from the *keys* list, so that the caller can

@@ -95,13 +95,15 @@ def install_thread_excepthook() -> None:
         init_old(self, *args, **kwargs)
         run_old = self.run
 
-        def run_with_except_hook(*args: object, **kw: object) -> None:
+        def run_with_except_hook(*args, **kw) -> None:
             try:
                 run_old(*args, **kw)
             except SystemExit:
                 raise
             except:  # noqa: E722 # auto-added, needs manual check!
-                sys.excepthook(*sys.exc_info())
+                exc_type, exc_val, exc_tb = sys.exc_info()
+                assert exc_type is not None and exc_val is not None
+                sys.excepthook(exc_type, exc_val, exc_tb)
 
         self.run = run_with_except_hook  # type: ignore[method-assign]
 
@@ -248,7 +250,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
             backend_pool,
             db,
             cachepath + '-cache',
-            options.cachesize * 1024,
+            int(options.cachesize * 1024),
             max_entries=options.max_cache_entries,
             nursery=nursery,
         )

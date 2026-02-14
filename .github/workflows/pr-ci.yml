@@ -49,7 +49,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          # Install libfuse3-dev in case there is no pyfuse3 wheel and 
+          # Install libfuse3-dev in case there is no pyfuse3 wheel and
           # uv/pip need to compile it from source
           sudo apt install -y fuse3 libfuse3-dev libsqlite3-dev psmisc
 
@@ -68,30 +68,29 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - uses: astral-sh/ruff-action@v3
+
+      - name: Run formatter
+        run: ruff format --diff
+
+      - name: Run linter
+        run: ruff check --output-format=github .
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
           python-version: /usr/bin/python3
 
-      - name: Run formatter
-        run: uv tool run ruff format --diff
-
-      - name: Run linter
-        run: uv tool run ruff check --output-format=github .
-
       - name: Install dependencies
         run: |
           sudo apt-get update
-          # Install libfuse3-dev in case there is no pyfuse3 wheel and 
+          # Install libfuse3-dev in case there is no pyfuse3 wheel and
           # uv/pip need to compile it from source
           sudo apt-get install -y fuse3 libfuse3-dev libsqlite3-dev psmisc
 
       - name: Build S3QL
         run: uv sync --frozen
 
-      - name: Run mypy type checker
-        run: uv run mypy .
-
-      - name: Run pyright type checker
-        run: uv run pyright .
+      - name: Run static type checker
+        run: uv run ty check --output-format=github

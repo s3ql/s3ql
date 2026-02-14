@@ -54,7 +54,7 @@ log: logging.Logger = logging.getLogger(__name__)
 
 
 class HelpFormatter(argparse.HelpFormatter):
-    def _format_usage(  # type: ignore[override]
+    def _format_usage(
         self,
         usage: str | list[str | object] | None,
         actions: list[argparse.Action],
@@ -101,17 +101,17 @@ class HelpFormatter(argparse.HelpFormatter):
             return help_
 
 
-class SubParsersAction(argparse._SubParsersAction):  # type: ignore[type-arg]
+class SubParsersAction(argparse._SubParsersAction):
     '''A replacement for _SubParsersAction that keeps
     track of the parent parser'''
 
     parent: ArgumentParser
 
-    def __init__(self, **kw: object) -> None:
-        self.parent = kw.pop('parent')  # type: ignore[assignment]
-        super().__init__(**kw)  # type: ignore[arg-type]
+    def __init__(self, **kw) -> None:
+        self.parent = kw.pop('parent')
+        super().__init__(**kw)
 
-    def add_parser(self, *a: str, **kwargs: object) -> argparse.ArgumentParser:
+    def add_parser(self, *a: str, **kwargs) -> argparse.ArgumentParser:
         '''Pass parent usage and add_help attributes to new parser'''
 
         if 'usage' not in kwargs:
@@ -137,18 +137,19 @@ class SubParsersAction(argparse._SubParsersAction):  # type: ignore[type-arg]
             parents = kwargs['parents']
             assert isinstance(parents, list)
             for p in parents:
+                assert isinstance(p, argparse.ArgumentParser)
                 if p.epilog:
                     kwargs.setdefault('epilog', p.epilog % dict(prog=self.parent.prog))
 
-        return super().add_parser(*a, **kwargs)  # type: ignore[arg-type]
+        return super().add_parser(*a, **kwargs)
 
 
 class ArgumentParser(argparse.ArgumentParser):
-    def __init__(self, *a: object, **kw: object) -> None:
+    def __init__(self, *a, **kw) -> None:
         if 'formatter_class' not in kw:
             kw['formatter_class'] = HelpFormatter
 
-        super().__init__(*a, **kw)  # type: ignore[arg-type]
+        super().__init__(*a, **kw)
         self.register('action', 'parsers', SubParsersAction)
 
     def add_version(self) -> None:
@@ -255,9 +256,7 @@ class ArgumentParser(argparse.ArgumentParser):
             "to 9 (slowest). Default: `%(default)s`",
         )
 
-    def add_subparsers(  # type: ignore[override]
-        self, **kw: object
-    ) -> argparse._SubParsersAction[argparse.ArgumentParser]:
+    def add_subparsers(self, **kw) -> argparse._SubParsersAction[argparse.ArgumentParser]:
         '''Pass parent and set prog to default usage message'''
         kw.setdefault('parser_class', argparse.ArgumentParser)
 
@@ -272,7 +271,7 @@ class ArgumentParser(argparse.ArgumentParser):
             formatter.add_usage(None, positionals, groups, '')
             kw['prog'] = formatter.format_help().strip()
 
-        return super().add_subparsers(**kw)  # type: ignore[call-overload]
+        return super().add_subparsers(**kw)
 
     def _read_authinfo(self, path: str, storage_url: str) -> dict[str, str]:
         ini_config = configparser.ConfigParser()
@@ -293,7 +292,7 @@ class ArgumentParser(argparse.ArgumentParser):
                     merged[key] = val
         return merged
 
-    def parse_args(  # type: ignore[override]
+    def parse_args(
         self,
         args: Sequence[str] | None = None,
         namespace: argparse.Namespace | None = None,

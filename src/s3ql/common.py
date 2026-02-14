@@ -21,7 +21,7 @@ from ast import literal_eval
 from base64 import b64decode, b64encode
 from collections.abc import Callable, Iterator, Sequence
 from getpass import getpass
-from typing import TYPE_CHECKING, Any, Literal, NewType, TypeVar, overload
+from typing import TYPE_CHECKING, Literal, NewType, TypeVar, overload
 
 import pyfuse3
 from pyfuse3 import InodeT
@@ -426,32 +426,14 @@ def parse_literal(buf: bytes, type_spec: type[T]) -> T:
         raise ValueError('unable to parse as python literal')
 
     if type(obj) is _get_actual_type(type_spec):
-        return obj  # type: ignore[return-value]
+        return obj
 
     raise ValueError('literal has wrong type')
 
 
-@overload
 def parse_literal_tuple(
-    buf: bytes, type_spec: tuple[type[InodeT], type[InodeT]]
-) -> tuple[InodeT, InodeT]: ...
-
-
-@overload
-def parse_literal_tuple(
-    buf: bytes, type_spec: tuple[type[InodeT], type[T2]]
-) -> tuple[InodeT, T2]: ...
-
-
-@overload
-def parse_literal_tuple(buf: bytes, type_spec: tuple[type[T1], type[T2]]) -> tuple[T1, T2]: ...
-
-
-@overload
-def parse_literal_tuple(buf: bytes, type_spec: tuple[type, ...]) -> tuple[Any, ...]: ...
-
-
-def parse_literal_tuple(buf: bytes, type_spec: tuple[type, ...]) -> tuple[Any, ...]:
+    buf: bytes, type_spec: tuple[type[T1] | NewType[T1], type[T2] | NewType[T2]]
+) -> tuple[T1, T2]:
     '''Try to parse *buf* as a tuple matching *type_spec*
 
     Raise `ValueError` if *buf* does not contain a valid

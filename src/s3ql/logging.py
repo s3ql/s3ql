@@ -73,7 +73,7 @@ class ConsoleHandler(logging.StreamHandler):
     """
 
     def __init__(self) -> None:
-        super().__init__(sys.stderr)  # type: ignore[arg-type]
+        super().__init__(sys.stderr)
         self.last_msg: int | None = None
         self.is_console = sys.stderr.isatty()
 

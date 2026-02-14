@@ -293,9 +293,7 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'copy':
                 try:
-                    copy_tup = parse_literal_tuple(  # pyright: ignore[reportCallIssue]
-                        value, (InodeT, InodeT)
-                    )
+                    copy_tup = parse_literal_tuple(value, (InodeT, InodeT))
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError(errno.EINVAL)
@@ -310,7 +308,7 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'lock':
                 try:
-                    id_lock = parse_literal(value, InodeT)  # pyright: ignore[reportCallIssue]
+                    id_lock = parse_literal(value, InodeT)
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError(errno.EINVAL)
@@ -318,9 +316,7 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'rmtree':
                 try:
-                    rm_tup = parse_literal_tuple(  # pyright: ignore[reportCallIssue]
-                        value, (InodeT, bytes)
-                    )
+                    rm_tup = parse_literal_tuple(value, (InodeT, bytes))
                 except ValueError:
                     log.warning('Received malformed command via control inode')
                     raise FUSEError(errno.EINVAL)
@@ -328,9 +324,7 @@ class Operations(pyfuse3.Operations):
 
             elif name == b'logging':
                 try:
-                    log_result = parse_literal_tuple(value, (int, str))
-                    lvl: int = log_result[0]
-                    modules_str: str = log_result[1]
+                    (lvl, modules_str) = parse_literal_tuple(value, (int, str))
                 except (ValueError, KeyError):
                     log.warning('Received malformed command via control inode')
                     raise FUSEError(errno.EINVAL)

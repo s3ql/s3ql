@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 from itertools import count
 
 import google.auth as g_auth
+import google.auth.exceptions  # noqa: F401
 import trio
 
 from s3ql.http import (
@@ -117,7 +118,7 @@ def _parse_error_response(resp: HTTPResponse, body: bytes) -> RequestError:
     try:
         error_obj = json_resp.get('error')
         if isinstance(error_obj, dict):
-            message = str(error_obj.get('message', ''))
+            message = str(error_obj.get('message') or '')  # type: ignore[arg-type]  # dict narrowed from object
         else:
             raise KeyError('error')
     except KeyError:
