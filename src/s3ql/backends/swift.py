@@ -102,7 +102,7 @@ class AsyncBackend(AsyncBackendBase):
                     headers[k] = v
                     i += 1
                     hdr_count += 1
-                    length += 4 + len(buf)
+                    length += 4 + len(v)
 
             if length > 2048:
                 raise ValueError('Metadata too large')
