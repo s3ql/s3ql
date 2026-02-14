@@ -139,7 +139,7 @@ def _parse_json_response(resp: HTTPResponse, body: bytes) -> dict[str, object]:
         )
     if not content_type or not hit:
         raise ServerResponseError(resp, error='expected json, got %s' % content_type)
-    charset = hit.group(1)
+    charset = hit.group(1) or 'utf-8'
 
     try:
         body_text = body.decode(charset)
