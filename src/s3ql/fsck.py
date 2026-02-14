@@ -1427,7 +1427,7 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
             raise apsw.CorruptError()
     except apsw.CorruptError:
         raise QuietError(
-            'Database file (f{cachepath}.db) is corrupted. Restore from a backup or try\n'
+            f'Database file ({cachepath}.db) is corrupted. Restore from a backup or try\n'
             'to repair with the SQLite CLI (cf. https://www.sqlite.org/recovery.html),\n'
             'then re-run fsck.s3ql',
             exitcode=43,
