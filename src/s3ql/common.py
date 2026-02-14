@@ -178,7 +178,7 @@ def assert_s3ql_fs(path: str) -> str:
     except FileNotFoundError:
         raise QuietError('%s does not exist' % path)
     except OSError as exc:
-        if exc.errno is errno.ENOTCONN:
+        if exc.errno == errno.ENOTCONN:
             raise QuietError('File system appears to have crashed.')
         raise
 
