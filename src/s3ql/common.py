@@ -540,7 +540,7 @@ def freeze_basic_mapping(d: BasicMappingT) -> bytes:
 
 
 def time_ns() -> int:
-    return int(time.time() * 1e9)
+    return time.time_ns()
 
 
 def copyfh(
