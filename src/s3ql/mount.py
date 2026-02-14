@@ -448,7 +448,7 @@ def determine_threads(options: Namespace) -> int:
     elif memory == -1 and mem_per_thread != 0:
         log.warning("Can't determine available memory, using 2 upload threads.")
         return 2
-    elif 2 * cores * mem_per_thread > (memory / 2):
+    elif mem_per_thread > 0 and 2 * cores * mem_per_thread > (memory / 2):
         threads = min(int((memory / 2) // mem_per_thread), 10)
         if threads > 0:
             log.info('Using %d upload threads (memory limited).', threads)
