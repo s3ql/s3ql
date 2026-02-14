@@ -884,7 +884,7 @@ class AsyncBackend(AsyncBackendBase):
             if resp.status not in (200, 401, 403, 404):
                 log.error(
                     "Wrong server response.\n%s",
-                    self._dump_response(resp, body=await conn.co_read(2048)),
+                    await self._dump_response(resp, body=await conn.co_read(2048)),
                 )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
@@ -895,7 +895,7 @@ class AsyncBackend(AsyncBackendBase):
                 if not hit:
                     log.error(
                         "Wrong server response. Expected json. Got: \n%s",
-                        self._dump_response(resp, body=await conn.co_read(2048)),
+                        await self._dump_response(resp, body=await conn.co_read(2048)),
                     )
                     raise RuntimeError('Unexpected server reply')
 
