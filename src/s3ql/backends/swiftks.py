@@ -172,7 +172,7 @@ class AsyncBackend(swift.AsyncBackend):
 
             cat = json.loads((await conn.co_read()).decode('utf-8'))
 
-            if self.options.get('domain', None) or self.options.get('domain-name', None):
+            if domain:
                 self.auth_token = resp.headers['X-Subject-Token']
                 service_catalog = cat['token']['catalog']
             else:
