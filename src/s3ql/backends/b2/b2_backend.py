@@ -760,7 +760,8 @@ class AsyncB2Backend(AsyncBackend):
                 info_header_count += 1
 
         # Backblaze B2 only allows 10 metadata headers (2 are used by format and md5)
-        assert info_header_count <= 8
+        if info_header_count > 8:
+            raise ValueError(f'Metadata too large: requires {info_header_count} headers, max is 8')
 
         metadata_dict['meta-format'] = 'raw2'
         md5 = base64.b64encode(checksum_basic_mapping(metadata)).decode('ascii')
