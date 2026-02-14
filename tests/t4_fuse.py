@@ -202,7 +202,7 @@ class TestFuse:
         if self.mount_process is not None:
             try:
                 retry(10, lambda: self.mount_process.poll() is not None)
-            except TimeoutError:
+            except RetryTimeoutError:
                 self.mount_process.terminate()
                 try:
                     self.mount_process.wait(1)
