@@ -466,7 +466,7 @@ def parse_literal_tuple(buf: bytes, type_spec: tuple[type, ...]) -> tuple[Any, .
         raise ValueError('unable to parse as python literal')
 
     actual_types = [_get_actual_type(t) for t in type_spec]
-    if type(obj) is tuple and all(type(x) is t for x, t in zip(obj, actual_types)):
+    if type(obj) is tuple and all(type(x) is t for x, t in zip(obj, actual_types, strict=True)):
         return obj
 
     raise ValueError('literal has wrong type')
