@@ -238,11 +238,11 @@ class AsyncComprencBackend(AsyncBackend):
 
         decryptor = aes_decryptor(meta_key)
         buf = decryptor.update(meta_buf) + decryptor.finalize()
-        meta = thaw_basic_mapping(buf)
         try:
-            return (nonce, meta)
+            meta = thaw_basic_mapping(buf)
         except ThawError:
             raise CorruptedObjectError('Invalid metadata')
+        return (nonce, meta)
 
     async def readinto_fh(
         self, key: str, fh: BinaryOutput, size_hint: int | None = None
