@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import logging
 import os
 import re
@@ -416,7 +417,7 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
     new_params['metadata_block_size'] = options.metadata_block_size * 1024
     new_params['revision'] = CURRENT_FS_REV
     # remove all deprecated attributes
-    valid_keys = FsAttributes.__init__.__code__.co_varnames
+    valid_keys = {f.name for f in dataclasses.fields(FsAttributes)}
     for k in list(new_params.keys()):
         if k not in valid_keys:
             del new_params[k]
