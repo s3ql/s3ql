@@ -106,14 +106,14 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
             self.send_response(204)
             self.end_headers()
 
-    def _check_encoding(self):
+    def _check_encoding(self) -> int | None:
         encoding = self.headers['Content-Encoding']
         if 'Content-Length' not in self.headers:
             self.send_error(400, message='Missing Content-Length', code='MissingContentLength')
-            return
+            return None
         elif encoding and encoding != 'identity':
             self.send_error(501, message='Unsupported encoding', code='NotImplemented')
-            return
+            return None
 
         return int(self.headers['Content-Length'])
 
@@ -127,6 +127,8 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self):
         len_ = self._check_encoding()
+        if len_ is None:
+            return
         q = self.parse_url(self.path)
         meta = self._get_meta()
 
@@ -345,6 +347,8 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
 
     def do_PUT(self):
         len_ = self._check_encoding()
+        if len_ is None:
+            return
         q = self.parse_url(self.path)
         meta = self._get_meta()
 
@@ -550,6 +554,8 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
             send_response(200)
 
         len_ = self._check_encoding()
+        if len_ is None:
+            return
         lines = self.rfile.read(len_).decode('utf-8').split("\n")
         for index, to_delete in enumerate(lines):
             if index >= self.MAX_DELETES:
