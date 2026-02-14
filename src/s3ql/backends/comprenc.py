@@ -377,7 +377,7 @@ class AsyncComprencBackend(AsyncBackend):
 
         if not isinstance(fh, io.BytesIO):
             # If we're potentially reading from disk (which may take time), always use async
-            use_async = False
+            use_async = True
         else:
             if dont_compress or self.compression[0] is None:
                 compress_alg = 'None'
