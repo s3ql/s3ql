@@ -77,7 +77,7 @@ async def test_missing(backend, db, full):
         )
 
         if id_ != obj_ids[missing_idx]:
-            key = 's3ql_data_%d' % obj_ids[0]
+            key = 's3ql_data_%d' % id_
             await backend.store(key, data)
 
     missing_fh = io.StringIO()
