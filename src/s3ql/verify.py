@@ -141,6 +141,8 @@ async def main_async(options: argparse.Namespace) -> None:
         offset=options.start_with,
     )
 
+    db.close()
+
     if options.corrupted_file.tell() or options.missing_file.tell():
         sys.exit(46)
     else:
