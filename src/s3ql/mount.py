@@ -454,7 +454,7 @@ def determine_threads(options: Namespace) -> int:
             log.info('Using %d upload threads (memory limited).', threads)
         else:
             log.warning(
-                'Compression will require %d MiB memory (%d%% of total system memory',
+                'Compression will require %d MiB memory (%d%% of total system memory)',
                 mem_per_thread / 1024**2,
                 mem_per_thread * 100 / memory,
             )
