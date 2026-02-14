@@ -226,7 +226,7 @@ async def retrieve_objects(
                     )
 
                 size_acc += obj_size
-                if i < offset:
+                if i <= offset:
                     continue
 
                 await send_channel.send((obj_id, hash_, block_size))
