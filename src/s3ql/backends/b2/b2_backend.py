@@ -443,6 +443,7 @@ class AsyncB2Backend(AsyncBackend):
 
     @retry
     async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
+        fh.seek(off)
         response = await self._do_download_request('GET', key)
 
         try:
