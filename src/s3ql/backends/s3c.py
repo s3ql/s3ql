@@ -605,7 +605,9 @@ class AsyncBackend(AsyncBackendBase):
         # If method == HEAD, server must not return response body
         # even in case of errors
         if resp.method.upper() == 'HEAD':
-            assert await self.conn.co_read(1) == b''
+            data = await self.conn.co_read(1)
+            if data != b'':
+                raise RuntimeError('Server sent response body for HEAD request')
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # If not XML, do the best we can
