@@ -295,10 +295,7 @@ class AsyncBackend(AsyncBackendBase):
         elif isinstance(exc, ServerResponseError):
             return True
 
-        if isinstance(exc, g_auth.exceptions.TransportError):  # noqa: SIM103 # auto-added, needs manual check!
-            return True
-
-        return False
+        return isinstance(exc, g_auth.exceptions.TransportError)
 
     async def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''

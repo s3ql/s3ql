@@ -283,7 +283,7 @@ def process_backups(backup_list, state, cycles):
 def format_list(l):  # noqa: E741
     if not l:
         return ''
-    l = l[:]  # copy  # noqa: E741 # auto-added, needs manual check!
+    l = l[:]  # copy  # noqa: E741
 
     # Append bogus end element
     l.append(l[-1] + 2)
