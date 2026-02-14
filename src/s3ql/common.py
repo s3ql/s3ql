@@ -74,7 +74,7 @@ def is_mounted(storage_url: str) -> bool:
     try:
         for line in subprocess.check_output(
             ['mount'], stderr=subprocess.STDOUT, universal_newlines=True
-        ):
+        ).splitlines():
             if line.startswith(match):
                 return True
     except subprocess.CalledProcessError:
