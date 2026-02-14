@@ -587,7 +587,7 @@ class AsyncB2Backend(AsyncBackend):
             # receive the response.
             if exc.code == 'file_not_present' and force:
                 return
-            raise exc
+            raise
 
         return
 
