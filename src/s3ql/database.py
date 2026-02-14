@@ -527,7 +527,7 @@ class Connection:
         if __debug__:
             if len(row) != len(types):
                 raise TypeError(f'Row has {len(row)} columns but {len(types)} types were specified')
-            for i, (val, expected) in enumerate(zip(row, types)):
+            for i, (val, expected) in enumerate(zip(row, types, strict=True)):
                 # `types` may not be an actual type (it could be something declared with `NewType`,
                 # so we can't do an unconditional isinstance() check here.
                 if isinstance(expected, NewType):
@@ -578,7 +578,7 @@ class Connection:
                     raise TypeError(
                         f'Row has {len(row)} columns but {len(types)} types were specified'
                     )
-                for i, (val, expected) in enumerate(zip(row, types)):
+                for i, (val, expected) in enumerate(zip(row, types, strict=True)):
                     # `types` may not be an actual type (it could be something declared with
                     # `NewType`), so we can't do an unconditional isinstance() check here.
                     if isinstance(expected, NewType):

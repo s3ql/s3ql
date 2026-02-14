@@ -691,7 +691,7 @@ class HTTPConnection:
                 # mode.
                 if len_ == 0:
                     raise BlockingIOError()
-            except (socket.timeout, ssl.SSLWantWriteError, BlockingIOError):
+            except (TimeoutError, ssl.SSLWantWriteError, BlockingIOError):
                 log.debug('yielding')
                 if self._sync_context:
                     if not self._poll_send(self._timeout_ms):
@@ -1287,7 +1287,7 @@ class HTTPConnection:
             len_ = self._sock.recv_into(memoryview(rbuf.d)[rbuf.e :])
             if self.trace_fh:
                 self.trace_fh.write(rbuf.d[rbuf.e : rbuf.e + len_])
-        except (socket.timeout, ssl.SSLWantReadError, BlockingIOError):
+        except (TimeoutError, ssl.SSLWantReadError, BlockingIOError):
             log.debug('done (nothing ready)')
             return None
         except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):

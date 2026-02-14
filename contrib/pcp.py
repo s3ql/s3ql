@@ -75,7 +75,7 @@ def main(args=None):
     steps = [len(x) / (options.processes - 1) for x in pool]
     prefixes = list()
     for i in range(options.processes - 1):
-        parts = [x[int(i * y) : int((i + 1) * y)] for (x, y) in zip(pool, steps)]
+        parts = [x[int(i * y) : int((i + 1) * y)] for (x, y) in zip(pool, steps, strict=True)]
         prefixes.append(''.join(parts))
 
     filters = ['-! [%s]*' % x for x in prefixes]

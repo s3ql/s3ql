@@ -7,7 +7,7 @@ name = "s3ql"
 version = "5.4.2"
 description = "A full-featured file system for online data storage"
 readme = "README.rst"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "GPL-3.0-only"
 authors = [{ name = "Nikolaus Rath", email = "Nikolaus@rath.org" }]
 
