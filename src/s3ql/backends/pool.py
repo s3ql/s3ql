@@ -29,12 +29,12 @@ class BackendPool:
         self.max_connections = max_connections
         self.pool: list[AsyncComprencBackend] = []
         self.has_delete_multi = factory.has_delete_multi
-        self._semaphore = trio.Semaphore(max_connections)
+        self._limiter = trio.CapacityLimiter(max_connections)
 
     async def pop_conn(self) -> AsyncComprencBackend:
         '''Pop connection from pool, blocking if max_connections are checked out'''
 
-        await self._semaphore.acquire()
+        await self._limiter.acquire()
         try:
             if self.pool:
                 conn = self.pool.pop()
@@ -42,8 +42,7 @@ class BackendPool:
                 log.debug('creating new backend connection')
                 conn = await self.factory()
         except BaseException:
-            # Ensure semaphore is released if backend acquisition/creation fails
-            self._semaphore.release()
+            self._limiter.release()
             raise
         return conn
 
@@ -54,7 +53,7 @@ class BackendPool:
             await conn.reset()
             self.pool.append(conn)
         finally:
-            self._semaphore.release()
+            self._limiter.release()
 
     async def flush(self) -> None:
         '''Close all backends in pool'''
