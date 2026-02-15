@@ -189,7 +189,9 @@ class BlockCache:
     transfer_completed: trio.Condition
     _upload_send: UploadChannelSend
     _remove_send: RemovalChannelSend
-    fs: Operations | None
+
+    # Initialized from the outside to prevent cyclic dependency
+    fs: Operations
 
     def __init__(
         self,
@@ -219,9 +221,6 @@ class BlockCache:
         else:
             os.mkdir(self.path)
 
-        # Initialized from the outside to prevent cyclic dependency,
-        # used only to set failsafe attribute
-        self.fs = None
 
     @classmethod
     async def create(
@@ -236,6 +235,10 @@ class BlockCache:
     ) -> BlockCache:
         '''Create and initialize a BlockCache, including worker tasks.'''
         upload_send, upload_recv = trio.open_memory_channel[tuple[CacheEntry, int]](0)
+
+        # We could delete entries directly _deref_obj, but by accumulating them in a channel we
+        # can much more easily batch them. Arguably, having deletions not block the filesystem
+        # operation is also a good thing.
         remove_send, remove_recv = trio.open_memory_channel[int](1000)
 
         instance = cls(
@@ -569,7 +572,7 @@ class BlockCache:
                             await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
                     except NoSuchObject:
                         log.warning('Backend lost object s3ql_data_%d', ids[0])
-                        self.fs.failsafe = True  # type: ignore[union-attr]
+                        self.fs.failsafe = True
                     ids = []
             except trio.EndOfChannel:
                 pass
@@ -582,7 +585,7 @@ class BlockCache:
                     await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
             except NoSuchObject:
                 log.warning('Backend lost object s3ql_data_%d', ids[0])
-                self.fs.failsafe = True  # type: ignore[union-attr]
+                self.fs.failsafe = True
 
         log.debug('removal task (multi) exiting')
 
@@ -598,7 +601,7 @@ class BlockCache:
                             await backend.delete('s3ql_data_%d' % obj_id)
                         except NoSuchObject:
                             log.warning('Backend lost object s3ql_data_%d', obj_id)
-                            self.fs.failsafe = True  # type: ignore[union-attr]
+                            self.fs.failsafe = True
             except trio.EndOfChannel:
                 pass
         log.debug('removal task (simple) exiting')
@@ -693,7 +696,7 @@ class BlockCache:
                     inode,
                     blockno,
                 )
-                self.fs.failsafe = True  # type: ignore[union-attr]
+                self.fs.failsafe = True
 
             # Need to download corresponding object
             log.debug('downloading object %d..', obj_id)
@@ -923,9 +926,6 @@ class BlockCache:
         return (len(self.cache), used, dirty_cnt, dirty_size, remove_cnt)
 
     def __del__(self) -> None:
-        # break reference loop
-        self.fs = None
-
         for el in self.cache.values():
             if el.dirty:
                 break

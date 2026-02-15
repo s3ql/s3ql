@@ -531,7 +531,7 @@ class Operations(pyfuse3.Operations):
             mtime_ns=now_ns, ctime_ns=now_ns, atime_ns=now_ns, uid=0, gid=0, mode=0, refcount=0
         )
 
-        queue = [(src_id, tmp.id, -1)]
+        queue: list[tuple[InodeT, InodeT, int]] = [(src_id, tmp.id, -1)]
         id_cache: dict[InodeT, InodeT] = dict()
 
         # Batching updates makes things much faster when using WAL. We don't want to rollback on

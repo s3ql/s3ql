@@ -403,15 +403,8 @@ def _get_actual_type(type_spec: type | NewType) -> type:
         return t
 
 
-@overload
-def parse_literal(buf: bytes, type_spec: type[InodeT]) -> InodeT: ...
 
-
-@overload
-def parse_literal(buf: bytes, type_spec: type[T]) -> T: ...
-
-
-def parse_literal(buf: bytes, type_spec: type[T]) -> T:
+def parse_literal(buf: bytes, type_spec: type[T] | NewType[T]) -> T:
     '''Try to parse *buf* as *type_spec*
 
     Raise `ValueError` if *buf* does not contain a valid

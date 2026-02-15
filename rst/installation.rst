@@ -15,7 +15,7 @@ Dependencies
 
 * The development headers for `SQLite <http://www.sqlite.org/>`_, version 3.7.0 or newer.
 
-* `Python <http://www.python.org/>`_ 3.8 or newer, installed with development headers.
+* `Python <http://www.python.org/>`_ 3.10 or newer, installed with development headers.
 
 * Additional Python dependencies are listed in `pyproject.toml` (and your Python package installer
   should normally be able to install them automatically)
@@ -43,6 +43,11 @@ S3QL with `pipx`, run ::
 
 This will download all necessary Python dependencies and install S3QL in its own separate
 virtual environment.
+
+For a minor performance boost, set the `PYTHONOPTIMIZE` environment variable before running S3QL commands
+(perhaps by using a wrapper script). This disables the checking of debug assertions. Surprisingly,
+there does not seem any way to do this automatically for a Python application (otherwise S3QL
+would set this up by default).
 
 
 Installing from Git / Developing S3QL
