@@ -899,7 +899,7 @@ async def get_available_seq_nos(backend: AsyncComprencBackend) -> list[int]:
 async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
-    log.debug('Expiring old metadata backups...')
+    log.info('Expiring old metadata backups...')
     block_list = await get_block_objects(backend)
     to_remove: list[str] = []
 
@@ -926,6 +926,8 @@ async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
+    log.info('Found %d blocks to delete', len(block_list))
+
     # Remove what's no longer needed
     for blockno, candidates in block_list.items():
         for seq_no in candidates:
@@ -933,6 +935,8 @@ async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 
                 continue
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
     await backend.delete_multi(to_remove)
+
+    log.info('Expiration complete.')
 
 
 async def upload_metadata(
@@ -952,7 +956,11 @@ async def upload_metadata(
 
     blocksize = db.blocksize
     assert blocksize is not None
-    log.info('Uploading metadata...')
+    if incremental:
+        log.info('Uploading modified metadata blocks...')
+    else:
+        log.info('Upload metadata (full snapshot)...')
+
     with open(db.file, 'rb', buffering=0) as fh:
         db_size = fh.seek(0, os.SEEK_END)
         if incremental:
@@ -988,6 +996,8 @@ async def upload_metadata(
             fh.seek(blockno * blocksize)
             await backend.write_fh(obj, fh, len_=blocksize)
 
+        log.info("Metadata upload complete.")
+
         if not update_params:
             return
 
@@ -996,12 +1006,15 @@ async def upload_metadata(
         digest = sha256_fh(fh).hexdigest()
         log.debug('upload_metadata: digest is %s', digest)
         params.db_md5 = digest
+        log.info('Checksum calculation complete.')
 
 
 async def upload_params(backend: AsyncComprencBackend, params: FsAttributes) -> None:
+    log.info('Uploading filesystem superblock...')
     buf = params.serialize()
     await backend.store('s3ql_params', buf)
     await backend.store('s3ql_params_%010x' % params.seq_no, buf)
+    log.info('Superblock upload complete.')
 
 
 def write_params(cachepath: str, params: FsAttributes) -> None:

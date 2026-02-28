@@ -1475,8 +1475,10 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
 
     if full_upload:
         # This is a good time to reduce DB size if possible
+        log.info("Compacting database...")
         db.execute('VACUUM')
         db.close()
+        log.info("Compaction complete.")
         await upload_metadata(backend, db, param, incremental=False)
     else:
         db.close()
