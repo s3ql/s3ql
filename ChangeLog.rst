@@ -1,3 +1,25 @@
+S3QL 6.0.0 (2026-03-18)
+=======================
+
+* There have been significant changes in the internal architecture, but
+  user-facing behaviour should remain mostly unchanged.
+
+* There are now separate limits for the maximum number of concurrent backend
+  connections, and concurrent compression/encryption threads. mount.s3ql's
+  `--threads` flag has been replaced with `--max-connections` and
+  `--max-threads`.
+
+* Creating metadata backups while the filesystem is mounted no longer blocks
+  filesystem operations.
+
+* The documentation is now provided in HTML and manpage format only
+  (no more PDF).
+
+* This release is signed with the key that was originally intended for S3QL 5.5
+  (i.e, `signify/s3ql-5.5.pub` in the last S3QL tarball). In the future,
+  the key for the next version will be labelled as `s3ql-next` to prevent such
+  confusion.
+
 S3QL 5.4.2 (2025-12-28)
 =======================
 

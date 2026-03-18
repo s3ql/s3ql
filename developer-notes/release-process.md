@@ -1,5 +1,6 @@
 # Steps for Releasing a New Version
 
+* `jj new`
 * Go through commits since last release, and document user-visible changes in
   `Changelog.rst`. Decide on an appropriate version number.
 * Update version in `src/s3ql/__init__.py`
@@ -7,13 +8,13 @@
 * `uv lock`
 * `set TAG s3ql-A.B.C`
 * When creating non-bugfix release:
-  * Create signing key for the next release: `P=s3ql-<A.B+1> signify-openbsd -G -n -p signify/$P.pub -s
-  signify/$P.sec`
+  * Create signing key for the next release: `signify-openbsd -G -n -p signify/s3ql-next.pub -s
+  signify/s3ql-next.sec`
   * `git add signify/*.pub`
   * Expire old release signing keys (keep one around just in case)
 * Update authors: `git log --all --pretty="format:%an <%aE>" | grep -v '<none@none>$' | sort -u --ignore-case >> AUTHORS`
-* `git commit --all -m "Released $TAG"`
-* `git tag $TAG`
+* `jj describe -m "Released $TAG"`
+* `jj tag set $TAG`
 * `./make_release.sh`
 * `git checkout main`
 * `git push && git push --tags`, create release on Github

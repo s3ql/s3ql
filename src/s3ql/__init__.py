@@ -16,7 +16,7 @@ from . import logging
 
 assert logging.LOG_ONCE  # prevent warnings about unused module
 
-VERSION = '5.4.2'
+VERSION = '6.0.0'
 RELEASE = '%s' % VERSION
 
 # When bumping this up, figure out how database.py's expire_objects() should deal with older
