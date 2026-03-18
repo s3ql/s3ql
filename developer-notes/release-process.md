@@ -16,8 +16,9 @@
 * `jj describe -m "Released $TAG"`
 * `jj tag set $TAG`
 * `./make_release.sh`
-* `git checkout main`
-* `git push && git push --tags`, create release on Github
+* `jj bookmark move main --to=$TAG`
+* `jj git push`
+* Create release on Github
 * Write announcement to mailing list
 
 ## Email template
