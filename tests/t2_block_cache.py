@@ -499,7 +499,12 @@ class MockBackendPool:
     @asynccontextmanager
     async def __call__(self) -> AsyncGenerator['_MockAsyncBackend', None]:
         '''Provide mock async connection (async context manager)'''
-        yield self._mock
+        try:
+            yield self._mock
+        finally:
+            if self._mock._conn is not None:
+                await self.backend_pool.push_conn(self._mock._conn)
+                self._mock._conn = None
 
 
 class _MockAsyncBackend:
