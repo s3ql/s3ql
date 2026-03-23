@@ -503,16 +503,14 @@ class MockBackendPool:
 
 
 class _MockAsyncBackend:
-    """Wraps a real async backend connection, counting operations."""
+    """Wraps a real async backend connection, counting operations.
+
+    Each operation acquires a connection from the pool and returns it when done,
+    matching the scoped connection semantics of BackendPool.__call__().
+    """
 
     def __init__(self, pool: MockBackendPool) -> None:
         self._pool = pool
-        self._conn: AsyncComprencBackend | None = None
-
-    async def _get_conn(self) -> AsyncComprencBackend:
-        if self._conn is None:
-            self._conn = await self._pool.backend_pool.pop_conn()
-        return self._conn
 
     async def readinto_fh(
         self, key: str, fh: BinaryOutput, size_hint: int | None = None
@@ -520,8 +518,8 @@ class _MockAsyncBackend:
         self._pool.no_read -= 1
         if self._pool.no_read < 0:
             raise RuntimeError('Got too many readinto_fh calls')
-        conn = await self._get_conn()
-        return await conn.readinto_fh(key, fh, size_hint=size_hint)
+        async with self._pool.backend_pool() as conn:
+            return await conn.readinto_fh(key, fh, size_hint=size_hint)
 
     async def write_fh(
         self,
@@ -534,42 +532,41 @@ class _MockAsyncBackend:
         self._pool.no_write -= 1
         if self._pool.no_write < 0:
             raise RuntimeError('Got too many write_fh calls')
-        conn = await self._get_conn()
-        return await conn.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
+        async with self._pool.backend_pool() as conn:
+            return await conn.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
 
     async def delete(self, key: str) -> None:
         self._pool.no_del -= 1
         if self._pool.no_del < 0:
             raise RuntimeError('Got too many delete calls')
-        conn = await self._get_conn()
-        return await conn.delete(key)
+        async with self._pool.backend_pool() as conn:
+            return await conn.delete(key)
 
     async def delete_multi(self, keys: list[str]) -> None:
         self._pool.no_del -= len(keys)
         if self._pool.no_del < 0:
             raise RuntimeError('Got too many delete calls')
-        conn = await self._get_conn()
-        await conn.delete_multi(keys)
+        async with self._pool.backend_pool() as conn:
+            await conn.delete_multi(keys)
 
     async def lookup(self, key: str) -> object:
-        conn = await self._get_conn()
-        return await conn.lookup(key)
+        async with self._pool.backend_pool() as conn:
+            return await conn.lookup(key)
 
     async def contains(self, key: str) -> bool:
-        conn = await self._get_conn()
-        return await conn.contains(key)
+        async with self._pool.backend_pool() as conn:
+            return await conn.contains(key)
 
     async def list(self, prefix: str = '') -> object:
-        conn = await self._get_conn()
-        return conn.list(prefix)
+        async with self._pool.backend_pool() as conn:
+            return conn.list(prefix)
 
     async def get_size(self, key: str) -> int:
-        conn = await self._get_conn()
-        return await conn.get_size(key)
+        async with self._pool.backend_pool() as conn:
+            return await conn.get_size(key)
 
     async def reset(self) -> None:
-        if self._conn is not None:
-            await self._conn.reset()
+        pass
 
 
 async def start_flush(cache, inode, block=None):

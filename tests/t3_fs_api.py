@@ -83,7 +83,6 @@ async def ctx(tmp_path):
     factory.has_delete_multi = True
     ctx.backend_pool = BackendPool(factory, max_connections=10)
 
-    ctx.backend = await ctx.backend_pool.pop_conn()
     ctx.cachedir = tmp_path / 'cache'
     ctx.cachedir.mkdir()
 
@@ -128,17 +127,18 @@ def random_data(len_):
 async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
-    fsck = Fsck(
-        str(ctx.cachedir),
-        ctx.backend,
-        FsAttributes(
-            data_block_size=ctx.max_obj_size,
-            metadata_block_size=ctx.max_obj_size,
-        ),
-        ctx.db,
-    )
-    await fsck.check()
-    assert not fsck.found_errors
+    async with ctx.backend_pool() as backend:
+        fsck = Fsck(
+            str(ctx.cachedir),
+            backend,
+            FsAttributes(
+                data_block_size=ctx.max_obj_size,
+                metadata_block_size=ctx.max_obj_size,
+            ),
+            ctx.db,
+        )
+        await fsck.check()
+        assert not fsck.found_errors
 
 
 def newname(ctx):
