@@ -502,9 +502,10 @@ class MockBackendPool:
         try:
             yield self._mock
         finally:
-            if self._mock._conn is not None:
-                await self.backend_pool.push_conn(self._mock._conn)
+            conn = self._mock._conn
+            if conn is not None:
                 self._mock._conn = None
+                await self.backend_pool.push_conn(conn)
 
 
 class _MockAsyncBackend:
