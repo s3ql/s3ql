@@ -403,7 +403,6 @@ def _get_actual_type(type_spec: type | NewType) -> type:
         return t
 
 
-
 def parse_literal(buf: bytes, type_spec: type[T] | NewType[T]) -> T:
     '''Try to parse *buf* as *type_spec*
 

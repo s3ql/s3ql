@@ -221,7 +221,6 @@ class BlockCache:
         else:
             os.mkdir(self.path)
 
-
     @classmethod
     async def create(
         cls,
