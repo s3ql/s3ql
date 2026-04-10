@@ -234,8 +234,8 @@ class AsyncB2Backend(AsyncBackend):
             allowed_info = storageApi['allowed']
             allowed_buckets = allowed_info['buckets']
             if allowed_buckets:
-                errmsg = ('Provided API key can not access desired bucket, '
-                         f'it can access {len(allowed_buckets)} buckets: ')
+                errmsg = 'Provided API key can not access desired bucket, '
+                errmsg += f'it can access {len(allowed_buckets)} buckets: '
                 for bucket in allowed_buckets:
                     errmsg += bucket['name'] + ','
                     if bucket['name'] == self.bucket_name:
