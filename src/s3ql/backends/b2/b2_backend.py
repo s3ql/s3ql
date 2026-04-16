@@ -686,7 +686,7 @@ class AsyncB2Backend(AsyncBackend):
         return file_id, file_name
 
     async def close(self):
-        self._reset_connections()
+        self._close_connections()
 
     @retry
     async def _get_upload_conn(self):
