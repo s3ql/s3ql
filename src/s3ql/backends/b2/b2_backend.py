@@ -51,7 +51,7 @@ from .b2_error import B2Error, BadDigestError
 
 log = logging.getLogger(__name__)
 
-api_url_prefix = '/b2api/v4/'
+api_url_prefix = '/b2api/v2/'
 info_header_prefix = 'X-Bz-Info-'
 
 
@@ -228,29 +228,17 @@ class AsyncB2Backend(AsyncBackend):
 
             self.account_id = j['accountId']
 
-            apiInfo = j['apiInfo']
-            storageApi = apiInfo['storageApi']
-
-            allowed_info = storageApi['allowed']
-            allowed_buckets = allowed_info['buckets']
-            if allowed_buckets:
-                errmsg = 'Provided API key can not access desired bucket, '
-                errmsg += f'it can access {len(allowed_buckets)} buckets: '
-                for bucket in allowed_buckets:
-                    errmsg += bucket['name'] + ','
-                    if bucket['name'] == self.bucket_name:
-                        self.bucket_id = bucket['id']
-                        break
-                if self.bucket_id is None:
-                    raise RuntimeError(errmsg)
-            elif self.bucket_id is None:
-                raise RuntimeError('Provided API key can not access any specific buckets.')
+            allowed_info = j.get('allowed')
+            if allowed_info.get('bucketId'):
+                self.bucket_id = allowed_info.get('bucketId')
+                if allowed_info.get('bucketName') != self.bucket_name:
+                    raise RuntimeError('Provided API key can not access desired bucket.')
 
             if not self._check_key_capabilities(allowed_info):
                 raise RuntimeError('Provided API key does not have the required capabilities.')
 
-            self.api_url = urlparse(storageApi['apiUrl'])
-            self.download_url = urlparse(storageApi['downloadUrl'])
+            self.api_url = urlparse(j['apiUrl'])
+            self.download_url = urlparse(j['downloadUrl'])
             self.authorization_token = j['authorizationToken']
 
     def _check_key_capabilities(self, allowed_info):
