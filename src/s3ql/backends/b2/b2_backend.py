@@ -673,8 +673,8 @@ class AsyncB2Backend(AsyncBackend):
         file_name = self._b2_escape_backslashes(file_name)
         return file_id, file_name
 
-    def close(self):
-        self._reset_connections()
+    async def close(self):
+        self._close_connections()
 
     @retry
     async def _get_upload_conn(self):
