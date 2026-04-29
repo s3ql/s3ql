@@ -539,11 +539,13 @@ class AsyncB2Backend(AsyncBackend):
         except B2Error as exc:
             if exc.status == 503:
                 # storage url too busy, change it
+                self.upload_connection.disconnect()
                 self.upload_connection = None
             raise
 
         except (ConnectionClosed, ConnectionTimedOut):
             # storage url too busy, change it
+            self.upload_connection.disconnect()
             self.upload_connection = None
             raise
 
