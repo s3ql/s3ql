@@ -185,8 +185,21 @@ def setup_logging(options) -> ConsoleHandler | None:
 
 
 def setup_warnings() -> None:
-    # Always redirect warnings to logs so that they don't get lost
-    logging.captureWarnings(capture=True)
+    # Redirect warnings to the logging system so that they don't get lost. We do not use
+    # logging.captureWarnings() because its showwarning shim drops the WarningMessage
+    # source attribute, which discards the tracemalloc traceback for ResourceWarnings
+    # (where the resource was allocated). Instead, install our own _showwarnmsg hook
+    # that calls warnings._formatwarnmsg() on the WarningMessage directly.
+    py_warnings_logger = logging.getLogger('py.warnings')
+    orig_showwarnmsg = warnings._showwarnmsg  # type: ignore[attr-defined]
+
+    def _showwarnmsg(msg):
+        if msg.file is not None:
+            orig_showwarnmsg(msg)
+            return
+        py_warnings_logger.warning('%s', warnings._formatwarnmsg(msg))  # type: ignore[attr-defined]
+
+    warnings._showwarnmsg = _showwarnmsg  # type: ignore[attr-defined]
 
     # If we're running under py.test, also narrow down warnings to actionable ones.
     # Otherwise, leave default configuration untouched.
