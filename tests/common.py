@@ -13,6 +13,7 @@ import configparser
 import functools
 import os
 import random
+import shutil
 import stat
 import subprocess
 import time
@@ -88,12 +89,8 @@ class RetryTimeoutError(Exception):
 def skip_if_no_fusermount():
     '''Raise SkipTest if fusermount is not available'''
 
-    with subprocess.Popen(
-        ['which', 'fusermount'], stdout=subprocess.PIPE, universal_newlines=True
-    ) as which:
-        fusermount_path = which.communicate()[0].strip()
-
-    if not fusermount_path or which.returncode != 0:
+    fusermount_path = shutil.which('fusermount3') or shutil.which('fusermount')
+    if not fusermount_path:
         pytest.skip("Can't find fusermount executable")
 
     if not os.path.exists('/dev/fuse'):

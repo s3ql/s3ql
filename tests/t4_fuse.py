@@ -189,7 +189,8 @@ class TestFuse:
             if platform.system() == 'Darwin':
                 subprocess.call(['umount', '-l', self.mnt_dir], stderr=devnull)
             else:
-                subprocess.call(['fusermount', '-z', '-u', self.mnt_dir], stderr=devnull)
+                fusermount = shutil.which('fusermount3') or 'fusermount'
+                subprocess.call([fusermount, '-z', '-u', self.mnt_dir], stderr=devnull)
 
     def flush_cache(self):
         subprocess.check_call(['s3qlctrl', '--quiet', 'flushcache', self.mnt_dir])

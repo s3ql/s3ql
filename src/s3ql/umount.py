@@ -12,6 +12,7 @@ import argparse
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -26,6 +27,11 @@ from .logging import setup_logging, setup_warnings
 from .parse_args import ArgumentParser
 
 log: logging.Logger = logging.getLogger(__name__)
+
+
+def _fusermount() -> str:
+    '''Return path to fusermount3 if available, otherwise 'fusermount'.'''
+    return shutil.which('fusermount3') or 'fusermount'
 
 
 def parse_args(args: Sequence[str]) -> argparse.Namespace:
@@ -102,7 +108,7 @@ def lazy_umount(mountpoint: str) -> None:
         # MacOS X always uses umount rather than fusermount
         umount_cmd = ('umount', '-l', mountpoint)
     else:
-        umount_cmd = ('fusermount', '-u', '-z', mountpoint)
+        umount_cmd = (_fusermount(), '-u', '-z', mountpoint)
 
     if subprocess.call(umount_cmd) != 0:
         raise UmountSubError(mountpoint)
@@ -165,7 +171,7 @@ def blocking_umount(mountpoint: str) -> None:
         # MacOS X always uses umount rather than fusermount
         umount_cmd = ['umount', mountpoint]
     else:
-        umount_cmd = ['fusermount', '-u', mountpoint]
+        umount_cmd = [_fusermount(), '-u', mountpoint]
 
     if subprocess.call(umount_cmd) != 0:
         raise UmountSubError(mountpoint)
