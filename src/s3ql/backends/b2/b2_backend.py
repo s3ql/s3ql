@@ -60,6 +60,7 @@ class AsyncB2Backend(AsyncBackend):
 
     known_options = {
         'disable-versions',
+        'no-ssl',
         'retry-on-cap-exceeded',
         'test-mode',
         'tcp-timeout',
@@ -81,7 +82,10 @@ class AsyncB2Backend(AsyncBackend):
             )
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
-        self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
+        if 'no-ssl' in options.backend_options:
+            self.ssl_context = None
+        else:
+            self.ssl_context = get_ssl_context(options.backend_options.get('ssl-ca-path', None))
 
         self.options = options.backend_options
 
@@ -99,10 +103,13 @@ class AsyncB2Backend(AsyncBackend):
         if 'test-mode' in self.options:
             self._extra_headers['X-Bz-Test-Mode'] = self.options['test-mode']
 
-        (bucket_name, prefix) = self._parse_storage_url(options.storage_url, self.ssl_context)
+        (bucket_name, prefix, auth_host_port) = self._parse_storage_url(
+            options.storage_url, self.ssl_context
+        )
         self.bucket_name = bucket_name
         self.bucket_id = None
         self.prefix = prefix
+        self.auth_host_port = auth_host_port
 
         # are set by _authorize_account
         self.api_url = None
@@ -121,26 +128,33 @@ class AsyncB2Backend(AsyncBackend):
     def _parse_storage_url(storage_url, ssl_context):
         '''Extract information from storage URL
 
-        Return a tuple * (bucket_name, prefix) * .
+        Return a tuple * (bucket_name, prefix, auth_host_port) * .
+
+        The optional *auth_host_port* component (format: ``host:port@``) redirects
+        the B2 authorization request to a custom server instead of
+        ``api.backblazeb2.com``.  This is used by the test suite to point the
+        backend at a local mock server.
         '''
 
-        hit = re.match(r'^b2://([^/]+)(?:/(.*))?$', storage_url)
+        # URL format: b2://[auth-host:port@]bucket-name[/prefix]
+        hit = re.match(r'^b2://(?:([^@]+)@)?([^/]+)(?:/(.*))?$', storage_url)
 
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
 
-        bucket_name = hit.group(1)
+        auth_host_port = hit.group(1)  # Optional: host:port for auth server override
+        bucket_name = hit.group(2)
 
         # Backblaze has bucket name restrictions:
         if not re.match(r'^(?!b2-)[a-z0-9A-Z\-]{6,50}$', bucket_name):
             raise QuietError('Invalid bucket name.', exitcode=2)
 
-        prefix = hit.group(2) or ''
+        prefix = hit.group(3) or ''
         if prefix != '':
             # add trailing slash if there is none
             prefix = prefix + '/' if prefix[-1] != '/' else prefix
 
-        return (bucket_name, prefix)
+        return (bucket_name, prefix, auth_host_port)
 
     def _reset_authorization_values(self):
         self.api_url = None
@@ -177,7 +191,9 @@ class AsyncB2Backend(AsyncBackend):
 
         if self.download_connection is None:
             self.download_connection = HTTPConnection(
-                self.download_url.hostname, 443, ssl_context=self.ssl_context
+                self.download_url.hostname,
+                self.download_url.port or (443 if self.ssl_context else 80),
+                ssl_context=self.ssl_context,
             )
             self.download_connection.timeout = self.tcp_timeout
 
@@ -189,7 +205,9 @@ class AsyncB2Backend(AsyncBackend):
 
         if self.api_connection is None:
             self.api_connection = HTTPConnection(
-                self.api_url.hostname, 443, ssl_context=self.ssl_context
+                self.api_url.hostname,
+                self.api_url.port or (443 if self.ssl_context else 80),
+                ssl_context=self.ssl_context,
             )
             self.api_connection.timeout = self.tcp_timeout
 
@@ -205,7 +223,13 @@ class AsyncB2Backend(AsyncBackend):
     async def _authorize_account(self):
         '''Authorize API calls'''
 
-        authorize_host = 'api.backblazeb2.com'
+        if self.auth_host_port:
+            auth_host, _, port_str = self.auth_host_port.partition(':')
+            auth_port = int(port_str) if port_str else (443 if self.ssl_context else 80)
+        else:
+            auth_host = 'api.backblazeb2.com'
+            auth_port = 443
+
         authorize_url = api_url_prefix + 'b2_authorize_account'
 
         id_and_key = self.b2_application_key_id + ':' + self.b2_application_key
@@ -213,7 +237,7 @@ class AsyncB2Backend(AsyncBackend):
             base64.b64encode(bytes(id_and_key, 'UTF-8')), encoding='UTF-8'
         )
 
-        with HTTPConnection(authorize_host, 443, ssl_context=self.ssl_context) as connection:
+        with HTTPConnection(auth_host, auth_port, ssl_context=self.ssl_context) as connection:
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
@@ -686,7 +710,9 @@ class AsyncB2Backend(AsyncBackend):
             self.upload_path = upload_url.path
 
             self.upload_connection = HTTPConnection(
-                upload_url.hostname, 443, ssl_context=self.ssl_context
+                upload_url.hostname,
+                upload_url.port or (443 if self.ssl_context else 80),
+                ssl_context=self.ssl_context,
             )
             self.upload_connection.timeout = self.tcp_timeout
         return self.upload_connection
