@@ -635,7 +635,7 @@ class BlockCache:
         # Slow path - object is not yet cached or cached but will increase in size. Therefore, need
         # to make sure there's enough room in the cache.
         if self.cache.is_full():
-            await self.expire()
+            await self.evict()
 
         await self.mlock.acquire(inode, blockno)
         try:
@@ -730,8 +730,8 @@ class BlockCache:
 
         return el
 
-    async def expire(self) -> None:
-        """Perform cache expiry."""
+    async def evict(self) -> None:
+        """Evict cache entries until size and entry count are within limits."""
 
         # Note that we have to make sure that the cache entry is written into
         # the database before we remove it from the cache!
@@ -892,7 +892,7 @@ class BlockCache:
         log.debug('started')
         bak = self.cache.max_entries
         self.cache.max_entries = 0
-        await self.expire()
+        await self.evict()
         self.cache.max_entries = bak
         log.debug('finished')
 

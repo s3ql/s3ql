@@ -71,7 +71,7 @@ Properties to keep in mind:
 
 ### 3.2 `transfer_completed` (trio.Condition)
 
-A `trio.Condition` signaled by `_do_upload()` whenever an upload finishes (successfully or not). Used by `wait()`, which is called from `expire()` when dirty entries need to be flushed before eviction can proceed.
+A `trio.Condition` signaled by `_do_upload()` whenever an upload finishes (successfully or not). Used by `wait()`, which is called from `evict()` when dirty entries need to be flushed before eviction can proceed.
 
 The `wait()` method uses a loop with a 5-second timeout:
 
@@ -107,7 +107,7 @@ The number of workers equals `backend_pool.max_connections`, matching the availa
 
 ### 4.1 `cache` (CacheDict)
 
-An `OrderedDict` mapping `(inode, blockno)` to `CacheEntry`. Ordering serves as an LRU list: `move_to_end((inode, blockno), last=True)` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this). Eviction in `expire()` iterates from the oldest end.
+An `OrderedDict` mapping `(inode, blockno)` to `CacheEntry`. Ordering serves as an LRU list: `move_to_end((inode, blockno), last=True)` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this). Eviction in `evict()` iterates from the oldest end.
 
 `CacheDict` tracks aggregate state:
 
@@ -139,12 +139,12 @@ A set of `CacheEntry` objects currently being uploaded. An entry is added in `up
 - In `upload_if_dirty()` itself, if a dedup match is found (no upload needed).
 - In `_do_upload()`, in the `finally` block, after the upload succeeds or fails.
 
-The entry remains in `cache` throughout — `in_transit` is an additional marker, not an alternative location. This is harmless: the entry's `(inode, blockno)` lock prevents concurrent modification, and `expire()` skips in-transit entries rather than trying to evict them.
+The entry remains in `cache` throughout — `in_transit` is an additional marker, not an alternative location. This is harmless: the entry's `(inode, blockno)` lock prevents concurrent modification, and `evict()` skips in-transit entries rather than trying to evict them.
 
 While an entry is in `in_transit`:
 
 - Its `(inode, blockno)` lock and (if a new object was created) its `(obj_id,)` lock are held — but by the upload pipeline, not by the task that initiated the upload.
-- `expire()` skips it (cannot evict an entry being uploaded).
+- `evict()` skips it (cannot evict an entry being uploaded).
 - `upload_if_dirty()` returns `True` immediately if called again for the same entry.
 - `get()` on the same `(inode, blockno)` blocks on the MultiLock until the upload completes and the lock is released.
 
@@ -215,7 +215,7 @@ send to upload channel ──────────────►  receive fr
                                          notify transfer_completed
 ```
 
-The initiating task (FUSE handler, CommitTask, or `expire()`) acquires both locks but does not release them. The upload worker releases both locks after the backend write completes (or fails). This cross-task release is the reason `MultiLock` explicitly supports it.
+The initiating task (FUSE handler, CommitTask, or `evict()`) acquires both locks but does not release them. The upload worker releases both locks after the backend write completes (or fails). This cross-task release is the reason `MultiLock` explicitly supports it.
 
 On **dedup match** (existing object with the same hash), the path is shorter and stays within a single task:
 
@@ -270,7 +270,7 @@ The object row has already been deleted from the `objects` table before this loc
 
 **Fast path** (`max_write` is not `None` and `max_write < el.size`): The entry lock is held via `async with self.mlock(inode, blockno)` for the duration of the caller's use of the entry. This path is taken when the caller promises not to grow the block, so cache size accounting is not affected and no expiration check is needed.
 
-**Slow path**: The entry lock is acquired with `await self.mlock.acquire(inode, blockno)` and released in a `finally` block after the caller is done. Between yield and release, the cache size is updated (`cache.size += el.size - oldsize`). This path may trigger `expire()` before acquiring the lock if the cache is full. The lock is held across the caller's operations, guaranteeing exclusive access to the entry.
+**Slow path**: The entry lock is acquired with `await self.mlock.acquire(inode, blockno)` and released in a `finally` block after the caller is done. Between yield and release, the cache size is updated (`cache.size += el.size - oldsize`). This path may trigger `evict()` before acquiring the lock if the cache is full. The lock is held across the caller's operations, guaranteeing exclusive access to the entry.
 
 In both paths, the lock is held while the entry is yielded to the caller. This means only one task can read or write a given block at a time.
 
@@ -296,7 +296,7 @@ No expiration check. No backend interaction. No checkpoint while the caller hold
 
 **Tasks:** A FUSE handler task, potentially interacting with upload workers via lock contention.
 
-1. `cache.is_full()` may be true — calls `expire()` (see 6.6) before acquiring any lock.
+1. `cache.is_full()` may be true — calls `evict()` (see 6.6) before acquiring any lock.
 2. `await self.mlock.acquire(inode, blockno)` — acquires entry lock.
 3. Calls `_get_entry()`:
    - **Cache hit:** `move_to_end()`, return entry.
@@ -310,7 +310,7 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 
 ### 6.3 Upload of a New Object
 
-**Tasks:** An initiating task (FUSE handler via `expire()`, or CommitTask) and an upload worker.
+**Tasks:** An initiating task (FUSE handler via `evict()`, or CommitTask) and an upload worker.
 
 **Initiating task** (`upload_if_dirty`):
 
@@ -370,9 +370,9 @@ Note that if `old_obj_id == obj_id` (the block was re-dirtied with the same cont
 
 Without the barrier, Task B could attempt to download an object that has not yet been written.
 
-### 6.6 Cache Eviction (`expire()`)
+### 6.6 Cache Eviction (`evict()`)
 
-**Tasks:** The task calling `expire()` (typically from `get()` slow path), plus any upload workers it triggers.
+**Tasks:** The task calling `evict()` (typically from `get()` slow path), plus any upload workers it triggers.
 
 1. Compute `need_size` and `need_entries` from cache limits.
 2. Iterate a **snapshot** (`list(self.cache.values())`) — a copy is necessary because the dict may change during iteration.
@@ -403,7 +403,7 @@ Note that `_deref_obj` is called **after** releasing the entry lock. This is saf
 
 CommitTask runs in a loop, sleeping for 5 seconds between iterations. On each iteration it:
 
-1. Iterates `list(self.block_cache.cache.values())` — a snapshot, same as `expire()`.
+1. Iterates `list(self.block_cache.cache.values())` — a snapshot, same as `evict()`.
 2. For each entry: if `el.dirty` and `el not in self.block_cache.in_transit` and `el.last_write` is older than the configured delay, calls `upload_if_dirty(el)`.
 
 This is safe because `upload_if_dirty` performs all necessary locking internally. CommitTask merely acts as a trigger — it does not hold any locks across iterations, and it skips entries that are already being uploaded. The `last_write` check avoids uploading blocks that are still being actively written, reducing unnecessary uploads of data that will change again soon.
@@ -519,7 +519,7 @@ sha = await trio.to_thread.run_sync(sha256_fh, el)
 This is safe because:
 
 - The entry lock `(inode, blockno)` is held, preventing any other Trio task from calling `get()` on this block.
-- The entry is in `in_transit`, so `expire()` skips it.
+- The entry is in `in_transit`, so `evict()` skips it.
 - No other thread accesses the same file descriptor.
 - `sha256_fh` does not read or write any Python-level shared state — it only touches the `CacheEntry`'s file handle and returns a new hash object.
 
@@ -551,7 +551,7 @@ If future changes need to offload additional work to threads, the offloaded code
 
 | Key | Protects | Acquired by | Released by |
 |-----|----------|-------------|-------------|
-| `(inode, blockno)` | Cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `expire()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
+| `(inode, blockno)` | Cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `evict()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
 | `(obj_id,)` | Backend object during upload or deletion | `upload_if_dirty()` (new object path) | `_do_upload()` worker (cross-task) |
 | `(obj_id,)` | Barrier — wait for upload to complete | `_get_entry()`, `_deref_obj()` | Same task (immediately after acquire) |
 
@@ -566,7 +566,7 @@ If future changes need to offload additional work to threads, the offloaded code
         │ in cache     │                │ in cache     │  │
         └──────┬───────┘                └──────┬───────┘  │
                │                               │          │
-               │ expire()                      │ upload_if_dirty()
+               │ evict()                      │ upload_if_dirty()
                │ remove()                      │          │
                │                               ▼          │
                │                        ┌──────────────┐  │
@@ -586,7 +586,7 @@ If future changes need to offload additional work to threads, the offloaded code
                │       │ in cache     │
                │       └──────┬───────┘
                │              │
-               │              │ expire()
+               │              │ evict()
                │              │ remove()
                ▼              ▼
         ┌──────────────────────┐
@@ -611,7 +611,7 @@ On upload failure, `_do_upload()` removes the entry from `in_transit` but leaves
 When modifying `block_cache.py`, check for these patterns:
 
 - **Adding an `await` between synchronous operations?** Verify that no invariant depends on those operations being atomic. In particular, sequences of database calls that must see consistent state should not be split by a checkpoint.
-- **Accessing shared state after an `await`?** Re-validate assumptions — another task may have modified `cache`, `in_transit`, or database rows during the checkpoint. The existing code demonstrates this pattern: `upload_if_dirty()` and `expire()` both re-check entry state after acquiring locks.
+- **Accessing shared state after an `await`?** Re-validate assumptions — another task may have modified `cache`, `in_transit`, or database rows during the checkpoint. The existing code demonstrates this pattern: `upload_if_dirty()` and `evict()` both re-check entry state after acquiring locks.
 - **Holding a lock across an `await`?** This is sometimes necessary (e.g., the upload path holds the entry lock across the hash computation). Ensure the locked resource cannot be needed by the task you might yield to, or deadlock results.
 - **Offloading to a thread?** The thread must not access `cache`, `in_transit`, the database, or any shared Python object. Only file descriptors and immutable data are safe. See Section 8.
 
@@ -634,7 +634,7 @@ easier to understand to put these different kinds of values into different mlock
 ### Unify or eliminate the in_transit set
 
 Current state: in_transit is a set of CacheEntry objects currently being uploaded. It's checked by
-upload_if_dirty() (skip if already in transit), expire() (skip in-transit entries),
+upload_if_dirty() (skip if already in transit), evict() (skip in-transit entries),
 transfer_in_progress(), and CommitTask. It partially duplicates what the entry lock already
 provides.
 
@@ -694,14 +694,14 @@ only works against data that has been uploaded (or we'd need to introduce a new 
 is complete - but that adds extra complexity).
 
 
-### Avoid copying cache dict in expire()
+### Avoid copying cache dict in evict()
 
-Current state: expire() copies the entire cache dict to a list, iterates trough it, triggers uploads
+Current state: evict() copies the entire cache dict to a list, iterates trough it, triggers uploads
 for dirty entries. It then waits for uploads, copies the list again, and iterates again to find
 objects to evict. The worst case time omplexity is O(n²).
 
 Idea: Maintain a separate deque of clean-and-evictable entries (entries that are clean
-and not locked). expire() pops from this deque instead of scanning everything. Dirty entries would
+and not locked). evict() pops from this deque instead of scanning everything. Dirty entries would
 be added to the deque when they become clean after upload.
 
 Risk: Adds a new data structure to keep in sync.

@@ -201,7 +201,7 @@ async def test_get(ctx):
 
 
 @pytest.mark.trio
-async def test_expire(ctx):
+async def test_evict(ctx):
     inode = ctx.inode
 
     # Define the 4 most recently accessed ones
@@ -222,10 +222,10 @@ async def test_expire(ctx):
     await start_flush(ctx.cache, inode, most_recent[-2])
     await start_flush(ctx.cache, inode, most_recent[-3])
 
-    # We want to expire 4 entries, 2 of which are already flushed
+    # We want to evict 4 entries, 2 of which are already flushed
     ctx.cache.cache.max_entries = 16
     ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=2)
-    await ctx.cache.expire()
+    await ctx.cache.evict()
     ctx.cache.backend_pool.verify()
     assert len(ctx.cache.cache) == 16
 
@@ -359,7 +359,7 @@ async def test_upload_race(ctx):
     await ctx.cache.upload_if_dirty(fh)
 
 
-async def test_expire_race(ctx):
+async def test_evict_race(ctx):
     # Create element
     inode = ctx.inode
     blockno = 1
@@ -369,7 +369,7 @@ async def test_expire_race(ctx):
         fh.write(data1)
     assert await ctx.cache.upload_if_dirty(fh)
 
-    # Make sure entry will be expired
+    # Make sure entry will be evicted
     ctx.cache.cache.max_entries = 0
 
     # Lock it
@@ -377,11 +377,11 @@ async def test_expire_race(ctx):
 
     try:
         async with trio.open_nursery() as nursery:
-            # Start expiration, will block on lock
-            nursery.start_soon(ctx.cache.expire)
+            # Start eviction, will block on lock
+            nursery.start_soon(ctx.cache.evict)
 
-            # Start second expiration, will block
-            nursery.start_soon(ctx.cache.expire)
+            # Start second eviction, will block
+            nursery.start_soon(ctx.cache.evict)
 
             # Release lock
             await ctx.cache.mlock.release(inode, blockno)
@@ -391,7 +391,7 @@ async def test_expire_race(ctx):
         await ctx.cache.mlock.release(inode, blockno, noerror=True)
 
 
-async def test_parallel_expire(ctx):
+async def test_parallel_evict(ctx):
     # Create elements
     inode = ctx.inode
     for i in range(5):
@@ -399,8 +399,8 @@ async def test_parallel_expire(ctx):
         async with ctx.cache.get(inode, i) as fh:
             fh.write(data1)
 
-    # We want to expire just one element, but have
-    # several threads running expire() simultaneously
+    # We want to evict just one element, but have
+    # several threads running evict() simultaneously
     ctx.cache.cache.max_entries = 4
 
     # Lock first element so that we have time to start threads
@@ -408,11 +408,11 @@ async def test_parallel_expire(ctx):
 
     try:
         async with trio.open_nursery() as nursery:
-            # Start expiration, will block on lock
-            nursery.start_soon(ctx.cache.expire)
+            # Start eviction, will block on lock
+            nursery.start_soon(ctx.cache.evict)
 
-            # Start second expiration, will block
-            nursery.start_soon(ctx.cache.expire)
+            # Start second eviction, will block
+            nursery.start_soon(ctx.cache.evict)
 
             # Release lock
             await ctx.cache.mlock.release(inode, 0)
