@@ -561,7 +561,7 @@ class BlockCache:
                     while True:
                         try:
                             obj_id = recv.receive_nowait()
-                        except trio.WouldBlock:
+                        except (trio.WouldBlock, trio.EndOfChannel):
                             break
                         ids.append(obj_id)
 
@@ -575,16 +575,6 @@ class BlockCache:
                     ids = []
             except trio.EndOfChannel:
                 pass
-
-        # Flush any remaining accumulated IDs
-        if ids:
-            log.debug('final removal flush: %s', ids)
-            try:
-                async with self.backend_pool() as backend:
-                    await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
-            except NoSuchObject:
-                log.warning('Backend lost object s3ql_data_%d', ids[0])
-                self.fs.failsafe = True
 
         log.debug('removal task (multi) exiting')
 
