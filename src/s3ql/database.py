@@ -651,46 +651,49 @@ class BatchedTransactionManager:
 
 
 def create_tables(conn: Connection) -> None:
-    # Table of storage objects
-    # Refcount is included for performance reasons
-    # phys_size is the number of bytes stored in the backend (i.e., after compression).
-    # length is the logical size in the filesystem.
-    # phys_size == -1 indicates block has not been uploaded yet
+    # This function is the canonical reference for the on-disk schema. Each CREATE TABLE statement
+    # below is preceded by a comment that explains the *semantics* of the table and its columns --
+    # in particular what special / sentinel values mean, what invariants are maintained, and which
+    # denormalisations exist for performance. Code that touches the database elsewhere may add
+    # in-context notes, but the authoritative description of every column lives here.
+
+    # ---------------------------------------------------------------- objects
     #
-    # The `hash` column holds the SHA-256 digest (32 bytes) of the block's
-    # plaintext contents and is the basis for deduplication: the UNIQUE
-    # constraint guarantees that any two blocks with identical content map to
-    # the same object row, so they share storage and a single backend upload.
-    # Looking up an object by hash is therefore the fast path for storing a
-    # newly-written block (see BlockCache.upload_if_dirty in block_cache.py).
+    # One row per de-duplicated storage object. Each row corresponds (when `hash` is non-NULL) to
+    # exactly one blob in the backend, named `s3ql_data_<id>`.
     #
-    # `hash` may be NULL. This is the marker for "an object whose backend
-    # upload failed". When an upload fails we cannot simply drop the row,
-    # because `inode_blocks.obj_id` may already reference this id, and the id
-    # will eventually be reassigned by AUTOINCREMENT to an unrelated object
-    # (silently rebinding those inode_blocks entries to wrong data). Instead,
-    # we keep the row but clear its hash. This has two effects:
+    # id AUTOINCREMENT primary key; the numeric id determines  the name of the backend object.
+    #   AUTOINCREMENT (rather than plain INTEGER PRIMARY KEY) is critical, an object must always
+    #   have the same contents. Object contents do not get updated.
     #
-    #   1. Future writes with the same content cannot deduplicate against this
-    #      (possibly missing) object, since the UNIQUE-hash lookup will not
-    #      find it -- they will create a fresh object and upload it.
-    #   2. On the next mount, fsck detects cached blocks whose stored object
-    #      has a NULL hash and treats them as dirty, forcing a re-upload from
-    #      the local cache (see Fsck.check_cache in fsck.py).
+    # hash SHA-256 digest (32 bytes) of the block's plaintext contents. The UNIQUE constraint drives
+    #   deduplication: two blocks with identical content map to the same object row and share a
+    #   single backend upload.
     #
-    # Rows with NULL hash are not meant to persist. Fsck.check_objects_hash
-    # deletes them, after which check_objects_id and check_inode_blocks_obj_id
-    # clean up any inode_blocks entries that referenced them (recovering data
-    # from the cache where possible, otherwise reporting data loss).
+    #   `hash` may be NULL -- the marker for "an object whose backend upload failed". When an upload
+    #   fails we cannot simply drop the row (it may still be referenced by inode_blocks), and it
+    #   would prevent fsck from re-uploading the data. We also can't keep the hash unchanged,
+    #   because this would result in future writes potentially de-duplicating against an object that
+    #   doesn't actually exist in the backend.
+    #
+    # refcount
+    #   Number of inode_blocks rows pointing at this object. In theory derivable from
+    #   `inode_blocks`, but maintained separately for performance.
+    #
+    # phys_size
+    #   Number of bytes stored in the backend, i.e. *after* compression and encryption.
+    #   phys_size == -1 is a sentinel meaning "the object has been registered in the database but
+    #   its backend upload has not completed yet"; queries that aggregate sizes must filter on
+    #   `phys_size > 0` to avoid counting these in-flight rows. fsck (check_objects_phys_size)
+    #   repairs -1 values left behind after an unclean shutdown by querying the actual size from
+    #   the backend.
+    #
+    # length
+    #   Logical size of the (uncompressed, plaintext) block in the filesystem.
     conn.execute(
         """
     CREATE TABLE objects (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
-        -- SHA-256 of plaintext block contents; UNIQUE drives deduplication.
-        -- NULL marks an object whose upload failed: kept to protect the id
-        -- from AUTOINCREMENT reuse (inode_blocks may still reference it),
-        -- but excluded from dedup lookups so future writes don't bind to a
-        -- possibly-missing backend object. Cleaned up by fsck.
         hash        BLOB(32) UNIQUE,
         refcount    INT NOT NULL,
         phys_size   INT NOT NULL,
@@ -698,16 +701,42 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Table with filesystem metadata
-    # The number of links `refcount` to an inode can in theory
-    # be determined from the `contents` table. However, managing
-    # this separately should be significantly faster (the information
-    # is required for every getattr!)
+    # ----------------------------------------------------------------- inodes
+    #
+    # One row per filesystem object (file, directory, symlink, special file). Most columns mirror
+    # POSIX stat(2) fields.
+    #
+    # id
+    #   Primary key; *must* be declared exactly as `INTEGER PRIMARY KEY AUTOINCREMENT` so that
+    #   SQLite makes it an alias for the rowid (and so that ids of removed inodes are not handed
+    #   back out to new ones -- file handles cached by the kernel may still reference an inode that
+    #   has just been unlinked).
+    #
+    # uid, gid, mode, mtime_ns, atime_ns, ctime_ns
+    #   Standard POSIX stat fields. Times are nanoseconds since the epoch.
+    #
+    # refcount
+    #   Number of hard links (i.e., directory entries in `contents` that point at this inode). In
+    #   principle derivable from `contents`, but maintained separately because every getattr()
+    #   needs it and recomputing on the fly would be too slow.
+    #
+    # size
+    #   Logical file size in bytes (POSIX `st_size`). For symlinks the value is set to
+    #   `len(symlink_targets.target)` so that stat(2) on a symlink reports the conventional
+    #   length-of-target. For directories and special files the value is not meaningful.
+    #
+    # rdev
+    #   Device number for block/character special files (POSIX `st_rdev`); zero for other inode
+    #   types.
+    #
+    # locked
+    #   When true (set via the `s3qllock` command, see lock.py), the inode is immutable: regular
+    #   FUSE operations that would mutate it (or create/remove entries inside it, if it is a
+    #   directory) are rejected with EPERM. The only permitted modification is removal via the
+    #   `s3qlrm` command.
     conn.execute(
         """
     CREATE TABLE inodes (
-        -- id has to specified *exactly* as follows to become
-        -- an alias for the rowid.
         id        INTEGER PRIMARY KEY AUTOINCREMENT,
         uid       INT NOT NULL,
         gid       INT NOT NULL,
@@ -722,7 +751,17 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Further Blocks used by inode (blockno >= 1)
+    # ------------------------------------------------------------ inode_blocks
+    #
+    # Maps each (inode, blockno) pair of a regular file to the backend object that holds that
+    # block's data. Block numbers start at 0; block N covers the file region [N*max_obj_size,
+    # (N+1)*max_obj_size). The highest blockno actually stored for a file is therefore
+    # `ceil(inode.size / max_obj_size) - 1`; sparse blocks (never written) have no row at all, and
+    # reads of those regions return zeros.
+    #
+    # Multiple (inode, blockno) rows may reference the same obj_id -- this is how deduplication
+    # shows up in this table. `objects.refcount` equals the number of inode_blocks rows pointing at
+    # that object. It can be computed, but is maintained separately for performance.
     conn.execute(
         """
     CREATE TABLE inode_blocks (
@@ -733,7 +772,11 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Symlinks
+    # -------------------------------------------------------- symlink_targets
+    #
+    # One row per symlink inode. `target` holds the raw bytes of the link target. The owning
+    # inode's `size` column is kept equal to `len(target)` (see the `inodes.size` documentation
+    # above and Operations.symlink in fs.py).
     conn.execute(
         """
     CREATE TABLE symlink_targets (
@@ -742,7 +785,17 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Names of file system objects
+    # ------------------------------------------------------------------ names
+    #
+    # Interned table of filesystem names (used by `contents.name_id` and `ext_attributes.name_id`).
+    # Storing the bytes once and referencing them by id deduplicates common name strings (e.g.
+    # ".git", "node_modules", "__init__.py") across the whole filesystem.
+    #
+    # refcount
+    #   Total number of references from `contents` and `ext_attributes` combined. Inserting a new
+    #   directory entry or xattr bumps the refcount of an existing row (or inserts a fresh row with
+    #   refcount=1); removing one decrements it, and the row is deleted once the refcount reaches
+    #   zero. Can be computed from the referencing tables, but maintained separately for performance.
     conn.execute(
         """
     CREATE TABLE names (
@@ -753,8 +806,15 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Table of filesystem objects
-    # rowid is used by readdir() to restart at the correct position
+    # ---------------------------------------------------------------- contents
+    #
+    # Directory entries: one row per (parent_inode, name) pair, pointing at the child inode. The
+    # (parent_inode, name_id) UNIQUE constraint enforces that no directory contains two entries
+    # with the same name.
+    #
+    # rowid
+    #   Declared AUTOINCREMENT so that ids assigned to deleted entries are not reused; readdir()
+    #   relies on a monotonic cursor to restart iteration at the correct position across calls.
     conn.execute(
         """
     CREATE TABLE contents (
@@ -767,7 +827,12 @@ def create_tables(conn: Connection) -> None:
     )"""
     )
 
-    # Extended attributes
+    # ---------------------------------------------------------- ext_attributes
+    #
+    # Extended attributes: one row per (inode, xattr-name) pair. The xattr name itself lives in
+    # `names` (shared with directory entries), so that operations on `names.refcount` must consider
+    # both this table and `contents`. refcount can be computed from the referencing tables, but
+    # maintained separately for performance.
     conn.execute(
         """
     CREATE TABLE ext_attributes (

@@ -356,27 +356,12 @@ class BlockCache:
                 exc_info = sys.exc_info()
                 exc = exc_info[1]
                 log.debug('upload of %d failed (%s: %s)', obj_id, type(exc).__name__, exc)
-                # At this point we have to remove references to this storage
-                # object from the objects table to prevent future cache elements
-                # to be de-duplicated against this (missing) one. However, this
-                # may already have happened during the attempted upload. The
-                # only way to avoid this problem is to insert the hash into the
-                # objects table *after* successful upload. But this would open
-                # a window without de-duplication just to handle the special
-                # case of an upload failing.
-                #
-                # On the other hand, we also want to prevent future
-                # deduplication against this object: otherwise the next attempt
-                # to upload the same cache element (by a different upload thread
-                # that has not encountered problems yet) is guaranteed to link
-                # against the non-existing object, and the data will be lost.
-                #
-                # Therefore, we just set the hash of the missing object to NULL,
-                # and rely on fsck to pick up the pieces. Note that we cannot
-                # delete the row from the object table, because the id will get
-                # assigned to a new object, so the inode_blocks entries will
-                # refer to incorrect data.
-                #
+                # Mark the object as failed-upload by clearing its hash, so
+                # that future writes do not deduplicate against this missing
+                # backend blob and so that fsck can clean up on next mount.
+                # See the `objects.hash` documentation in
+                # database.create_tables() for the full failure-recovery
+                # protocol (including why we cannot simply delete the row).
                 self.db.execute('UPDATE objects SET hash=NULL WHERE id=?', (obj_id,))
 
             await self.obj_lock.release(obj_id)

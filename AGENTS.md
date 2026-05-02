@@ -58,6 +58,8 @@ HTTP Client (custom implementation)
 
 **Backend architecture:** `AsyncBackend` base class in `backends/common.py`. `AsyncComprencBackend` wraps backends to add compression/encryption.
 
+**Database schema:** The on-disk SQLite schema is defined in `create_tables()` in `src/s3ql/database.py`. Each table and column carries inline comments that explain its semantics, including sentinel values (e.g. `objects.phys_size == -1`, `objects.hash IS NULL`), invariants (e.g. `inodes.size == len(symlink_targets.target)` for symlinks), denormalised counters, and special handling such as the AUTOINCREMENT-protected ids in `objects` and `contents`. Read those comments before writing or modifying any code that queries these tables.
+
 **Entry points:** `mkfs.s3ql`, `mount.s3ql`, `umount.s3ql`, `fsck.s3ql`, `s3qladm`, `s3qlcp`, `s3qlstat`, `s3qlctrl`, `s3qllock`, `s3qlrm`, `s3ql_verify`
 
 ## Key Constants
