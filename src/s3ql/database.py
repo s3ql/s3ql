@@ -656,10 +656,41 @@ def create_tables(conn: Connection) -> None:
     # phys_size is the number of bytes stored in the backend (i.e., after compression).
     # length is the logical size in the filesystem.
     # phys_size == -1 indicates block has not been uploaded yet
+    #
+    # The `hash` column holds the SHA-256 digest (32 bytes) of the block's
+    # plaintext contents and is the basis for deduplication: the UNIQUE
+    # constraint guarantees that any two blocks with identical content map to
+    # the same object row, so they share storage and a single backend upload.
+    # Looking up an object by hash is therefore the fast path for storing a
+    # newly-written block (see BlockCache.upload_if_dirty in block_cache.py).
+    #
+    # `hash` may be NULL. This is the marker for "an object whose backend
+    # upload failed". When an upload fails we cannot simply drop the row,
+    # because `inode_blocks.obj_id` may already reference this id, and the id
+    # will eventually be reassigned by AUTOINCREMENT to an unrelated object
+    # (silently rebinding those inode_blocks entries to wrong data). Instead,
+    # we keep the row but clear its hash. This has two effects:
+    #
+    #   1. Future writes with the same content cannot deduplicate against this
+    #      (possibly missing) object, since the UNIQUE-hash lookup will not
+    #      find it -- they will create a fresh object and upload it.
+    #   2. On the next mount, fsck detects cached blocks whose stored object
+    #      has a NULL hash and treats them as dirty, forcing a re-upload from
+    #      the local cache (see Fsck.check_cache in fsck.py).
+    #
+    # Rows with NULL hash are not meant to persist. Fsck.check_objects_hash
+    # deletes them, after which check_objects_id and check_inode_blocks_obj_id
+    # clean up any inode_blocks entries that referenced them (recovering data
+    # from the cache where possible, otherwise reporting data loss).
     conn.execute(
         """
     CREATE TABLE objects (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        -- SHA-256 of plaintext block contents; UNIQUE drives deduplication.
+        -- NULL marks an object whose upload failed: kept to protect the id
+        -- from AUTOINCREMENT reuse (inode_blocks may still reference it),
+        -- but excluded from dedup lookups so future writes don't bind to a
+        -- possibly-missing backend object. Cleaned up by fsck.
         hash        BLOB(32) UNIQUE,
         refcount    INT NOT NULL,
         phys_size   INT NOT NULL,
