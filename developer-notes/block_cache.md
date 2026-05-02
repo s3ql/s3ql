@@ -617,15 +617,6 @@ When modifying `block_cache.py`, check for these patterns:
 
 ## Improvement Ideas
 
-### Unify _removal_task_multi and _removal_task_simple
-
-Current state: Two separate worker implementations for backend deletion, chosen based on whether the backend supports delete_multi. They share structure but differ in
-batching.
-
-Idea: Single worker that internally checks if the backend supports delete_multi.
-
-Impact: Minor — removes ~40 lines of duplication.
-
 ### Split MultiLock into two objects.
 
 Currently, the same multi-lock is used for both (inode, blockno) pairs and object ids. It would
