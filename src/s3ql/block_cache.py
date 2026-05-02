@@ -170,7 +170,8 @@ class BlockCache:
 
     :path: where cached data is stored
     :cache: ordered dictionary of cache entries
-    :mlock: MultiLock to synchronize access to objects and cache entries
+    :block_lock: MultiLock keyed by (inode, blockno) — synchronizes access to cache entries
+    :obj_lock: MultiLock keyed by (obj_id,) — synchronizes upload/deletion of backend objects
     :in_transit: set of cache entries that are currently being uploaded
     :_upload_send: channel to distribute upload work to worker tasks
     :_remove_send: channel to distribute removal work to worker tasks
@@ -184,7 +185,8 @@ class BlockCache:
     db: Connection
     backend_pool: BackendPool
     cache: CacheDict
-    mlock: MultiLock
+    block_lock: MultiLock
+    obj_lock: MultiLock
     in_transit: set[CacheEntry]
     transfer_completed: trio.Condition
     _upload_send: UploadChannelSend
@@ -209,7 +211,8 @@ class BlockCache:
         self.db = db
         self.backend_pool = backend_pool
         self.cache = CacheDict(max_size, max_entries)
-        self.mlock = MultiLock()
+        self.block_lock = MultiLock()
+        self.obj_lock = MultiLock()
         self.in_transit = set()
         self.transfer_completed = trio.Condition()
         self._upload_send = upload_send
@@ -376,8 +379,8 @@ class BlockCache:
                 #
                 self.db.execute('UPDATE objects SET hash=NULL WHERE id=?', (obj_id,))
 
-            await self.mlock.release(obj_id)
-            await self.mlock.release(el.inode, el.blockno)
+            await self.obj_lock.release(obj_id)
+            await self.block_lock.release(el.inode, el.blockno)
             async with self.transfer_completed:
                 self.transfer_completed.notify_all()
 
@@ -412,20 +415,20 @@ class BlockCache:
             return False
 
         # Calculate checksum
-        await self.mlock.acquire(el.inode, el.blockno)
+        await self.block_lock.acquire(el.inode, el.blockno)
         added_to_transit = False
         try:
             if el is not self.cache.get((el.inode, el.blockno), None):
                 log.debug('%s got removed while waiting for lock', el)
-                await self.mlock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.inode, el.blockno)
                 return False
             if el in self.in_transit:
                 log.debug('%s already in transit', el)
-                await self.mlock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.inode, el.blockno)
                 return True
             if not el.dirty:
                 log.debug('no longer dirty, returning')
-                await self.mlock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.inode, el.blockno)
                 return False
 
             log.debug('uploading %s..', el)
@@ -437,7 +440,7 @@ class BlockCache:
         except:
             if added_to_transit:
                 self.in_transit.discard(el)
-            await self.mlock.release(el.inode, el.blockno)
+            await self.block_lock.release(el.inode, el.blockno)
             raise
 
         obj_lock_taken = False
@@ -469,7 +472,7 @@ class BlockCache:
                     (obj_id, el.inode, el.blockno),
                 )
 
-                await self.mlock.acquire(obj_id)
+                await self.obj_lock.acquire(obj_id)
                 obj_lock_taken = True
                 await self._upload_send.send((el, obj_id))
 
@@ -486,7 +489,7 @@ class BlockCache:
 
                 el.dirty = False
                 self.in_transit.remove(el)
-                await self.mlock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.inode, el.blockno)
 
                 if old_obj_id == obj_id:
                     log.debug('unchanged, obj_id=%d', obj_id)
@@ -494,9 +497,9 @@ class BlockCache:
 
         except:
             self.in_transit.discard(el)
-            await self.mlock.release(el.inode, el.blockno, noerror=True)
+            await self.block_lock.release(el.inode, el.blockno, noerror=True)
             if obj_lock_taken:
-                await self.mlock.release(obj_id)
+                await self.obj_lock.release(obj_id)
             raise
 
         if old_obj_id:
@@ -528,8 +531,8 @@ class BlockCache:
         # the object is no longer in the database.
         log.debug('adding %d to removal queue', obj_id)
 
-        await self.mlock.acquire(obj_id)
-        await self.mlock.release(obj_id)
+        await self.obj_lock.acquire(obj_id)
+        await self.obj_lock.release(obj_id)
 
         if size == -1:
             # size == -1 indicates that object has not yet been uploaded.
@@ -611,7 +614,7 @@ class BlockCache:
         # expiration). The `while` statement does not actually loop, we just use it so we can
         # use `break` to jump out.
         while max_write is not None:
-            async with self.mlock(inode, blockno):
+            async with self.block_lock(inode, blockno):
                 try:
                     el = self.cache[(inode, blockno)]
                 except KeyError:
@@ -627,7 +630,7 @@ class BlockCache:
         if self.cache.is_full():
             await self.evict()
 
-        await self.mlock.acquire(inode, blockno)
+        await self.block_lock.acquire(inode, blockno)
         try:
             el = await self._get_entry(inode, blockno)
             oldsize = el.size
@@ -638,7 +641,7 @@ class BlockCache:
                 # thread has access to a cache entry at any time.
                 self.cache.size += el.size - oldsize
         finally:
-            await self.mlock.release(inode, blockno)
+            await self.block_lock.release(inode, blockno)
 
         # log.debug('finished')
 
@@ -696,8 +699,8 @@ class BlockCache:
                     # as long as the current cache entry exists, there will always be
                     # a reference to the object (and we already have a lock on the
                     # cache entry).
-                    await self.mlock.acquire(obj_id)
-                    await self.mlock.release(obj_id)
+                    await self.obj_lock.acquire(obj_id)
+                    await self.obj_lock.release(obj_id)
 
                     async with self.backend_pool() as backend:
                         await backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
@@ -754,7 +757,7 @@ class BlockCache:
                     sth_in_transit = True
                     continue
 
-                await self.mlock.acquire(el.inode, el.blockno)
+                await self.block_lock.acquire(el.inode, el.blockno)
                 try:
                     # May have changed while we were waiting for lock
                     if el is not self.cache.get((el.inode, el.blockno), None):
@@ -766,7 +769,7 @@ class BlockCache:
                     log.debug('removing %s from cache', el)
                     self.cache.remove((el.inode, el.blockno))
                 finally:
-                    await self.mlock.release(el.inode, el.blockno)
+                    await self.block_lock.release(el.inode, el.blockno)
 
             if sth_in_transit:
                 log.debug('waiting for transfer threads..')
@@ -796,10 +799,10 @@ class BlockCache:
         for timeout in (0, None):
             for blockno in list(blocknos):
                 if timeout == 0:
-                    if not self.mlock.acquire_nowait(inode, blockno):
+                    if not self.block_lock.acquire_nowait(inode, blockno):
                         continue
                 else:
-                    await self.mlock.acquire(inode, blockno)
+                    await self.block_lock.acquire(inode, blockno)
                 blocknos.remove(blockno)
                 try:
                     if (inode, blockno) in self.cache:
@@ -821,7 +824,7 @@ class BlockCache:
                     )
 
                 finally:
-                    await self.mlock.release(inode, blockno)
+                    await self.block_lock.release(inode, blockno)
 
                 # Decrease block refcount
                 await self._deref_obj(obj_id)

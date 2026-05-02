@@ -39,7 +39,7 @@ Two operations use `trio.to_thread.run_sync` to offload work to an OS thread:
 1. **SHA-256 hashing** in `upload_if_dirty()`: `await trio.to_thread.run_sync(sha256_fh, el)`
 2. **fsync** in `_get_entry()`: `await trio.to_thread.run_sync(os.fsync, tmpfh.fileno())`
 
-These are checkpoints — the calling task yields and other tasks can run while the thread executes. In the hashing case, the `CacheEntry` is already in `in_transit` with its `(inode, blockno)` lock held, so no other task can access or evict it. The thread only touches the entry's file handle (seeking and reading), not any shared Python data structures. See Section 8 for further thread safety analysis.
+These are checkpoints — the calling task yields and other tasks can run while the thread executes. In the hashing case, the `CacheEntry` is already in `in_transit` with its `block_lock` held, so no other task can access or evict it. The thread only touches the entry's file handle (seeking and reading), not any shared Python data structures. See Section 8 for further thread safety analysis.
 
 
 ## 3. Synchronization Primitives
@@ -48,26 +48,26 @@ These are checkpoints — the calling task yields and other tasks can run while 
 
 `MultiLock` (`src/s3ql/multi_lock.py`) is an async key-based lock built on `trio.Condition`. It maintains a set of currently-held keys. Any hashable tuple can serve as a key.
 
-`BlockCache` uses two key namespaces:
+`BlockCache` uses two `MultiLock` instances, one per lock namespace:
 
-- **`(inode, blockno)`** — protects a cache entry and its associated database rows in `inode_blocks`.
-- **`(obj_id,)`** — protects a backend storage object during upload or deletion.
+- **`block_lock`** — keyed by `(inode, blockno)`. Protects a cache entry and its associated database rows in `inode_blocks`.
+- **`obj_lock`** — keyed by `(obj_id,)`. Protects a backend storage object during upload or deletion.
 
-API:
+API (the same on both instances):
 
 | Method | Behavior |
 |--------|----------|
-| `await mlock.acquire(key...)` | Suspends until `key` is not held, then adds it to the locked set. |
-| `await mlock.release(key..., noerror=False)` | Removes `key` from the locked set. Raises `KeyError` if not held. With `noerror=True`, silently succeeds even if not held. |
-| `mlock.acquire_nowait(key...)` | Non-blocking. Returns `True` if acquired, `False` if already held. |
-| `async with mlock(key...)` | Context manager: acquires on entry, releases on exit. |
+| `await lock.acquire(key...)` | Suspends until `key` is not held, then adds it to the locked set. |
+| `await lock.release(key..., noerror=False)` | Removes `key` from the locked set. Raises `KeyError` if not held. With `noerror=True`, silently succeeds even if not held. |
+| `lock.acquire_nowait(key...)` | Non-blocking. Returns `True` if acquired, `False` if already held. |
+| `async with lock(key...)` | Context manager: acquires on entry, releases on exit. |
 
 Properties to keep in mind:
 
 - **Not reentrant.** Acquiring a key that the same task already holds will deadlock.
-- **Cross-task release is intentional.** `upload_if_dirty()` acquires the entry and object locks, then sends work to an upload worker via a channel. The worker's `_do_upload()` releases both locks. This is documented in `multi_lock.py` as a feature, not a bug.
-- **`notify_all()` on release.** All waiting tasks wake up and re-check whether their specific key is now free. This is correct but means that releasing any key briefly wakes all waiters, not just those waiting on that key.
-- **`noerror=True`** is used in exception handlers where the lock may or may not have been acquired (e.g., `upload_if_dirty` line 498).
+- **Cross-task release is intentional.** `upload_if_dirty()` acquires the block and object locks, then sends work to an upload worker via a channel. The worker's `_do_upload()` releases both locks. This is documented in `multi_lock.py` as a feature, not a bug.
+- **`notify_all()` on release.** All waiting tasks on the same `MultiLock` instance wake up and re-check whether their specific key is now free.
+- **`noerror=True`** is used in exception handlers where the lock may or may not have been acquired (e.g., the `block_lock.release(..., noerror=True)` call in `upload_if_dirty`'s exception path).
 
 ### 3.2 `transfer_completed` (trio.Condition)
 
@@ -123,7 +123,7 @@ A file-backed block with the following concurrency-relevant attributes:
 | Attribute | Description |
 |-----------|-------------|
 | `dirty` | `True` if modified since last upload. Set by `write()` and `truncate()`. Cleared by `upload_if_dirty()` (on dedup match) or `_do_upload()` (on successful upload). |
-| `inode`, `blockno` | Immutable identifiers. Used as the cache dict key and the MultiLock key. |
+| `inode`, `blockno` | Immutable identifiers. Used as the cache dict key and the `block_lock` key. |
 | `size` | Current logical size of the block. Updated by `write()` and `truncate()`. |
 | `last_write` | Timestamp of last `write()` call. Used by `CommitTask` to delay uploads until the block has been idle for a configured period. |
 | `fh` | Unbuffered file handle to the backing file on disk (`open(filename, mode, 0)`). |
@@ -139,14 +139,14 @@ A set of `CacheEntry` objects currently being uploaded. An entry is added in `up
 - In `upload_if_dirty()` itself, if a dedup match is found (no upload needed).
 - In `_do_upload()`, in the `finally` block, after the upload succeeds or fails.
 
-The entry remains in `cache` throughout — `in_transit` is an additional marker, not an alternative location. This is harmless: the entry's `(inode, blockno)` lock prevents concurrent modification, and `evict()` skips in-transit entries rather than trying to evict them.
+The entry remains in `cache` throughout — `in_transit` is an additional marker, not an alternative location. This is harmless: the entry's `block_lock` prevents concurrent modification, and `evict()` skips in-transit entries rather than trying to evict them.
 
 While an entry is in `in_transit`:
 
-- Its `(inode, blockno)` lock and (if a new object was created) its `(obj_id,)` lock are held — but by the upload pipeline, not by the task that initiated the upload.
+- Its `block_lock` and (if a new object was created) its `obj_lock` are held — but by the upload pipeline, not by the task that initiated the upload.
 - `evict()` skips it (cannot evict an entry being uploaded).
 - `upload_if_dirty()` returns `True` immediately if called again for the same entry.
-- `get()` on the same `(inode, blockno)` blocks on the MultiLock until the upload completes and the lock is released.
+- `get()` on the same `(inode, blockno)` blocks on `block_lock` until the upload completes and the lock is released.
 
 ### 4.4 Database Tables
 
@@ -185,10 +185,10 @@ Multiple `inode_blocks` rows can reference the same `objects` row — this is ho
 
 ### 5.1 Lock Ordering
 
-Two lock namespaces exist (see Section 3.1). When both are needed, they are always acquired in this order:
+Two `MultiLock` instances exist (see Section 3.1). When both are needed, they are always acquired in this order:
 
-1. **Entry lock** `(inode, blockno)`
-2. **Object lock** `(obj_id,)`
+1. **`block_lock`** keyed by `(inode, blockno)`
+2. **`obj_lock`** keyed by `(obj_id,)`
 
 No code path acquires them in reverse order. This prevents deadlocks between tasks operating on different blocks that happen to reference the same object.
 
@@ -199,19 +199,19 @@ The upload path spans two tasks and involves a cross-task lock handoff via the u
 ```
 upload_if_dirty()                        _do_upload()
 ─────────────────                        ────────────
-acquire(inode, blockno)
+block_lock.acquire(inode, blockno)
 add to in_transit
 hash (yields to thread)
 INSERT INTO objects
 INSERT INTO inode_blocks
-acquire(obj_id)
+obj_lock.acquire(obj_id)
 send to upload channel ──────────────►  receive from channel
                                          write to backend
                                          UPDATE objects SET phys_size=...
                                          el.dirty = False
                                          discard from in_transit
-                                         release(obj_id)
-                                         release(inode, blockno)
+                                         obj_lock.release(obj_id)
+                                         block_lock.release(inode, blockno)
                                          notify transfer_completed
 ```
 
@@ -222,7 +222,7 @@ On **dedup match** (existing object with the same hash), the path is shorter and
 ```
 upload_if_dirty()
 ─────────────────
-acquire(inode, blockno)
+block_lock.acquire(inode, blockno)
 add to in_transit
 hash (yields to thread)
 find matching object in DB
@@ -230,7 +230,7 @@ UPDATE objects SET refcount=refcount+1
 INSERT OR REPLACE INTO inode_blocks
 el.dirty = False
 remove from in_transit
-release(inode, blockno)
+block_lock.release(inode, blockno)
 _deref_obj(old_obj_id)            ← no object lock needed here
 ```
 
@@ -241,19 +241,19 @@ No object lock is acquired because no upload occurs.
 In `_get_entry()`, when downloading an object from the backend, the code acquires and immediately releases the object lock:
 
 ```python
-await self.mlock.acquire(obj_id)
-await self.mlock.release(obj_id)
+await self.obj_lock.acquire(obj_id)
+await self.obj_lock.release(obj_id)
 ```
 
-This is not protecting a critical section — it is a **barrier**. If the object is currently being uploaded, the `(obj_id,)` lock is held by the upload pipeline. The acquire blocks until the upload completes, ensuring the download reads the fully-written object. The lock can be released immediately after because the entry lock `(inode, blockno)` guarantees a reference to the object exists (so it won't be deleted while the download proceeds).
+This is not protecting a critical section — it is a **barrier**. If the object is currently being uploaded, `obj_lock` is held by the upload pipeline. The acquire blocks until the upload completes, ensuring the download reads the fully-written object. The lock can be released immediately after because the block lock `(inode, blockno)` guarantees a reference to the object exists (so it won't be deleted while the download proceeds).
 
 ### 5.4 Object Lock in `_deref_obj`
 
 The same barrier pattern appears in `_deref_obj()`:
 
 ```python
-await self.mlock.acquire(obj_id)
-await self.mlock.release(obj_id)
+await self.obj_lock.acquire(obj_id)
+await self.obj_lock.release(obj_id)
 ```
 
 This ensures that the object is no longer being uploaded before it is deleted. By the time the lock is acquired, the upload has either succeeded (object exists in backend, ready for deletion) or failed (object may not exist; `_deref_obj` checks `phys_size == -1` and skips the deletion in that case).
@@ -262,15 +262,15 @@ The object row has already been deleted from the `objects` table before this loc
 
 1. The object can no longer be found by deduplication (hash lookup will not match a deleted row).
 2. No new upload can target this `obj_id`.
-3. Any concurrent `_get_entry` that already looked up this `obj_id` holds the entry lock, which prevents the entry from being removed from `inode_blocks` until the download completes. But note that `_deref_obj` only runs when `refcount` drops to zero, meaning no `inode_blocks` rows reference this object — so no concurrent download for this object is possible.
+3. Any concurrent `_get_entry` that already looked up this `obj_id` holds the block lock, which prevents the entry from being removed from `inode_blocks` until the download completes. But note that `_deref_obj` only runs when `refcount` drops to zero, meaning no `inode_blocks` rows reference this object — so no concurrent download for this object is possible.
 
-### 5.5 Entry Lock in `get()`
+### 5.5 Block Lock in `get()`
 
 `get()` has two paths, each with different lock behavior:
 
-**Fast path** (`max_write` is not `None` and `max_write < el.size`): The entry lock is held via `async with self.mlock(inode, blockno)` for the duration of the caller's use of the entry. This path is taken when the caller promises not to grow the block, so cache size accounting is not affected and no expiration check is needed.
+**Fast path** (`max_write` is not `None` and `max_write < el.size`): The block lock is held via `async with self.block_lock(inode, blockno)` for the duration of the caller's use of the entry. This path is taken when the caller promises not to grow the block, so cache size accounting is not affected and no expiration check is needed.
 
-**Slow path**: The entry lock is acquired with `await self.mlock.acquire(inode, blockno)` and released in a `finally` block after the caller is done. Between yield and release, the cache size is updated (`cache.size += el.size - oldsize`). This path may trigger `evict()` before acquiring the lock if the cache is full. The lock is held across the caller's operations, guaranteeing exclusive access to the entry.
+**Slow path**: The block lock is acquired with `await self.block_lock.acquire(inode, blockno)` and released in a `finally` block after the caller is done. Between yield and release, the cache size is updated (`cache.size += el.size - oldsize`). This path may trigger `evict()` before acquiring the lock if the cache is full. The lock is held across the caller's operations, guaranteeing exclusive access to the entry.
 
 In both paths, the lock is held while the entry is yielded to the caller. This means only one task can read or write a given block at a time.
 
@@ -284,11 +284,11 @@ This section traces through the most important concurrent interactions step by s
 **Tasks:** A single FUSE handler task.
 
 1. Caller invokes `get(inode, blockno, max_write=N)` where `N < el.size`.
-2. `async with self.mlock(inode, blockno)` — acquires entry lock.
+2. `async with self.block_lock(inode, blockno)` — acquires block lock.
 3. Entry found in `cache`. `max_write < el.size` confirmed.
 4. `move_to_end()` — marks as recently used (synchronous, no checkpoint).
 5. Entry yielded to caller. Caller reads or writes (synchronous file I/O on the cache file).
-6. Context manager exits — releases entry lock.
+6. Context manager exits — releases block lock.
 
 No expiration check. No backend interaction. No checkpoint while the caller holds the entry (unless the caller itself awaits, which FUSE handlers do not do within a single `get()` block).
 
@@ -297,16 +297,16 @@ No expiration check. No backend interaction. No checkpoint while the caller hold
 **Tasks:** A FUSE handler task, potentially interacting with upload workers via lock contention.
 
 1. `cache.is_full()` may be true — calls `evict()` (see 6.6) before acquiring any lock.
-2. `await self.mlock.acquire(inode, blockno)` — acquires entry lock.
+2. `await self.block_lock.acquire(inode, blockno)` — acquires block lock.
 3. Calls `_get_entry()`:
    - **Cache hit:** `move_to_end()`, return entry.
    - **Cache miss, no DB row:** Create new empty `CacheEntry`, add to cache, return.
-   - **Cache miss, DB row exists:** Download from backend. Acquires then immediately releases `(obj_id,)` lock as an upload barrier (see 5.3). Opens a `.tmp` file, downloads, fsyncs, renames to final name. Creates `CacheEntry`, adds to cache and updates `cache.size`.
+   - **Cache miss, DB row exists:** Download from backend. Acquires then immediately releases `obj_lock` keyed by `obj_id` as an upload barrier (see 5.3). Opens a `.tmp` file, downloads, fsyncs, renames to final name. Creates `CacheEntry`, adds to cache and updates `cache.size`.
 4. `oldsize = el.size` recorded.
 5. Entry yielded to caller. Caller reads or writes.
-6. `finally` block: `cache.size += el.size - oldsize`, then releases entry lock.
+6. `finally` block: `cache.size += el.size - oldsize`, then releases block lock.
 
-The `cache.size` update in step 6 requires that no other task modified `el.size` concurrently. This is guaranteed because the entry lock was held throughout.
+The `cache.size` update in step 6 requires that no other task modified `el.size` concurrently. This is guaranteed because the block lock was held throughout.
 
 ### 6.3 Upload of a New Object
 
@@ -315,15 +315,15 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 **Initiating task** (`upload_if_dirty`):
 
 1. Check: entry not in `in_transit` and `el.dirty` is true.
-2. `await self.mlock.acquire(inode, blockno)` — acquires entry lock.
+2. `await self.block_lock.acquire(inode, blockno)` — acquires block lock.
 3. Re-check after acquiring lock: entry still in cache, not in transit, still dirty.
 4. Add entry to `in_transit`.
-5. `await trio.to_thread.run_sync(sha256_fh, el)` — **checkpoint**. Hash computed in OS thread. Other tasks can run, but the entry lock prevents them from accessing this block.
+5. `await trio.to_thread.run_sync(sha256_fh, el)` — **checkpoint**. Hash computed in OS thread. Other tasks can run, but the block lock prevents them from accessing this block.
 6. Query `inode_blocks` for existing `obj_id` (synchronous).
 7. Query `objects` for hash match — no match found.
 8. `INSERT INTO objects` with `phys_size=-1` (synchronous).
 9. `INSERT OR REPLACE INTO inode_blocks` (synchronous).
-10. `await self.mlock.acquire(obj_id)` — acquires object lock. **Checkpoint.**
+10. `await self.obj_lock.acquire(obj_id)` — acquires object lock. **Checkpoint.**
 11. `await self._upload_send.send((el, obj_id))` — blocks until a worker is ready. **Checkpoint.** Initiating task is now done; control passes to the worker.
 
 **Upload worker** (`_do_upload`):
@@ -333,11 +333,11 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 14. `UPDATE objects SET phys_size=...` (synchronous).
 15. `el.dirty = False`.
 16. `self.in_transit.discard(el)`.
-17. `await self.mlock.release(obj_id)` — releases object lock.
-18. `await self.mlock.release(inode, blockno)` — releases entry lock.
+17. `await self.obj_lock.release(obj_id)` — releases object lock.
+18. `await self.block_lock.release(inode, blockno)` — releases block lock.
 19. Signal `transfer_completed`.
 
-Between steps 4 and 16, the entry is in `in_transit`. Between steps 2 and 18, the entry lock is held (across a task boundary). Between steps 10 and 17, the object lock is held.
+Between steps 4 and 16, the entry is in `in_transit`. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, the object lock is held.
 
 ### 6.4 Deduplication (Hash Matches Existing Object)
 
@@ -349,7 +349,7 @@ Steps 1–6 are identical to 6.3. Then:
 8. If `old_obj_id != obj_id`: increment refcount on matched object, `INSERT OR REPLACE INTO inode_blocks` (synchronous).
 9. `el.dirty = False`.
 10. `self.in_transit.remove(el)`.
-11. `await self.mlock.release(inode, blockno)` — releases entry lock.
+11. `await self.block_lock.release(inode, blockno)` — releases block lock.
 12. If there was an `old_obj_id` and it differs from `obj_id`: call `_deref_obj(old_obj_id)` which may decrement refcount and queue the old object for backend deletion.
 
 No object lock is acquired because no upload occurs. The entry spends less time in `in_transit` (steps 4–10 only, no backend I/O).
@@ -360,12 +360,12 @@ Note that if `old_obj_id == obj_id` (the block was re-dirtied with the same cont
 
 **Tasks:** Task A is uploading object X. Task B wants to read a block backed by object X.
 
-1. Task A holds `(obj_id_X,)` lock (step 10 in 6.3).
-2. Task B enters `get()` slow path, acquires entry lock for its block.
+1. Task A holds `obj_lock` keyed by `obj_id_X` (step 10 in 6.3).
+2. Task B enters `get()` slow path, acquires block lock for its block.
 3. Task B enters `_get_entry()`, finds its block is not in cache, queries DB, finds it maps to `obj_id_X`.
-4. Task B calls `await self.mlock.acquire(obj_id_X)` — **blocks** because Task A holds it.
-5. Task A's upload worker completes the upload, releases `(obj_id_X,)`.
-6. Task B acquires `(obj_id_X,)`, immediately releases it.
+4. Task B calls `await self.obj_lock.acquire(obj_id_X)` — **blocks** because Task A holds it.
+5. Task A's upload worker completes the upload, releases `obj_lock` for `obj_id_X`.
+6. Task B acquires `obj_lock` for `obj_id_X`, immediately releases it.
 7. Task B downloads the object (which now exists in the backend).
 
 Without the barrier, Task B could attempt to download an object that has not yet been written.
@@ -378,7 +378,7 @@ Without the barrier, Task B could attempt to download an object that has not yet
 2. Iterate a **snapshot** (`list(self.cache.values())`) — a copy is necessary because the dict may change during iteration.
 3. For each entry:
    - If dirty: call `upload_if_dirty(el)`. If it returns `True` (upload started or already in transit), set `sth_in_transit = True` and skip eviction.
-   - If clean: `await self.mlock.acquire(inode, blockno)`, then re-validate (entry may have been removed or re-dirtied while waiting for the lock). If still clean and still in cache, call `self.cache.remove(...)` which closes the file handle, decrements `cache.size`, and unlinks the backing file.
+   - If clean: `await self.block_lock.acquire(inode, blockno)`, then re-validate (entry may have been removed or re-dirtied while waiting for the lock). If still clean and still in cache, call `self.cache.remove(...)` which closes the file handle, decrements `cache.size`, and unlinks the backing file.
 4. If any entries were in transit, call `await self.wait()` (which blocks until an upload completes), then loop back to step 1.
 
 The re-validation in step 3 is essential: between iterating the snapshot and acquiring the lock, another task may have evicted the entry, re-dirtied it, or replaced it entirely.
@@ -389,13 +389,13 @@ The re-validation in step 3 is essential: between iterating the snapshot and acq
 
 Uses a **two-pass** strategy to avoid unnecessary blocking:
 
-**Pass 1** (`timeout=0`): For each blockno, attempt `acquire_nowait(inode, blockno)`. If the lock is already held (e.g., the block is being uploaded), skip it. For acquired blocks: remove from cache if present, delete `inode_blocks` row, release entry lock, then call `_deref_obj(obj_id)`.
+**Pass 1** (`timeout=0`): For each blockno, attempt `block_lock.acquire_nowait(inode, blockno)`. If the lock is already held (e.g., the block is being uploaded), skip it. For acquired blocks: remove from cache if present, delete `inode_blocks` row, release block lock, then call `_deref_obj(obj_id)`.
 
-**Pass 2** (`timeout=None`): For blocks skipped in pass 1, `await self.mlock.acquire(inode, blockno)`. This blocks until any in-progress upload finishes. Then proceed identically: remove from cache, delete DB row, release lock, deref object.
+**Pass 2** (`timeout=None`): For blocks skipped in pass 1, `await self.block_lock.acquire(inode, blockno)`. This blocks until any in-progress upload finishes. Then proceed identically: remove from cache, delete DB row, release lock, deref object.
 
 The two-pass design matters for a common pattern: creating a file and immediately deleting it. Without pass 1, removal of every block would wait behind the upload of the first block, serializing the entire operation. Pass 1 allows immediate removal of all blocks that aren't currently locked.
 
-Note that `_deref_obj` is called **after** releasing the entry lock. This is safe because the `inode_blocks` row has already been deleted, so no other task can re-discover this block-to-object mapping.
+Note that `_deref_obj` is called **after** releasing the block lock. This is safe because the `inode_blocks` row has already been deleted, so no other task can re-discover this block-to-object mapping.
 
 ### 6.8 CommitTask Interaction
 
@@ -423,7 +423,7 @@ When `_do_upload()` raises an exception during the backend write:
 
 1. `in_transit.discard(el)` — entry removed from transit set (in `finally` block).
 2. `hash` set to `NULL` in the `objects` table. This prevents future deduplication against an object that may not exist in the backend. The row is not deleted because its `id` is already referenced by `inode_blocks`; deleting it would leave dangling references or allow the id to be reused for a different object.
-3. Both locks released (`(obj_id,)` and `(inode, blockno)`).
+3. Both locks released (`obj_lock` and `block_lock`).
 4. `transfer_completed` signaled.
 5. `el.dirty` remains `True` — the entry stays dirty in the cache for a future upload attempt.
 
@@ -518,7 +518,7 @@ sha = await trio.to_thread.run_sync(sha256_fh, el)
 
 This is safe because:
 
-- The entry lock `(inode, blockno)` is held, preventing any other Trio task from calling `get()` on this block.
+- The block lock `(inode, blockno)` is held, preventing any other Trio task from calling `get()` on this block.
 - The entry is in `in_transit`, so `evict()` skips it.
 - No other thread accesses the same file descriptor.
 - `sha256_fh` does not read or write any Python-level shared state — it only touches the `CacheEntry`'s file handle and returns a new hash object.
@@ -533,7 +533,7 @@ In `_get_entry()`:
 await trio.to_thread.run_sync(os.fsync, tmpfh.fileno())
 ```
 
-This fsyncs a temporary file (`.tmp`) that was just downloaded from the backend. The file descriptor is a raw integer passed to `os.fsync` — no Python objects are shared with the thread. The entry lock `(inode, blockno)` is held, and the `.tmp` file is local to this code path (not yet visible in the cache), so no other task can interact with it.
+This fsyncs a temporary file (`.tmp`) that was just downloaded from the backend. The file descriptor is a raw integer passed to `os.fsync` — no Python objects are shared with the thread. The block lock `(inode, blockno)` is held, and the `.tmp` file is local to this code path (not yet visible in the cache), so no other task can interact with it.
 
 ### 8.3 General Rule
 
@@ -542,18 +542,18 @@ The `Connection` object (database) is never accessed from worker threads. All da
 If future changes need to offload additional work to threads, the offloaded code must only access data that is either:
 
 - Immutable or task-local (e.g., a file descriptor, a bytes object).
-- Protected by the entry lock with the entry in `in_transit`, ensuring no Trio task will touch it concurrently.
+- Protected by the block lock with the entry in `in_transit`, ensuring no Trio task will touch it concurrently.
 
 
 ## 9. Quick Reference
 
-### 9.1 Lock Key Reference
+### 9.1 Lock Reference
 
-| Key | Protects | Acquired by | Released by |
-|-----|----------|-------------|-------------|
-| `(inode, blockno)` | Cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `evict()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
-| `(obj_id,)` | Backend object during upload or deletion | `upload_if_dirty()` (new object path) | `_do_upload()` worker (cross-task) |
-| `(obj_id,)` | Barrier — wait for upload to complete | `_get_entry()`, `_deref_obj()` | Same task (immediately after acquire) |
+| Lock | Key | Protects | Acquired by | Released by |
+|------|-----|----------|-------------|-------------|
+| `block_lock` | `(inode, blockno)` | Cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `evict()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
+| `obj_lock` | `(obj_id,)` | Backend object during upload or deletion | `upload_if_dirty()` (new object path) | `_do_upload()` worker (cross-task) |
+| `obj_lock` | `(obj_id,)` | Barrier — wait for upload to complete | `_get_entry()`, `_deref_obj()` | Same task (immediately after acquire) |
 
 ### 9.2 CacheEntry State Transitions
 
@@ -612,21 +612,16 @@ When modifying `block_cache.py`, check for these patterns:
 
 - **Adding an `await` between synchronous operations?** Verify that no invariant depends on those operations being atomic. In particular, sequences of database calls that must see consistent state should not be split by a checkpoint.
 - **Accessing shared state after an `await`?** Re-validate assumptions — another task may have modified `cache`, `in_transit`, or database rows during the checkpoint. The existing code demonstrates this pattern: `upload_if_dirty()` and `evict()` both re-check entry state after acquiring locks.
-- **Holding a lock across an `await`?** This is sometimes necessary (e.g., the upload path holds the entry lock across the hash computation). Ensure the locked resource cannot be needed by the task you might yield to, or deadlock results.
+- **Holding a lock across an `await`?** This is sometimes necessary (e.g., the upload path holds the block lock across the hash computation). Ensure the locked resource cannot be needed by the task you might yield to, or deadlock results.
 - **Offloading to a thread?** The thread must not access `cache`, `in_transit`, the database, or any shared Python object. Only file descriptors and immutable data are safe. See Section 8.
 
 ## Improvement Ideas
-
-### Split MultiLock into two objects.
-
-Currently, the same multi-lock is used for both (inode, blockno) pairs and object ids. It would
-easier to understand to put these different kinds of values into different mlock instances.
 
 ### Unify or eliminate the in_transit set
 
 Current state: in_transit is a set of CacheEntry objects currently being uploaded. It's checked by
 upload_if_dirty() (skip if already in transit), evict() (skip in-transit entries),
-transfer_in_progress(), and CommitTask. It partially duplicates what the entry lock already
+transfer_in_progress(), and CommitTask. It partially duplicates what the block lock already
 provides.
 
 Idea: Replace in_transit with a boolean flag on CacheEntry (e.g., uploading). This is simpler than a
