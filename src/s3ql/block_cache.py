@@ -712,6 +712,10 @@ class BlockCache:
                     async with self.backend_pool() as backend:
                         await backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
 
+                    # Flushing here is not sufficient, we also need fsync before we can rename.
+                    # Otherwise, if the computer crashes at the wrong time, we end up with corrupted
+                    # data in the cache file, which will then be recognised as dirty and uploaded by
+                    # fsck.s3ql.
                     tmpfh.flush()
                     await trio.to_thread.run_sync(os.fsync, tmpfh.fileno())
                     os.rename(tmpfh.name, filename)
