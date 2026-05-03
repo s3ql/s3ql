@@ -1143,7 +1143,7 @@ async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 
 
 
 async def upload_metadata(
-    backend: AsyncComprencBackend,
+    pool: BackendPool,
     db: Connection,
     params: FsAttributes,
     incremental: bool = True,
@@ -1180,24 +1180,29 @@ async def upload_metadata(
                     raise KeyError()
 
         processed = 0
-        while True:
-            try:
-                blockno = next_dirty_block()
-            except KeyError:
-                break
+        async with pool() as backend:
+            while True:
+                try:
+                    blockno = next_dirty_block()
+                except KeyError:
+                    break
 
-            log.debug('Uploading block %d', blockno)
-            processed += 1
-            log.info(
-                'Uploaded %d out of ~%d dirty blocks (%d%%)',
-                processed,
-                total,
-                processed * 100 / total,
-                extra={'rate_limit': 1, 'update_console': True, 'is_last': processed == total},
-            )
-            obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
-            fh.seek(blockno * blocksize)
-            await backend.write_fh(obj, fh, len_=blocksize)
+                log.debug('Uploading block %d', blockno)
+                processed += 1
+                log.info(
+                    'Uploaded %d out of ~%d dirty blocks (%d%%)',
+                    processed,
+                    total,
+                    processed * 100 / total,
+                    extra={
+                        'rate_limit': 1,
+                        'update_console': True,
+                        'is_last': processed == total,
+                    },
+                )
+                obj = METADATA_OBJ_NAME % (blockno, params.seq_no)
+                fh.seek(blockno * blocksize)
+                await backend.write_fh(obj, fh, len_=blocksize)
 
         log.info("Metadata upload complete.")
 

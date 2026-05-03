@@ -367,9 +367,9 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.needs_fsck = True
 
     param.last_modified = time.time()
+    await upload_metadata(backend_pool, db, param)
+    write_params(cachepath, param)
     async with backend_pool() as backend:
-        await upload_metadata(backend, db, param)
-        write_params(cachepath, param)
         await upload_params(backend, param)
         await expire_objects(backend)
 
@@ -740,42 +740,42 @@ class MetadataUploadTask:
 
             # Upload twice without blocking writes, to reduce the amount of data left for
             # the final upload (which is needed for a consistent snapshot).
-            async with self.backend_pool() as backend:
-                self.db.sync_checkpoint()
-                for _ in range(2):
-                    await upload_metadata(
-                        backend,
-                        self.db,
-                        self.params,
-                        update_params=False,
-                        incremental=True,
-                    )
+            self.db.sync_checkpoint()
+            for _ in range(2):
+                await upload_metadata(
+                    self.backend_pool,
+                    self.db,
+                    self.params,
+                    update_params=False,
+                    incremental=True,
+                )
 
             self.params.last_modified = time.time()
 
             # Now upload with writes inhibited to get a consistent snapshot. inhibit_writes() blocks
             # WAL checkpointing (writes go to WAL only), ensuring the main database file remains
             # consistent while we read it.
-            async with self.db.inhibit_writes(), self.backend_pool() as backend:
+            async with self.db.inhibit_writes():
                 await upload_metadata(
-                    backend,
+                    self.backend_pool,
                     self.db,
                     self.params,
                     update_params=True,
                     incremental=True,
                 )
                 write_params(self.options.cachepath, self.params)
-                await upload_params(backend, self.params)
+                async with self.backend_pool() as backend:
+                    await upload_params(backend, self.params)
 
-                # Write a new params file immediately, so that we're in the same state as right
-                # after mounting and there is no window where we could have metadata_* objects
-                # with a sequence number for which there is no corresponding s3ql_params_*
-                # object.
-                self.params.seq_no += 1
-                write_params(self.options.cachepath, self.params)
-                await upload_params(backend, self.params)
+                    # Write a new params file immediately, so that we're in the same state as right
+                    # after mounting and there is no window where we could have metadata_* objects
+                    # with a sequence number for which there is no corresponding s3ql_params_*
+                    # object.
+                    self.params.seq_no += 1
+                    write_params(self.options.cachepath, self.params)
+                    await upload_params(backend, self.params)
 
-                await expire_objects(backend)
+                    await expire_objects(backend)
 
         log.debug('finished')
 

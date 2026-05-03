@@ -134,6 +134,7 @@ async def test_upload_download(backend, incremental):
         data_block_size=BLOCKSIZE,
         seq_no=1,
     )
+    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -141,18 +142,18 @@ async def test_upload_download(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        await upload_metadata(backend, db, params, incremental)
+        await upload_metadata(pool, db, params, incremental)
 
         # Shrink database
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
         db.sync_checkpoint()
-        await upload_metadata(backend, db, params, incremental)
+        await upload_metadata(pool, db, params, incremental)
 
         db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(_pool_for(backend), tmpfh2.name, params)
+            await download_metadata(pool, tmpfh2.name, params)
 
             tmpfh.seek(0)
             tmpfh2.seek(0)
@@ -194,6 +195,7 @@ async def test_versioning(backend):
     )
 
     versions = []
+    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -202,7 +204,7 @@ async def test_versioning(backend):
 
         async def upload():
             db.sync_checkpoint()
-            await upload_metadata(backend, db, params)
+            await upload_metadata(pool, db, params)
             tmpfh.seek(0)
             versions.append((params.copy(), tmpfh.read()))
             params.seq_no += 1
@@ -229,7 +231,7 @@ async def test_versioning(backend):
 
     for params, ref_db in versions:
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(_pool_for(backend), tmpfh2.name, params)
+            await download_metadata(pool, tmpfh2.name, params)
             assert tmpfh2.read() == ref_db
 
     # Make sure that we did not store a full copy of every version
@@ -415,6 +417,7 @@ async def test_download_shorter(backend, incremental):
         data_block_size=BLOCKSIZE,
         seq_no=1,
     )
+    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -422,7 +425,7 @@ async def test_download_shorter(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        await upload_metadata(backend, db, params, incremental)
+        await upload_metadata(pool, db, params, incremental)
         old_params = params.copy()
         params.seq_no += 1
 
@@ -430,11 +433,11 @@ async def test_download_shorter(backend, incremental):
         for i in range(2, 6):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
         db.sync_checkpoint()
-        await upload_metadata(backend, db, params)
+        await upload_metadata(pool, db, params)
         db.close()
 
     with tempfile.NamedTemporaryFile() as tmpfh:
-        await download_metadata(_pool_for(backend), tmpfh.name, old_params)
+        await download_metadata(pool, tmpfh.name, old_params)
 
 
 async def test_download_metadata_parallel_correctness():
@@ -469,8 +472,7 @@ async def test_download_metadata_parallel_correctness():
                 db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
             db.sync_checkpoint()
-            async with pool() as backend:
-                await upload_metadata(backend, db, params, incremental=False)
+            await upload_metadata(pool, db, params, incremental=False)
             db.close()
 
             assert math.ceil(params.db_size / BLOCKSIZE) >= 4  # ensure several blocks

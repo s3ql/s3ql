@@ -240,9 +240,9 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     pool = BackendPool(factory, options.max_connections)  # type: ignore[arg-type]
     try:
         log.info('Uploading metadata...')
+        await upload_metadata(pool, db, param)
+        write_params(cachepath, param)
         async with pool() as backend:
-            await upload_metadata(backend, db, param)
-            write_params(cachepath, param)
             await upload_params(backend, param)
     finally:
         await pool.flush()

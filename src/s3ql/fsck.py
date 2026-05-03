@@ -1473,20 +1473,23 @@ async def main_inner(options: Namespace, pool: BackendPool) -> None:
         param.last_fsck = time.time()
         param.last_modified = time.time()
 
-        if full_upload:
-            # This is a good time to reduce DB size if possible
-            log.info("Compacting database...")
-            db.execute('VACUUM')
-            db.close()
-            log.info("Compaction complete.")
-            await upload_metadata(backend, db, param, incremental=False)
-        else:
-            db.close()
-            await upload_metadata(backend, db, param, incremental=True)
+    # upload_metadata acquires backend connections from the pool itself, so it
+    # must run outside any pool() context held by this task — the
+    # CapacityLimiter forbids the same borrower from holding two tokens.
+    if full_upload:
+        # This is a good time to reduce DB size if possible
+        log.info("Compacting database...")
+        db.execute('VACUUM')
+        db.close()
+        log.info("Compaction complete.")
+        await upload_metadata(pool, db, param, incremental=False)
+    else:
+        db.close()
+        await upload_metadata(pool, db, param, incremental=True)
 
-        write_params(cachepath, param)
+    write_params(cachepath, param)
+    async with pool() as backend:
         await upload_params(backend, param)
-
         await expire_objects(backend)
 
     log.info('Completed fsck of %s', options.storage_url)

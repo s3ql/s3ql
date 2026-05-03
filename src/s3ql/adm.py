@@ -164,8 +164,7 @@ async def main_async(options: argparse.Namespace) -> None:
             await restore_metadata_cmd(pool, options)
 
         elif options.action == 'upgrade':
-            async with pool() as backend:
-                await upgrade(backend, options)
+            await upgrade(pool, options)
 
         elif options.action == 'shrink-db':
             await shrink_db(pool, options)
@@ -334,14 +333,14 @@ async def shrink_db(pool: BackendPool, options) -> None:
 
     param.is_mounted = False
     param.last_modified = time.time()
+    await upload_metadata(pool, db, param)
+    write_params(cachepath, param)
     async with pool() as backend:
-        await upload_metadata(backend, db, param)
-        write_params(cachepath, param)
         await upload_params(backend, param)
         await expire_objects(backend)
 
 
-async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
+async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:
     '''Upgrade file system to newest revision'''
 
     params_path = options.cachepath + '.params'
@@ -355,7 +354,8 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
 
     with open(params_path, 'rb') as fh:
         local_params: BasicMappingT = thaw_basic_mapping(fh.read())
-    remote_params = await backend.lookup('s3ql_metadata')
+    async with pool() as backend:
+        remote_params = await backend.lookup('s3ql_metadata')
 
     local_seq_no = local_params['seq_no']
     remote_seq_no = remote_params['seq_no']
@@ -440,22 +440,23 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
     params.last_modified = time.time()
     params.seq_no += 1
 
-    await upload_metadata(backend, db, params, incremental=False)
+    await upload_metadata(pool, db, params, incremental=False)
     write_params(options.cachepath, params)
-    await upload_params(backend, params)
+    async with pool() as backend:
+        await upload_params(backend, params)
 
-    # Re-upload the old metadata object to make sure that we don't accidentally
-    # re-mount the filesystem with an older S3QL version.
-    log.info('Backing up old metadata...')
-    local_params['revision'] = CURRENT_FS_REV
-    local_params['seq_no'] = local_seq_no + 1
-    with tempfile.TemporaryFile() as tmpfh:
-        await backend.readinto_fh('s3ql_metadata', tmpfh)
-        len_ = tmpfh.tell()
-        tmpfh.seek(0)
-        await backend.write_fh(
-            "s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True
-        )
+        # Re-upload the old metadata object to make sure that we don't accidentally
+        # re-mount the filesystem with an older S3QL version.
+        log.info('Backing up old metadata...')
+        local_params['revision'] = CURRENT_FS_REV
+        local_params['seq_no'] = local_seq_no + 1
+        with tempfile.TemporaryFile() as tmpfh:
+            await backend.readinto_fh('s3ql_metadata', tmpfh)
+            len_ = tmpfh.tell()
+            tmpfh.seek(0)
+            await backend.write_fh(
+                "s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True
+            )
 
     print('File system upgrade complete.')
 
