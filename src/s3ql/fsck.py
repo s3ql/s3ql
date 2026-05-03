@@ -33,8 +33,9 @@ from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends.common import NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .backends.local import AsyncBackend as LocalAsyncBackend
+from .backends.pool import BackendPool
 from .common import (
-    async_get_backend,
+    get_backend_factory,
     get_path,
     inode_for_path,
     is_mounted,
@@ -1264,14 +1265,8 @@ def parse_args(args: list[str]) -> Namespace:
         default=False,
         help="Run a faster, less thorough check.",
     )
-    parser.add_argument(
-        "--max-threads",
-        action="store",
-        type=int,
-        default=None,
-        metavar='<no>',
-        help='Number of parallel compression/encryption threads to use (default: auto).',
-    )
+    parser.add_max_threads()
+    parser.add_max_connections()
     options = parser.parse_args(args)
 
     return options
@@ -1286,7 +1281,7 @@ def main(args: list[str] | None = None) -> None:
     setup_logging(options)
 
     if options.max_threads is None:
-        options.max_threads = determine_threads(options)
+        options.max_threads = determine_threads(options.compress)
     AsyncComprencBackend.set_max_threads(options.max_threads)
 
     trio.run(main_async, options)
@@ -1298,11 +1293,14 @@ async def main_async(options: Namespace) -> None:
     if is_mounted(options.storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
-    async with await async_get_backend(options) as backend:
-        await main_inner(options, backend)
+    pool = BackendPool(await get_backend_factory(options), options.max_connections)
+    try:
+        await main_inner(options, pool)
+    finally:
+        await pool.flush()
 
 
-async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
+async def main_inner(options: Namespace, pool: BackendPool) -> None:
     if options.fast:
         log.info('Starting fast fsck of %s', options.storage_url)
     else:
@@ -1311,7 +1309,8 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     cachepath = options.cachepath
     db = None
 
-    param = await read_remote_params(backend)
+    async with pool() as backend:
+        param = await read_remote_params(backend)
     local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
         log.info('Using cached metadata.')
@@ -1406,7 +1405,7 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
         # updated.
         log.info('Downloading metadata...')
         db = await download_metadata(
-            backend,
+            pool,
             cachepath + '.db',
             param,
             failsafe=param.is_mounted,
@@ -1438,56 +1437,57 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     # the last few metadata snapshots.
     if not options.fast:
         await verify_metadata_snapshots(
-            backend,
+            pool,
             count=5,
             include_most_recent=check_current_metadata,
         )
 
-    param.is_mounted = True
-    param.seq_no += 1
-    write_params(cachepath, param)
-    await upload_params(backend, param)
+    async with pool() as backend:
+        param.is_mounted = True
+        param.seq_no += 1
+        write_params(cachepath, param)
+        await upload_params(backend, param)
 
-    fsck = Fsck(cachepath + '-cache', backend, param, db)
-    await fsck.check(check_cache)
+        fsck = Fsck(cachepath + '-cache', backend, param, db)
+        await fsck.check(check_cache)
 
-    if fsck.uncorrectable_errors:
-        raise QuietError("Uncorrectable errors found, aborting.", exitcode=44 + 128)
+        if fsck.uncorrectable_errors:
+            raise QuietError("Uncorrectable errors found, aborting.", exitcode=44 + 128)
 
-    if fsck.found_errors and not param.needs_fsck:
-        log.error('File system was marked as clean, yet fsck found problems.')
-        log.error(
-            'Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql'
-        )
+        if fsck.found_errors and not param.needs_fsck:
+            log.error('File system was marked as clean, yet fsck found problems.')
+            log.error(
+                'Please report this to the S3QL mailing list, http://groups.google.com/group/s3ql'
+            )
 
-    # If the filesystem was not unmounted cleanly, the database may have changes that have not
-    # been uploaded yet are not tracked through the VFS, so we need to do a full upload. Just
-    # to be sure, we also do a full upload if we found any errors.
-    if param.needs_fsck or fsck.found_errors:
-        full_upload = True
-    else:
-        full_upload = False
+        # If the filesystem was not unmounted cleanly, the database may have changes that have not
+        # been uploaded yet are not tracked through the VFS, so we need to do a full upload. Just
+        # to be sure, we also do a full upload if we found any errors.
+        if param.needs_fsck or fsck.found_errors:
+            full_upload = True
+        else:
+            full_upload = False
 
-    param.needs_fsck = False
-    param.is_mounted = False
-    param.last_fsck = time.time()
-    param.last_modified = time.time()
+        param.needs_fsck = False
+        param.is_mounted = False
+        param.last_fsck = time.time()
+        param.last_modified = time.time()
 
-    if full_upload:
-        # This is a good time to reduce DB size if possible
-        log.info("Compacting database...")
-        db.execute('VACUUM')
-        db.close()
-        log.info("Compaction complete.")
-        await upload_metadata(backend, db, param, incremental=False)
-    else:
-        db.close()
-        await upload_metadata(backend, db, param, incremental=True)
+        if full_upload:
+            # This is a good time to reduce DB size if possible
+            log.info("Compacting database...")
+            db.execute('VACUUM')
+            db.close()
+            log.info("Compaction complete.")
+            await upload_metadata(backend, db, param, incremental=False)
+        else:
+            db.close()
+            await upload_metadata(backend, db, param, incremental=True)
 
-    write_params(cachepath, param)
-    await upload_params(backend, param)
+        write_params(cachepath, param)
+        await upload_params(backend, param)
 
-    await expire_objects(backend)
+        await expire_objects(backend)
 
     log.info('Completed fsck of %s', options.storage_url)
 
@@ -1510,17 +1510,18 @@ def to_str(name: bytes) -> str:
 
 
 async def verify_metadata_snapshots(
-    backend: AsyncComprencBackend,
+    pool: BackendPool,
     count: int = 5,
     include_most_recent: bool = True,
 ) -> None:
     '''Verify the last *count* metadata snapshots.'''
 
     log.info('Verifying consistency of most recent metadata backups:')
-    backups = sorted(
-        await get_available_seq_nos(backend),
-        reverse=True,
-    )
+    async with pool() as backend:
+        backups = sorted(
+            await get_available_seq_nos(backend),
+            reverse=True,
+        )
 
     if not backups:
         raise RuntimeError(
@@ -1533,7 +1534,8 @@ async def verify_metadata_snapshots(
         to_check = backups[1 : count + 1]
 
     for seq_no in to_check:
-        d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % seq_no))[0])
+        async with pool() as backend:
+            d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % seq_no))[0])
         if d['revision'] != CURRENT_FS_REV:
             break
         params = FsAttributes(**d)  # type: ignore
@@ -1546,7 +1548,7 @@ async def verify_metadata_snapshots(
             continue
         log.info('Checking backup %010x (from %s)...', seq_no, date)
         with NamedTemporaryFile() as fh:
-            conn = await download_metadata(backend, fh.name, params)
+            conn = await download_metadata(pool, fh.name, params)
             res = conn.get_list('PRAGMA integrity_check(20)')
             if res[0][0] != 'ok':
                 log.error('\n'.join(str(x[0]) for x in res))

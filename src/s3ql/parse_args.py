@@ -256,6 +256,24 @@ class ArgumentParser(argparse.ArgumentParser):
             "to 9 (slowest). Default: `%(default)s`",
         )
 
+    def add_max_connections(self, default: int = 32) -> None:
+        self.add_argument(
+            "--max-connections",
+            type=int,
+            default=default,
+            metavar='<no>',
+            help='Number of parallel backend connections to use (default: %(default)d).',
+        )
+
+    def add_max_threads(self) -> None:
+        self.add_argument(
+            "--max-threads",
+            type=int,
+            default=None,
+            metavar='<no>',
+            help='Number of parallel compression/encryption threads to use (default: auto).',
+        )
+
     def add_subparsers(self, **kw) -> argparse._SubParsersAction[argparse.ArgumentParser]:
         '''Pass parent and set prog to default usage message'''
         kw.setdefault('parser_class', argparse.ArgumentParser)

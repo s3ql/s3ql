@@ -132,7 +132,7 @@ def main(args: list[str] | None = None) -> None:
         raise QuietError('File system already mounted elsewhere on this machine.', exitcode=40)
 
     if options.max_threads is None:
-        options.max_threads = determine_threads(options)
+        options.max_threads = determine_threads(options.compress)
     AsyncComprencBackend.set_max_threads(options.max_threads)
 
     avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
@@ -218,8 +218,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     cachepath = options.cachepath
 
     backend_pool = BackendPool(await get_backend_factory(options), options.max_connections)
-    async with backend_pool() as backend:
-        (param, db) = await get_metadata(backend, cachepath)
+    (param, db) = await get_metadata(backend_pool, cachepath)
 
     # Handle --cachesize (all values in KiB)
     rec_cachesize = options.max_cache_entries * param.data_block_size / 2 / 1024
@@ -425,8 +424,14 @@ LZMA_MEMORY: dict[int, int] = {
 }
 
 
-def determine_threads(options: Namespace) -> int:
-    '''Return optimum number of upload threads'''
+def determine_threads(compress: tuple[str, int] | None) -> int:
+    '''Return optimum number of upload threads.
+
+    *compress* is the (algorithm, level) tuple that compression will use,
+    or None if the caller does not perform bulk compressed uploads (e.g.
+    mkfs and adm). When None, the result is sized purely from the CPU
+    count.
+    '''
 
     try:
         cores = os.sysconf('SC_NPROCESSORS_ONLN')
@@ -436,10 +441,10 @@ def determine_threads(options: Namespace) -> int:
 
     memory = get_system_memory()
 
-    if options.compress[0] == 'lzma':
+    if compress is not None and compress[0] == 'lzma':
         # Keep this in sync with compression level in backends/common.py
         # Memory usage according to man xz(1)
-        mem_per_thread = LZMA_MEMORY[options.compress[1]] * 1024**2
+        mem_per_thread = LZMA_MEMORY[compress[1]] * 1024**2
     else:
         # Only check LZMA memory usage
         mem_per_thread = 0
@@ -468,13 +473,12 @@ def determine_threads(options: Namespace) -> int:
         return threads
 
 
-async def get_metadata(
-    backend: AsyncComprencBackend, cachepath: str
-) -> tuple[FsAttributes, Connection]:
-    '''Retrieve metadata'''
+async def get_metadata(pool: BackendPool, cachepath: str) -> tuple[FsAttributes, Connection]:
+    '''Retrieve metadata, downloading blocks in parallel using *pool*.'''
 
     db = None
-    param = await read_remote_params(backend)
+    async with pool() as backend:
+        param = await read_remote_params(backend)
     local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
         if local_param.seq_no > param.seq_no:
@@ -498,7 +502,7 @@ async def get_metadata(
     # Download metadata
     if not db:
         log.info('Downloading metadata...')
-        db = await download_metadata(backend, cachepath + '.db', param)
+        db = await download_metadata(pool, cachepath + '.db', param)
 
         # Drop cache
         if os.path.exists(cachepath + '-cache'):
@@ -667,22 +671,8 @@ def parse_args(args: list[str]) -> Namespace:
         'modifications made after the most recent metadata backup may be lost. During '
         'backups, the filesystem will be unresponsile. Default: 6h',
     )
-    parser.add_argument(
-        "--max-connections",
-        action="store",
-        type=int,
-        default=32,
-        metavar='<no>',
-        help='Number of parallel upload connections to use (default: %(default)d).',
-    )
-    parser.add_argument(
-        "--max-threads",
-        action="store",
-        type=int,
-        default=None,
-        metavar='<no>',
-        help='Number of parallel compression/encryption threads to use (default: auto).',
-    )
+    parser.add_max_connections()
+    parser.add_max_threads()
     parser.add_argument(
         "--nfs",
         action="store_true",

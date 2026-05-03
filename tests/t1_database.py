@@ -28,6 +28,7 @@ from t2_block_cache import random_data
 from s3ql import sqlite3ext
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
+from s3ql.backends.pool import BackendPool
 from s3ql.database import (
     METADATA_OBJ_NAME,
     Connection,
@@ -114,6 +115,16 @@ async def backend():
         yield await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
 
+def _pool_for(backend: AsyncComprencBackend, max_connections: int = 4) -> BackendPool:
+    '''Wrap a single backend instance in a BackendPool for use with download_metadata.'''
+
+    async def factory() -> AsyncComprencBackend:
+        return backend
+
+    factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
+    return BackendPool(factory, max_connections=max_connections)  # type: ignore[arg-type]
+
+
 @pytest.mark.parametrize("incremental", (True, False))
 async def test_upload_download(backend, incremental):
     sqlite3ext.reset()
@@ -141,7 +152,7 @@ async def test_upload_download(backend, incremental):
         db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(backend, tmpfh2.name, params)
+            await download_metadata(_pool_for(backend), tmpfh2.name, params)
 
             tmpfh.seek(0)
             tmpfh2.seek(0)
@@ -218,7 +229,7 @@ async def test_versioning(backend):
 
     for params, ref_db in versions:
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(backend, tmpfh2.name, params)
+            await download_metadata(_pool_for(backend), tmpfh2.name, params)
             assert tmpfh2.read() == ref_db
 
     # Make sure that we did not store a full copy of every version
@@ -423,4 +434,49 @@ async def test_download_shorter(backend, incremental):
         db.close()
 
     with tempfile.NamedTemporaryFile() as tmpfh:
-        await download_metadata(backend, tmpfh.name, old_params)
+        await download_metadata(_pool_for(backend), tmpfh.name, old_params)
+
+
+async def test_download_metadata_parallel_correctness():
+    '''Download metadata with multiple workers and verify byte-identical output.
+
+    This test exercises the parallel download path that the regular tests
+    leave uncovered: a real BackendPool with several connections, multiple
+    workers writing to the same destination file at distinct offsets.
+    '''
+
+    sqlite3ext.reset()
+    rows = 200
+    params = FsAttributes(
+        metadata_block_size=BLOCKSIZE,
+        data_block_size=BLOCKSIZE,
+        seq_no=1,
+    )
+
+    with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
+
+        async def factory() -> AsyncComprencBackend:
+            raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
+            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+
+        factory.has_delete_multi = True  # type: ignore[attr-defined]
+        pool = BackendPool(factory, max_connections=4)  # type: ignore[arg-type]
+
+        with tempfile.NamedTemporaryFile() as src_fh:
+            db = Connection(src_fh.name, BLOCKSIZE)
+            db.execute("CREATE TABLE foo (id INT, data BLOB);")
+            for i in range(rows):
+                db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
+
+            db.sync_checkpoint()
+            async with pool() as backend:
+                await upload_metadata(backend, db, params, incremental=False)
+            db.close()
+
+            assert math.ceil(params.db_size / BLOCKSIZE) >= 4  # ensure several blocks
+
+            with tempfile.NamedTemporaryFile() as dst_fh:
+                await download_metadata(pool, dst_fh.name, params)
+                src_fh.seek(0)
+                dst_fh.seek(0)
+                assert src_fh.read() == dst_fh.read()

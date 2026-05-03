@@ -25,10 +25,12 @@ import trio
 from s3ql.types import BackendFactory
 
 from .backends.common import CorruptedObjectError, NoSuchObject
+from .backends.comprenc import AsyncComprencBackend
+from .backends.pool import BackendPool
 from .common import get_backend_factory, pretty_print_size, sha256_fh
 from .database import Connection
 from .logging import delay_eval, setup_logging, setup_warnings
-from .mount import get_metadata
+from .mount import determine_threads, get_metadata
 from .parse_args import ArgumentParser
 
 log: logging.Logger = logging.getLogger(__name__)
@@ -93,9 +95,8 @@ def parse_args(args: Sequence[str]) -> argparse.Namespace:
         help="Read every object completely, instead of checking just the metadata.",
     )
 
-    parser.add_argument(
-        "--parallel", default=4, type=int, help="Number of connections to use in parallel."
-    )
+    parser.add_max_threads()
+    parser.add_max_connections()
 
     parser.add_argument(
         "--start-with",
@@ -121,27 +122,33 @@ def main(args: Sequence[str] | None = None) -> None:
     options = parse_args(args)
     setup_logging(options)
 
+    if options.max_threads is None:
+        options.max_threads = determine_threads(None)
+    AsyncComprencBackend.set_max_threads(options.max_threads)
+
     trio.run(main_async, options)
 
 
 async def main_async(options: argparse.Namespace) -> None:
     backend_factory = await get_backend_factory(options)
+    backend_pool = BackendPool(backend_factory, options.max_connections)
+    try:
+        # Retrieve metadata
+        (_, db) = await get_metadata(backend_pool, options.cachepath)
 
-    # Retrieve metadata
-    async with await backend_factory() as backend:
-        (_, db) = await get_metadata(backend, options.cachepath)
+        await retrieve_objects(
+            db,
+            backend_factory,
+            options.corrupted_file,
+            options.missing_file,
+            worker_count=options.max_connections,
+            full=options.data,
+            offset=options.start_with,
+        )
 
-    await retrieve_objects(
-        db,
-        backend_factory,
-        options.corrupted_file,
-        options.missing_file,
-        worker_count=options.parallel,
-        full=options.data,
-        offset=options.start_with,
-    )
-
-    db.close()
+        db.close()
+    finally:
+        await backend_pool.flush()
 
     if options.corrupted_file.tell() or options.missing_file.tell():
         sys.exit(46)

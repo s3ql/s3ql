@@ -19,6 +19,7 @@ import collections
 import contextlib
 import copy
 import dataclasses
+import itertools
 import logging
 import math
 import os
@@ -33,6 +34,7 @@ import trio
 from pyfuse3 import InodeT
 
 from s3ql.backends.comprenc import AsyncComprencBackend
+from s3ql.backends.pool import BackendPool
 
 from . import CURRENT_FS_REV, sqlite3ext
 from .backends.common import NoSuchObject
@@ -795,7 +797,8 @@ def create_tables(conn: Connection) -> None:
     #   Total number of references from `contents` and `ext_attributes` combined. Inserting a new
     #   directory entry or xattr bumps the refcount of an existing row (or inserts a fresh row with
     #   refcount=1); removing one decrements it, and the row is deleted once the refcount reaches
-    #   zero. Can be computed from the referencing tables, but maintained separately for performance.
+    #   zero. Can be computed from the referencing tables, but maintained separately
+    #   for performance.
     conn.execute(
         """
     CREATE TABLE names (
@@ -894,65 +897,171 @@ async def get_block_objects(backend: AsyncComprencBackend) -> dict[int, list[int
     return block_list
 
 
-async def download_metadata(
-    backend: AsyncComprencBackend,
-    db_file: str,
-    params: FsAttributes,
-    failsafe: bool = False,
-) -> Connection:
-    '''Download metadata from backend into *db_file*
+@dataclasses.dataclass(slots=True, frozen=True)
+class _BlockJob:
+    '''A unit of work for parallel metadata block download.'''
 
-    If *failsafe* is True, do not truncate file and do not verify
-    checksum.
+    blockno: int
+    seq_no: int
+    obj_name: str
+    offset: int
+
+
+async def _metadata_download_producer(
+    send_chan: trio.MemorySendChannel[_BlockJob],
+    block_list: dict[int, list[int]],
+    file_size: int,
+    seq_no_target: int,
+    blocksize: int,
+    failsafe: bool,
+) -> None:
+    '''Resolve metadata blocks to download and feed jobs to the worker channel.
+
+    Mirrors the seq_no resolution logic that download_metadata used in its
+    sequential form, including the failsafe-mode behaviour where missing
+    candidates degrade gracefully.
     '''
 
-    blocksize = params.metadata_block_size
-    file_size = params.db_size
-
-    # Determine which objects hold the most recent database snapshot
-    block_list = await get_block_objects(backend)
-    total = len(block_list)
-    processed = 0
-
-    with open(db_file, 'w+b', buffering=0) as fh:
+    async with send_chan:
         for blockno, candidates in block_list.items():
             off = blockno * blocksize
-            # In filesafe mode we do not have accurate file size information, so there may be
-            # valid data beyond `file_size`.
+            # In failsafe mode we do not have accurate file size information,
+            # so there may be valid data beyond `file_size`.
             if off >= file_size and not failsafe:
                 log.debug('download_metadata: skipping obsolete block %d', blockno)
                 continue
             try:
-                seq_no = first_le_than(candidates, params.seq_no)
+                seq_no = first_le_than(candidates, seq_no_target)
             except ValueError:
                 if failsafe:
                     log.warning(
                         'No metadata block found for block %d with seq_no <= %x, '
                         'database may be corrupted.',
                         blockno,
-                        params.seq_no,
+                        seq_no_target,
                     )
                     # Maybe this is better than nothing
                     seq_no = min(candidates)
                 else:
                     raise RuntimeError(
                         f'No metadata block found for block {blockno} '
-                        f'with seq_no <= {params.seq_no:x}'
+                        f'with seq_no <= {seq_no_target:x}'
                     )
 
-            processed += 1
-            log.info(
-                'Downloaded %d/%d metadata blocks (%d%%)',
-                processed,
-                total,
-                processed * 100 / total,
-                extra={'rate_limit': 1, 'update_console': True, 'is_last': processed == total},
+            job = _BlockJob(
+                blockno=blockno,
+                seq_no=seq_no,
+                obj_name=METADATA_OBJ_NAME % (blockno, seq_no),
+                offset=off,
             )
-            obj = METADATA_OBJ_NAME % (blockno, seq_no)
-            fh.seek(off)
-            await backend.readinto_fh(obj, fh, size_hint=blocksize)
+            log.debug('Producer queuing block %d (seq_no %x)', blockno, seq_no)
+            await send_chan.send(job)
 
-        if not failsafe:
+
+async def _metadata_download_worker(
+    recv_chan: trio.MemoryReceiveChannel[_BlockJob],
+    pool: BackendPool,
+    db_file: str,
+    blocksize: int,
+    counter: Iterator[int],
+    total: int,
+) -> None:
+    '''Pull jobs from *recv_chan* and download each block into *db_file*.
+
+    *counter* must yield successive integers starting at 1 to track progress
+    across all workers.
+    '''
+
+    with open(db_file, 'r+b', buffering=0) as fh:
+        async with recv_chan:
+            async for job in recv_chan:
+                log.debug('Worker downloading block %d', job.blockno)
+                async with pool() as backend:
+                    fh.seek(job.offset)
+                    await backend.readinto_fh(job.obj_name, fh, size_hint=blocksize)
+                done = next(counter)
+                log.info(
+                    'Downloaded %d/%d metadata blocks (%d%%)',
+                    done,
+                    total,
+                    done * 100 / total,
+                    extra={
+                        'rate_limit': 1,
+                        'update_console': True,
+                        'is_last': done == total,
+                    },
+                )
+
+
+async def download_metadata(
+    pool: BackendPool,
+    db_file: str,
+    params: FsAttributes,
+    failsafe: bool = False,
+) -> Connection:
+    '''Download metadata from backend into *db_file*
+
+    Block downloads are parallelised across up to *pool.max_connections* tasks, each of
+    which transiently borrows a backend connection from *pool*.
+
+    If *failsafe* is True, do not truncate file and do not verify
+    checksum. In failsafe mode the resulting file may be sparse: workers
+    seek to per-block offsets and only the blocks that exist are written,
+    so any gaps remain zero-filled and no truncation is performed. The
+    caller must be prepared to handle a database file that is larger than
+    the original (zero-padded to the highest block offset) and that may
+    contain holes if blocks are missing.
+    '''
+
+    blocksize = params.metadata_block_size
+    file_size = params.db_size
+
+    # Determine which objects hold the most recent database snapshot.
+    async with pool() as backend:
+        block_list = await get_block_objects(backend)
+    total = len(block_list)
+
+    # Make sure the destination file exists. The workers open it in 'r+b'
+    # mode and seek to per-block offsets; sparse writes leave any
+    # untouched regions zero-filled, which the post-processing step
+    # truncates away.
+    with open(db_file, 'w+b', buffering=0):
+        pass
+
+    counter = itertools.count(1)
+    effective_workers = min(pool.max_connections, total)
+    log.debug(
+        'download_metadata: %d blocks, %d workers',
+        total,
+        effective_workers,
+    )
+    send_chan, recv_chan = trio.open_memory_channel[_BlockJob](0)
+    async with trio.open_nursery() as nursery:
+        nursery.start_soon(
+            _metadata_download_producer,
+            send_chan,
+            block_list,
+            file_size,
+            params.seq_no,
+            blocksize,
+            failsafe,
+        )
+        async with recv_chan:
+            for _ in range(effective_workers):
+                # We can't share a single file handle, because different workers all rely
+                # on being able to control the file position independently.
+                nursery.start_soon(
+                    _metadata_download_worker,
+                    recv_chan.clone(),
+                    pool,
+                    db_file,
+                    blocksize,
+                    counter,
+                    total,
+                )
+
+    if not failsafe:
+        with open(db_file, 'r+b', buffering=0) as fh:
             log.debug('download_metadata: truncating file to %d bytes', file_size)
             fh.truncate(file_size)
 
@@ -962,9 +1071,7 @@ async def download_metadata(
             if params.db_md5 != digest:
                 raise DatabaseChecksumError(db_file, params.db_md5, digest)
 
-    conn = Connection(db_file, blocksize)
-
-    return conn
+    return Connection(db_file, blocksize)
 
 
 def first_le_than(seq: list[int], threshold: int) -> int:
