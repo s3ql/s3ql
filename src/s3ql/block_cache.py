@@ -117,6 +117,10 @@ class CacheEntry:
     def unlink(self) -> None:
         os.unlink(self.fh.name)
 
+    @property
+    def key(self) -> tuple[InodeT, int]:
+        return (self.inode, self.blockno)
+
     def __str__(self) -> str:
         return '<%sCacheEntry, inode=%d, blockno=%d>' % (
             'Dirty ' if self.dirty else '',
@@ -185,8 +189,8 @@ class BlockCache:
     db: Connection
     backend_pool: BackendPool
     cache: CacheDict
-    block_lock: MultiLock
-    obj_lock: MultiLock
+    block_lock: MultiLock[tuple[InodeT, int]]
+    obj_lock: MultiLock[int]
     in_transit: set[CacheEntry]
     transfer_completed: trio.Condition
     _upload_send: UploadChannelSend
@@ -365,7 +369,7 @@ class BlockCache:
                 self.db.execute('UPDATE objects SET hash=NULL WHERE id=?', (obj_id,))
 
             await self.obj_lock.release(obj_id)
-            await self.block_lock.release(el.inode, el.blockno)
+            await self.block_lock.release(el.key)
             async with self.transfer_completed:
                 self.transfer_completed.notify_all()
 
@@ -400,20 +404,20 @@ class BlockCache:
             return False
 
         # Calculate checksum
-        await self.block_lock.acquire(el.inode, el.blockno)
+        await self.block_lock.acquire(el.key)
         added_to_transit = False
         try:
-            if el is not self.cache.get((el.inode, el.blockno), None):
+            if el is not self.cache.get(el.key, None):
                 log.debug('%s got removed while waiting for lock', el)
-                await self.block_lock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.key)
                 return False
             if el in self.in_transit:
                 log.debug('%s already in transit', el)
-                await self.block_lock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.key)
                 return True
             if not el.dirty:
                 log.debug('no longer dirty, returning')
-                await self.block_lock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.key)
                 return False
 
             log.debug('uploading %s..', el)
@@ -425,7 +429,7 @@ class BlockCache:
         except:
             if added_to_transit:
                 self.in_transit.discard(el)
-            await self.block_lock.release(el.inode, el.blockno)
+            await self.block_lock.release(el.key)
             raise
 
         obj_lock_taken = False
@@ -474,7 +478,7 @@ class BlockCache:
 
                 el.dirty = False
                 self.in_transit.remove(el)
-                await self.block_lock.release(el.inode, el.blockno)
+                await self.block_lock.release(el.key)
 
                 if old_obj_id == obj_id:
                     log.debug('unchanged, obj_id=%d', obj_id)
@@ -482,7 +486,7 @@ class BlockCache:
 
         except:
             self.in_transit.discard(el)
-            await self.block_lock.release(el.inode, el.blockno, noerror=True)
+            await self.block_lock.release(el.key, noerror=True)
             if obj_lock_taken:
                 await self.obj_lock.release(obj_id)
             raise
@@ -595,18 +599,20 @@ class BlockCache:
 
         # log.debug('started with %d, %d', inode, blockno)
 
+        key = (inode, blockno)
+
         # Fast path: in cache and will not change size (so we do not need to worry about cache
         # expiration). The `while` statement does not actually loop, we just use it so we can
         # use `break` to jump out.
         while max_write is not None:
-            async with self.block_lock(inode, blockno):
+            async with self.block_lock(key):
                 try:
-                    el = self.cache[(inode, blockno)]
+                    el = self.cache[key]
                 except KeyError:
                     break
                 if max_write >= el.size:
                     break
-                self.cache.move_to_end((inode, blockno), last=True)  # move to head
+                self.cache.move_to_end(key, last=True)  # move to head
                 yield el
                 return
 
@@ -615,7 +621,7 @@ class BlockCache:
         if self.cache.is_full():
             await self.evict()
 
-        await self.block_lock.acquire(inode, blockno)
+        await self.block_lock.acquire(key)
         try:
             el = await self._get_entry(inode, blockno)
             oldsize = el.size
@@ -626,7 +632,7 @@ class BlockCache:
                 # thread has access to a cache entry at any time.
                 self.cache.size += el.size - oldsize
         finally:
-            await self.block_lock.release(inode, blockno)
+            await self.block_lock.release(key)
 
         # log.debug('finished')
 
@@ -742,19 +748,19 @@ class BlockCache:
                     sth_in_transit = True
                     continue
 
-                await self.block_lock.acquire(el.inode, el.blockno)
+                await self.block_lock.acquire(el.key)
                 try:
                     # May have changed while we were waiting for lock
-                    if el is not self.cache.get((el.inode, el.blockno), None):
+                    if el is not self.cache.get(el.key, None):
                         log.debug('%s removed while waiting for lock', el)
                         continue
                     if el.dirty:
                         log.debug('%s got dirty while waiting for lock', el)
                         continue
                     log.debug('removing %s from cache', el)
-                    self.cache.remove((el.inode, el.blockno))
+                    self.cache.remove(el.key)
                 finally:
-                    await self.block_lock.release(el.inode, el.blockno)
+                    await self.block_lock.release(el.key)
 
             if sth_in_transit:
                 log.debug('waiting for transfer threads..')
@@ -783,16 +789,17 @@ class BlockCache:
         # waiting for every block to be uploaded only to remove it afterwards.
         for timeout in (0, None):
             for blockno in list(blocknos):
+                key = (inode, blockno)
                 if timeout == 0:
-                    if not self.block_lock.acquire_nowait(inode, blockno):
+                    if not self.block_lock.acquire_nowait(key):
                         continue
                 else:
-                    await self.block_lock.acquire(inode, blockno)
+                    await self.block_lock.acquire(key)
                 blocknos.remove(blockno)
                 try:
-                    if (inode, blockno) in self.cache:
+                    if key in self.cache:
                         log.debug('removing from cache')
-                        self.cache.remove((inode, blockno))
+                        self.cache.remove(key)
 
                     try:
                         obj_id = self.db.get_int_val(
@@ -809,7 +816,7 @@ class BlockCache:
                     )
 
                 finally:
-                    await self.block_lock.release(inode, blockno)
+                    await self.block_lock.release(key)
 
                 # Decrease block refcount
                 await self._deref_obj(obj_id)

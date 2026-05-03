@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncIterator, Hashable
 from contextlib import asynccontextmanager
+from typing import Generic, TypeVar
 
 import trio
 
@@ -18,36 +19,36 @@ __all__ = ["MultiLock"]
 
 log = logging.getLogger(__name__)
 
-LockKeyT = tuple[Hashable, ...]
+K = TypeVar("K", bound=Hashable)
 
 
-class MultiLock:
+class MultiLock(Generic[K]):
     """Provides locking for multiple objects.
 
     This class provides locking for a dynamically changing set of objects: The
-    `acquire` and `release` methods have an additional argument, the locking
-    key. Only locks with the same key can actually see each other, so that
-    several threads can hold locks with different locking keys at the same time.
+    `acquire` and `release` methods take a locking key. Only locks with the
+    same key can actually see each other, so that several tasks can hold locks
+    with different locking keys at the same time.
 
     MultiLock instances can be used as context managers.
 
     Note that it is actually possible for one task to release a lock that has
-    been obtained by a different thread. This is not a bug but a feature.
+    been obtained by a different task. This is not a bug but a feature.
     """
 
     def __init__(self) -> None:
-        self.locked_keys: set[LockKeyT] = set()
+        self.locked_keys: set[K] = set()
         self.cond = trio.Condition()
 
     @asynccontextmanager
-    async def __call__(self, *key: Hashable) -> AsyncIterator[None]:
-        await self.acquire(*key)
+    async def __call__(self, key: K) -> AsyncIterator[None]:
+        await self.acquire(key)
         try:
             yield
         finally:
-            await self.release(*key)
+            await self.release(key)
 
-    def acquire_nowait(self, *key: Hashable) -> bool:
+    def acquire_nowait(self, key: K) -> bool:
         '''Try to acquire lock for given key.
 
         Return True on success, False on failure.
@@ -67,7 +68,7 @@ class MultiLock:
         finally:
             self.cond.release()
 
-    async def acquire(self, *key: Hashable) -> None:
+    async def acquire(self, key: K) -> None:
         '''Acquire lock for given key.'''
 
         async with self.cond:
@@ -76,7 +77,7 @@ class MultiLock:
 
             self.locked_keys.add(key)
 
-    async def release(self, *key: Hashable, noerror: bool = False) -> None:
+    async def release(self, key: K, noerror: bool = False) -> None:
         """Release lock on given key
 
         If noerror is True, do not raise exception if *key* is
