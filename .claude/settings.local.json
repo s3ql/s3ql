@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv run pyright:*)",
+      "Bash(uv run ruff check:*)",
+      "Bash(uv run ruff format:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(jj show:*)",
+      "Bash(jj log:*)",
+      "WebFetch(domain:anyio.readthedocs.io)",
+      "WebSearch",
+      "WebFetch(domain:trio.readthedocs.io)",
+      "Bash(jj_ai file show:*)",
+      "Bash(uv run ty check:*)"
+    ]
+  }
+}

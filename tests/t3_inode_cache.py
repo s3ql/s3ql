@@ -38,6 +38,8 @@ class cache_tests(unittest.TestCase):
 
     def tearDown(self):
         self.cache.destroy()
+        self.db.close()
+        self.dbfile.close()
         os.unlink(self.dbfile.name)
 
     def test_create(self):
