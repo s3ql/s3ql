@@ -16,6 +16,8 @@ import struct
 from collections.abc import AsyncIterator
 from contextlib import ExitStack, suppress
 
+import trio
+
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
@@ -40,6 +42,13 @@ class AsyncBackend(AsyncBackendBase):
     needs_login = False
     known_options: set[str] = set()
     prefix: str
+
+    # Test-only knob that emulates network latency. When set to a positive
+    # value, every read/write request awaits `trio.sleep(request_delay)`
+    # before doing its filesystem I/O. Tests can deduce that requests
+    # overlapped by comparing the wall-clock duration of an operation
+    # against the worst-case serial duration.
+    request_delay: float = 0.0
 
     def __init__(self, *, options: BackendOptionsProtocol) -> None:
         '''Initialize local backend - use AsyncBackend.create() instead.'''
@@ -82,6 +91,9 @@ class AsyncBackend(AsyncBackendBase):
         The data will be inserted at the current offset.
         '''
 
+        if self.request_delay > 0:
+            await trio.sleep(self.request_delay)
+
         path = self._key_to_path(key)
         with ExitStack() as es:
             try:
@@ -111,6 +123,9 @@ class AsyncBackend(AsyncBackendBase):
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried.  Returns the size of the resulting storage object .
         '''
+
+        if self.request_delay > 0:
+            await trio.sleep(self.request_delay)
 
         if metadata is None:
             metadata = dict()
