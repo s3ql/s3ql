@@ -18,16 +18,12 @@ import errno
 import hashlib
 import logging
 import os
-import select
 import socket
 import ssl
-import textwrap
 from base64 import b64encode
-from collections import deque
 from collections.abc import Mapping, MutableMapping
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
-from inspect import getdoc
 from typing import Optional
 
 import trio
@@ -45,10 +41,6 @@ MAX_LINE_SIZE = BUFFER_SIZE - 1
 #: lines together). If the server sends a header segment longer than
 #: this value, `InvalidResponse` will be raised.
 MAX_HEADER_SIZE = BUFFER_SIZE - 1
-
-
-# Method, path, body size
-PendingRequestT = tuple[str, str, Optional[int]]
 
 
 class Symbol:
@@ -139,18 +131,15 @@ class HTTPResponse:
 class BodyFollowing:
     '''
     Sentinel class for the *body* parameter of the
-    `~HTTPConnection.send_request` method. Passing an instance of this class
-    declares that body data is going to be provided in separate method calls.
-
-    If no length is specified in the constructor, the body data will be send
-    using chunked encoding.
+    `~HTTPConnection.co_send_request` method. Passing an instance of this
+    class declares that *length* bytes of body data will be provided in
+    separate method calls.
     '''
 
     __slots__ = 'length'
 
-    def __init__(self, length: int | None = None) -> None:
-        #: the length of the body data that is going to be send, or `None`
-        #: to use chunked encoding.
+    def __init__(self, length: int) -> None:
+        #: the length of the body data that is going to be sent.
         self.length = length
 
 
@@ -265,12 +254,8 @@ class ConnectionClosed(_GeneralError):
     connection (by sending a ``Connection: close`` header). Such responses can
     still be read completely, but the next attempt to send a request or read a
     response will raise the exception. To re-use the connection after the server
-    has closed the connection, call `HTTPConnection.reset` before further
-    requests are send.
-
-    This behavior is intentional, because the caller may have already issued
-    other requests (i.e., used pipelining). By raising an exception, the caller
-    is notified that any pending requests have been lost and need to be resend.
+    has closed it, call `HTTPConnection.disconnect`; the next request will
+    automatically reconnect.
     '''
 
     msg = 'connection closed unexpectedly'
@@ -386,25 +371,18 @@ class HTTPConnection:
         #: Socket object connecting to the server
         self._sock = None
 
-        #: `select.poll` method to query if connection is ready for sending
-        self._poll_send = None
-
-        #: `select.poll` method to query if connection is ready for receiving
-        self._poll_recv = None
-
         #: Read-buffer
         self._rbuf = _Buffer(BUFFER_SIZE)
 
         #: a tuple ``(hostname, port)`` of the proxy server to use or `None`.
         self.proxy = proxy
 
-        #: a deque of ``(method, path, body_len)`` tuples corresponding to
-        #: requests whose response has not yet been read completely. Requests
-        #: with Expect: 100-continue will be added twice to this queue, once
-        #: after the request header has been sent, and once after the request
-        #: body data has been sent. *body_len* is `None`, or the size of the
-        #: **request** body that still has to be sent when using 100-continue.
-        self._pending_requests: deque[PendingRequestT] = deque()
+        #: ``(method, path, body_len)`` describing the in-flight request whose
+        #: response has not yet been read completely, or `None` if no such
+        #: request exists. *body_len* is `None` except while waiting for a
+        #: 100-continue response, in which case it is the size of the request
+        #: body that still has to be sent.
+        self._pending_request: Optional[tuple[str, str, Optional[int]]] = None
 
         #: This attribute is `None` when a request has been sent completely.  If
         #: request headers have been sent, but request body data is still
@@ -430,10 +408,6 @@ class HTTPConnection:
         #: Filehandler for tracing
         self.trace_fh = None
 
-        #: If set, coroutines will never yield and instead block internally.
-        #: (This is used for implementing the blocking/non-coroutine API).
-        self._sync_context = False
-
     @property
     def timeout(self) -> float:
         return self._timeout_ms / 1000
@@ -445,58 +419,7 @@ class HTTPConnection:
         else:
             self._timeout_ms = int(value * 1000)
 
-    # Implement bare-bones `io.IOBase` interface, so that instances
-    # can be wrapped in `io.TextIOWrapper` if desired.
-    def writable(self):
-        return True
-
-    def readable(self):
-        return True
-
-    def seekable(self):
-        return False
-
-    def isatty(self):
-        return False
-
-    def flush(self):
-        pass
-
-    def close(self):
-        if self.closed:
-            raise ValueError('connection already closed')
-        self.closed = True
-        self.disconnect()
-
-    closed = False
-
-    def fileno(self):
-        # on Python <= 3.10 io.TextIOWrapper calls fileno()
-        # but it cannot handle the documented throwing of the OSError
-        # That's why we return the invalid value -1 instead
-        # When we drop Python 3.10 support, we can raise an OSError instead.
-        return -1
-
-    def readline(self, size=-1, /):
-        raise OSError('not implemented')
-
-    def readlines(self, hint=-1, /):
-        raise OSError('not implemented')
-
-    def seek(self, offset, whence=0, /):
-        raise OSError('seek not supported')
-
-    def tell(self):
-        raise OSError('tell not supported')
-
-    def truncate(self, size=None, /):
-        raise OSError('truncate not supported')
-
-    def writelines(self, lines, /):
-        for line in lines:
-            self.write(line)
-
-    def connect(self):
+    async def connect(self):
         """Connect to the remote server
 
         This method generally does not need to be called manually.
@@ -508,7 +431,7 @@ class HTTPConnection:
             log.debug('connecting to %s', self.proxy)
             self._sock = create_socket(self.proxy)
             if self.ssl_context:
-                self._tunnel()
+                await self._co_tunnel()
         else:
             log.debug('connecting to %s', (self.hostname, self.port))
             self._sock = create_socket((self.hostname, self.port))
@@ -522,15 +445,7 @@ class HTTPConnection:
         self._rbuf.clear()
         self._out_remaining = None
         self._in_remaining = None
-        self._pending_requests = deque()
-
-        poll = select.poll()
-        poll.register(self._sock, select.POLLIN)
-        self._poll_recv = poll.poll
-
-        poll = select.poll()
-        poll.register(self._sock, select.POLLOUT)
-        self._poll_send = poll.poll
+        self._pending_request = None
 
         if 'S3QL_HTTP_TRACEFILE' in os.environ:
             self.trace_fh = open(  # noqa: SIM115
@@ -538,15 +453,6 @@ class HTTPConnection:
             )
 
         log.debug('done')
-
-    def _tunnel(self):
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self._co_tunnel())
-        finally:
-            self._sync_context = orig_context
 
     async def _co_tunnel(self):
         '''Set up CONNECT tunnel to destination server'''
@@ -565,25 +471,13 @@ class HTTPConnection:
             self.disconnect()
             raise ConnectionError("Tunnel connection failed: %d %s" % (status, reason))
 
-    def send_request(self, method, path, headers=None, body=None, expect100=False):
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(
-                self.co_send_request(method, path, headers=headers, body=body, expect100=expect100)
-            )
-        finally:
-            self._sync_context = orig_context
-
     async def co_send_request(self, method, path, headers=None, body=None, expect100=False):
         '''Send a new HTTP request to the server
 
         The message body may be passed in the *body* argument or be sent
         separately. In the former case, *body* must be a :term:`bytes-like
-        object`. In the latter case, *body* must be an a `BodyFollowing`
-        instance specifying the length of the data that will be sent. If no
-        length is specified, the data will be send using chunked encoding.
+        object`. In the latter case, *body* must be a `BodyFollowing` instance
+        specifying the length of the data that will be sent.
 
         *headers* should be a mapping containing the HTTP headers to be send
         with the request. Multiple header lines with the same key are not
@@ -601,29 +495,30 @@ class HTTPConnection:
             raise ValueError('expect100 only allowed for separate body')
 
         if self._sock is None:
-            self.connect()
+            await self.connect()
 
         if self._out_remaining:
             raise StateError('body data has not been sent completely yet')
+
+        if self._pending_request is not None:
+            raise StateError('previous response has not been read')
 
         if headers is None:
             headers = CaseInsensitiveDict()
         elif not isinstance(headers, CaseInsensitiveDict):
             headers = CaseInsensitiveDict(headers)
 
-        pending_body_size = None
+        pending_body_size: Optional[int] = None
         if body is None:
             headers['Content-Length'] = '0'
         elif isinstance(body, BodyFollowing):
-            if body.length is None:
-                raise ValueError('Chunked encoding not yet supported.')
             log.debug('preparing to send %d bytes of body data', body.length)
             if expect100:
                 headers['Expect'] = '100-continue'
                 # Do not set _out_remaining, we must only send data once we've
-                # read the response. Instead, save body size in
-                # _pending_requests so that it can be restored by
-                # read_response().
+                # read the response. Stash the body size on _pending_request so
+                # that co_read_response() can hand it back to _out_remaining
+                # after the 100-continue arrives.
                 pending_body_size = body.length
                 self._out_remaining = (method, path, WAITING_FOR_100c)
             else:
@@ -671,7 +566,7 @@ class HTTPConnection:
         log.debug('sending %s %s', method, path)
         await self._co_send(buf)
         if not self._out_remaining or expect100:
-            self._pending_requests.append((method, path, pending_body_size))
+            self._pending_request = (method, path, pending_body_size)
 
     async def _co_send(self, buf):
         '''Send *buf* to server'''
@@ -693,14 +588,10 @@ class HTTPConnection:
                     raise BlockingIOError()
             except (TimeoutError, ssl.SSLWantWriteError, BlockingIOError):
                 log.debug('yielding')
-                if self._sync_context:
-                    if not self._poll_send(self._timeout_ms):
-                        raise ConnectionTimedOut('Timeout in send()')
-                else:
-                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                        await trio.lowlevel.wait_writable(self._sock)
-                    if ctx.cancelled_caught:
-                        raise ConnectionTimedOut('Timeout in send()')
+                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                    await trio.lowlevel.wait_writable(self._sock)
+                if ctx.cancelled_caught:
+                    raise ConnectionTimedOut('Timeout in send()')
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
@@ -723,15 +614,6 @@ class HTTPConnection:
             if len(buf) == 0:
                 log.debug('done')
                 return
-
-    def write(self, buf):
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self.co_write(buf))
-        finally:
-            self._sync_context = orig_context
 
     async def co_write(self, buf):
         '''Write request body data
@@ -762,35 +644,26 @@ class HTTPConnection:
             # has been sent, so that we can still read a (buffered) error
             # response.
             self._out_remaining = None
-            self._pending_requests.append((method, path, None))
+            self._pending_request = (method, path, None)
             raise
 
         len_ = len(buf)
         if len_ == remaining:
             log.debug('body sent fully')
             self._out_remaining = None
-            self._pending_requests.append((method, path, None))
+            self._pending_request = (method, path, None)
         else:
             self._out_remaining = (method, path, remaining - len_)
 
         log.debug('done')
 
     def response_pending(self):
-        '''Return `True` if there are still outstanding responses
+        '''Return `True` if there is an outstanding response
 
-        This includes responses that have been partially read.
+        This includes a response that has been partially read.
         '''
 
-        return self._sock is not None and len(self._pending_requests) > 0
-
-    def read_response(self) -> HTTPResponse:
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self.co_read_response())
-        finally:
-            self._sync_context = orig_context
+        return self._sock is not None and self._pending_request is not None
 
     async def co_read_response(self):
         '''Read response status line and headers
@@ -802,13 +675,13 @@ class HTTPConnection:
 
         log.debug('start')
 
-        if len(self._pending_requests) == 0:
-            raise StateError('No pending requests')
+        if self._pending_request is None:
+            raise StateError('No pending request')
 
         if self._in_remaining is not None:
             raise StateError('Previous response not read completely')
 
-        (method, path, body_size) = self._pending_requests[0]
+        (method, path, body_size) = self._pending_request
 
         # Need to loop to handle any 1xx responses
         while True:
@@ -829,8 +702,9 @@ class HTTPConnection:
         if status == 100:
             assert self._out_remaining == (method, path, WAITING_FOR_100c)
 
-            # We're ready to sent request body now
-            self._out_remaining = self._pending_requests.popleft()
+            # We're ready to send request body now
+            self._out_remaining = (method, path, body_size)
+            self._pending_request = None
             self._in_remaining = None
 
             # Return early, because we don't have to prepare
@@ -840,15 +714,12 @@ class HTTPConnection:
         # Handle non-100 status when waiting for 100-continue
         elif body_size is not None:
             assert self._out_remaining == (method, path, WAITING_FOR_100c)
-            # RFC 2616 actually states that the server MAY continue to read
-            # the request body after it has sent a final status code
-            # (http://tools.ietf.org/html/rfc2616#section-8.2.3). However,
-            # that totally defeats the purpose of 100-continue, so we hope
-            # that the server behaves sanely and does not attempt to read
-            # the body of a request it has already handled. (As a side note,
-            # this ambiguity in the RFC also totally breaks HTTP pipelining,
-            # as we can never be sure if the server is going to expect the
-            # request or some request body data).
+            # RFC 2616 actually states that the server MAY continue to read the
+            # request body after it has sent a final status code
+            # (http://tools.ietf.org/html/rfc2616#section-8.2.3). However, that
+            # totally defeats the purpose of 100-continue, so we hope that the
+            # server behaves sanely and does not attempt to read the body of a
+            # request it has already handled.
             self._out_remaining = None
 
         #
@@ -859,7 +730,7 @@ class HTTPConnection:
         # Don't require calls to co_read() et al if there is
         # nothing to be read.
         if self._in_remaining is None:
-            self._pending_requests.popleft()
+            self._pending_request = None
 
         log.debug('done (in_remaining=%s)', self._in_remaining)
         return HTTPResponse(method, path, status, reason, header, body_length)
@@ -990,17 +861,6 @@ class HTTPConnection:
         log.debug('done (%d characters)', len(hstring))
         return hstring
 
-    def read(self, len_=None):
-        '''placeholder, will be replaced dynamically'''
-        if len_ is None:
-            return self.readall()
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self.co_read(len_))
-        finally:
-            self._sync_context = orig_context
-
     async def co_read(self, len_=None):
         '''Read up to *len_* bytes of response body data
 
@@ -1026,46 +886,47 @@ class HTTPConnection:
         else:
             raise RuntimeError('ooops, this should not be possible')
 
-    def read_raw(self, size):
-        '''Read *size* bytes of uninterpreted data
+    async def co_read_raw(self, size: int) -> bytes:
+        '''Read up to *size* bytes of uninterpreted data.
 
-        This method may be used even after `UnsupportedResponse` or
-        `InvalidResponse` has been raised. It reads raw data from the socket
-        without attempting to interpret it. This is probably only useful for
-        debugging purposes to take a look at the raw data received from the
-        server. This method blocks if no data is available, and returns ``b''``
-        if the connection has been closed.
+        May be called even after `UnsupportedResponse` or `InvalidResponse`
+        has been raised. Reads raw bytes from the socket without trying to
+        interpret them as part of an HTTP response, which is useful for
+        capturing a misbehaving server's response body for diagnostics.
+        Returns an empty bytes object once the connection has been closed
+        by the peer.
 
-        Calling this method will break the internal state and switch the socket
-        to blocking operation. The connection has to be closed and reestablished
-        afterwards.
+        After this method returns, the connection's framing state is no
+        longer trustworthy. The caller must call `disconnect` before
+        sending further requests.
 
-        **Don't use this method unless you know exactly what you are doing**.
+        **Don't use this method unless you know exactly what you are
+        doing.**
         '''
 
         if self._sock is None:
             raise ConnectionClosed('connection has been closed locally')
 
-        self._sock.setblocking(True)
-
         buf = bytearray()
         rbuf = self._rbuf
         while len(buf) < size:
-            len_ = min(size - len(buf), len(rbuf))
-            if len_ < len(rbuf):
-                buf += rbuf.d[rbuf.b : rbuf.b + len_]
-                rbuf.b += len_
-            elif len_ == 0:
-                buf2 = self._sock.recv(size - len(buf))
-                if not buf2:
-                    break
-                if self.trace_fh:
-                    self.trace_fh.write(buf2)
-                buf += buf2
-            else:
-                buf += rbuf.exhaust()
+            if len(rbuf):
+                take = min(size - len(buf), len(rbuf))
+                buf += rbuf.d[rbuf.b : rbuf.b + take]
+                rbuf.b += take
+                continue
 
-        return buf
+            rbuf.compact()
+            res = self._try_fill_buffer()
+            if res is None:
+                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                    await trio.lowlevel.wait_readable(self._sock)
+                if ctx.cancelled_caught:
+                    raise ConnectionTimedOut('Timeout in recv()')
+            elif res == 0:
+                break
+
+        return bytes(buf)
 
     async def _co_read_id(self, len_):
         '''Read up to *len* bytes of response body assuming identity encoding'''
@@ -1076,7 +937,7 @@ class HTTPConnection:
         if not self._in_remaining:
             # Body retrieved completely, clean up
             self._in_remaining = None
-            self._pending_requests.popleft()
+            self._pending_request = None
             return b''
 
         rbuf = self._rbuf
@@ -1102,14 +963,10 @@ class HTTPConnection:
                     break
                 else:
                     log.debug('buffer empty and nothing to read, yielding..')
-                if self._sync_context:
-                    if not self._poll_recv(self._timeout_ms):
-                        raise ConnectionTimedOut('Timeout in recv()')
-                else:
-                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                        await trio.lowlevel.wait_readable(self._sock)
-                    if ctx.cancelled_caught:
-                        raise ConnectionTimedOut('Timeout in recv()')
+                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                    await trio.lowlevel.wait_readable(self._sock)
+                if ctx.cancelled_caught:
+                    raise ConnectionTimedOut('Timeout in recv()')
             elif got_data == 0:
                 if self._in_remaining is READ_UNTIL_EOF:
                     log.debug('connection closed, %d bytes in buffer', len(rbuf))
@@ -1137,7 +994,7 @@ class HTTPConnection:
         if len(buf) == 0:
             assert self._in_remaining == 0
             self._in_remaining = None
-            self._pending_requests.popleft()
+            self._pending_request = None
 
         log.debug('done (%d bytes)', len(buf))
         return buf
@@ -1166,7 +1023,7 @@ class HTTPConnection:
             log.debug('chunk size is %d', self._in_remaining)
             if self._in_remaining == 0:
                 self._in_remaining = None
-                self._pending_requests.popleft()
+                self._pending_request = None
 
         if self._in_remaining is None:
             res = b''
@@ -1232,14 +1089,10 @@ class HTTPConnection:
                 res = self._try_fill_buffer()
                 if res is None:
                     log.debug('need more data, yielding')
-                    if self._sync_context:
-                        if not self._poll_recv(self._timeout_ms):
-                            raise ConnectionTimedOut('Timeout in recv()')
-                    else:
-                        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                            await trio.lowlevel.wait_readable(self._sock)
-                        if ctx.cancelled_caught:
-                            raise ConnectionTimedOut('Timeout in recv()')
+                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                        await trio.lowlevel.wait_readable(self._sock)
+                    if ctx.cancelled_caught:
+                        raise ConnectionTimedOut('Timeout in recv()')
                 elif res == 0:
                     raise ConnectionClosed('server closed connection')
                 else:
@@ -1313,25 +1166,12 @@ class HTTPConnection:
                 self._rbuf.compact()
             res = self._try_fill_buffer()
             if res is None:
-                if self._sync_context:
-                    if not self._poll_recv(self._timeout_ms):
-                        raise ConnectionTimedOut('Timeout in recv()')
-                else:
-                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                        await trio.lowlevel.wait_readable(self._sock)
-                    if ctx.cancelled_caught:
-                        raise ConnectionTimedOut('Timeout in recv()')
+                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+                    await trio.lowlevel.wait_readable(self._sock)
+                if ctx.cancelled_caught:
+                    raise ConnectionTimedOut('Timeout in recv()')
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
-
-    def readall(self):
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self.co_readall())
-        finally:
-            self._sync_context = orig_context
 
     async def co_readall(self):
         '''Read and return complete response body'''
@@ -1353,15 +1193,6 @@ class HTTPConnection:
             self.trace_fh.write(buf)
         return buf
 
-    def discard(self):
-        '''placeholder, will be replaced dynamically'''
-        orig_context = self._sync_context
-        self._sync_context = True
-        try:
-            return eval_coroutine(self.co_discard())
-        finally:
-            self._sync_context = orig_context
-
     async def co_discard(self):
         '''Read and discard current response body'''
 
@@ -1376,17 +1207,16 @@ class HTTPConnection:
             log.debug('discarding %d bytes', len(buf))
         log.debug('done')
 
-    def reset(self):
-        '''Reset HTTP connection
-
-        This method resets the status of the HTTP connection. Any cached data and pending responses
-        are discarded.
-        '''
-        self.disconnect()
-        self.connect()
-
     def disconnect(self):
-        '''Close HTTP connection'''
+        '''Close HTTP connection.
+
+        Discards any in-flight pending response, so that the next
+        `co_send_request` can reconnect and start fresh. Any partially
+        sent request (`_out_remaining`) or partially read response
+        (`_in_remaining`) state is left in place: subsequent
+        `co_write`/`co_read` calls will raise `ConnectionClosed`,
+        whereas `co_send_request` reconnects and resets everything.
+        '''
 
         log.debug('start')
         if self.trace_fh:
@@ -1395,10 +1225,9 @@ class HTTPConnection:
             self._sock.close()
             self._sock = None
             self._rbuf.clear()
-            self._poll_recv = None
-            self._poll_send = None
         else:
             log.debug('already closed')
+        self._pending_request = None
 
     def __enter__(self):
         return self
@@ -1406,55 +1235,6 @@ class HTTPConnection:
     def __exit__(self, exc_type, exc_value, traceback):
         self.disconnect()
         return False
-
-
-def _extend_HTTPConnection_docstrings():
-    co_suffix = '\n\n' + textwrap.fill(
-        'This method returns a coroutine. `.%s` is a regular method '
-        'implementing the same functionality.',
-        width=78,
-    )
-    reg_suffix = '\n\n' + textwrap.fill(
-        'This method may block. `.co_%s` provides a coroutine '
-        'implementing the same functionality without blocking.',
-        width=78,
-    )
-
-    for name in (
-        'read',
-        'read_response',
-        'readall',
-        'send_request',
-        'write',
-        'discard',
-        '_tunnel',
-    ):
-        fn = getattr(HTTPConnection, name)
-        if name.startswith('_'):
-            cofn = getattr(HTTPConnection, '_co' + name)
-        else:
-            cofn = getattr(HTTPConnection, 'co_' + name)
-
-        fn.__doc__ = getdoc(cofn) + reg_suffix % name
-        cofn.__doc__ = getdoc(cofn) + co_suffix % name
-
-
-_extend_HTTPConnection_docstrings()
-
-
-def eval_coroutine(coroutine):
-    '''Retrieve the result of *coroutine*
-
-    The coroutine must not yield.
-    '''
-
-    it = coroutine.__await__()
-    try:
-        next(it)
-    except StopIteration as exc:
-        return exc.value
-    else:
-        raise RuntimeError("coroutine suspended, can't retrieve result")
 
 
 def create_socket(address):

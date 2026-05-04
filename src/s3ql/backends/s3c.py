@@ -228,8 +228,8 @@ class AsyncBackend(AsyncBackendBase):
                     await self.conn.co_discard()
             except UnsupportedResponse:
                 log.warning('Unsupported response, trying to retrieve data from raw socket!')
-                body = self.conn.read_raw(2048)
-                self.conn.close()
+                body = await self.conn.co_read_raw(2048)
+                self.conn.disconnect()
         else:
             body = body[:2048]
 
@@ -790,7 +790,9 @@ class AsyncBackend(AsyncBackendBase):
             if error_resp is not None:
                 await self._parse_error_response(error_resp)
             else:
-                # Re-raise first ConnectionClosed exception
+                # No usable response; drop the half-broken connection so the
+                # next request reconnects from scratch.
+                self.conn.disconnect()
                 raise
 
         resp = await self.conn.co_read_response()

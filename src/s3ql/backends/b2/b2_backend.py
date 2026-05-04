@@ -161,16 +161,6 @@ class AsyncB2Backend(AsyncBackend):
             self.upload_connection.disconnect()
             self.upload_connection = None
 
-    def _reset_connections(self):
-        if self.api_connection:
-            self.api_connection.reset()
-
-        if self.download_connection:
-            self.download_connection.reset()
-
-        if self.upload_connection:
-            self.upload_connection.reset()
-
     async def _get_download_connection(self):
         if self.download_url is None:
             await self._authorize_account()
@@ -361,8 +351,8 @@ class AsyncB2Backend(AsyncBackend):
 
     def is_temp_failure(self, exc):
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We better reset our connections
-            self._reset_connections()
+            # Drop the connections so the next operation reconnects from scratch.
+            self._close_connections()
 
         if is_temp_network_error(exc):
             return True

@@ -518,7 +518,9 @@ class AsyncBackend(AsyncBackendBase):
                     resp.status,
                     resp.reason,
                 )
-            # Re-raise first ConnectionClosed exception
+            # Drop the half-broken connection and re-raise so the caller
+            # reconnects from scratch on the next request.
+            self.conn.disconnect()
             raise
 
         resp = await self.conn.co_read_response()
@@ -598,8 +600,8 @@ class AsyncBackend(AsyncBackendBase):
                 await self.conn.co_discard()
         except UnsupportedResponse:
             log.warning('Unsupported response, trying to retrieve data from raw socket!')
-            body = self.conn.read_raw(2048)
-            self.conn.close()
+            body = await self.conn.co_read_raw(2048)
+            self.conn.disconnect()
 
         hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
         if hit:
