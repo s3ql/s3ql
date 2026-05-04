@@ -19,6 +19,7 @@ import logging
 import math
 import os
 import tempfile
+import time
 from argparse import Namespace
 
 import pytest
@@ -445,7 +446,12 @@ async def test_download_metadata_parallel_correctness():
 
     This test exercises the parallel download path that the regular tests
     leave uncovered: a real BackendPool with several connections, multiple
-    workers writing to the same destination file at distinct offsets.
+    workers writing to the same destination file at distinct offsets. The
+    backend is configured with an artificial per-request delay, so a
+    serial implementation would take at least `nblocks * delay` to finish,
+    while a parallel one finishes in roughly `delay * nblocks / nworkers`.
+    The test asserts the wall-clock duration is well below the serial
+    bound.
     '''
 
     sqlite3ext.reset()
@@ -455,6 +461,8 @@ async def test_download_metadata_parallel_correctness():
         data_block_size=BLOCKSIZE,
         seq_no=1,
     )
+    delay = 0.1
+    workers = 4
 
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
 
@@ -463,7 +471,7 @@ async def test_download_metadata_parallel_correctness():
             return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
         factory.has_delete_multi = True  # type: ignore[attr-defined]
-        pool = BackendPool(factory, max_connections=4)  # type: ignore[arg-type]
+        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
 
         with tempfile.NamedTemporaryFile() as src_fh:
             db = Connection(src_fh.name, BLOCKSIZE)
@@ -475,10 +483,85 @@ async def test_download_metadata_parallel_correctness():
             await upload_metadata(pool, db, params, incremental=False)
             db.close()
 
-            assert math.ceil(params.db_size / BLOCKSIZE) >= 4  # ensure several blocks
+            nblocks = math.ceil(params.db_size / BLOCKSIZE)
+            assert nblocks >= 8  # need enough blocks to make timing decisive
+
+            local.AsyncBackend.request_delay = delay
+            try:
+                with tempfile.NamedTemporaryFile() as dst_fh:
+                    start = time.monotonic()
+                    await download_metadata(pool, dst_fh.name, params)
+                    elapsed = time.monotonic() - start
+                    src_fh.seek(0)
+                    dst_fh.seek(0)
+                    assert src_fh.read() == dst_fh.read()
+            finally:
+                local.AsyncBackend.request_delay = 0.0
+
+            # Serial would need at least nblocks * delay seconds. Allow generous
+            # slack so the assertion stays robust under loaded CI machines, but
+            # still fails if parallelism regresses to serial behaviour.
+            assert elapsed < nblocks * delay * 0.6
+
+
+@pytest.mark.parametrize("incremental", (True, False))
+async def test_upload_metadata_parallel_correctness(incremental):
+    '''Upload metadata with multiple workers, verifying correctness and overlap.
+
+    A serial upload would also pass the round-trip byte-equality check, so
+    the backend is configured with a per-request delay and the test asserts
+    that the wall-clock duration is well below `nblocks * delay`. That can
+    only be true if the producer/worker nursery actually overlapped block
+    uploads.
+    '''
+
+    sqlite3ext.reset()
+    rows = 200
+    params = FsAttributes(
+        metadata_block_size=BLOCKSIZE,
+        data_block_size=BLOCKSIZE,
+        seq_no=1,
+    )
+    delay = 0.1
+    workers = 4
+
+    with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
+
+        async def factory() -> AsyncComprencBackend:
+            raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
+            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+
+        factory.has_delete_multi = True  # type: ignore[attr-defined]
+        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
+
+        with tempfile.NamedTemporaryFile() as src_fh:
+            db = Connection(src_fh.name, BLOCKSIZE)
+            db.execute("CREATE TABLE foo (id INT, data BLOB);")
+            for i in range(rows):
+                db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
+
+            db.sync_checkpoint()
+            db_size = os.path.getsize(src_fh.name)
+            nblocks = math.ceil(db_size / BLOCKSIZE)
+            assert nblocks >= 8  # need enough blocks to make timing decisive
+
+            local.AsyncBackend.request_delay = delay
+            try:
+                start = time.monotonic()
+                await upload_metadata(pool, db, params, incremental=incremental)
+                elapsed = time.monotonic() - start
+            finally:
+                local.AsyncBackend.request_delay = 0.0
+
+            db.close()
 
             with tempfile.NamedTemporaryFile() as dst_fh:
                 await download_metadata(pool, dst_fh.name, params)
                 src_fh.seek(0)
                 dst_fh.seek(0)
                 assert src_fh.read() == dst_fh.read()
+
+            # Serial would need at least nblocks * delay. Generous slack to
+            # absorb scheduling jitter on loaded CI hosts, but still well
+            # below the serial bound.
+            assert elapsed < nblocks * delay * 0.6

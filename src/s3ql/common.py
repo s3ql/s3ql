@@ -19,11 +19,12 @@ import sys
 import time
 from ast import literal_eval
 from base64 import b64decode, b64encode
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import AsyncIterable, Callable, Iterable, Iterator, Sequence, Sized
 from getpass import getpass
-from typing import TYPE_CHECKING, Literal, NewType, TypeVar, overload
+from typing import TYPE_CHECKING, Generic, Literal, NewType, TypeVar, overload
 
 import pyfuse3
+import trio
 from pyfuse3 import InodeT
 
 from s3ql.http import HostnameNotResolvable
@@ -539,3 +540,59 @@ def copyfh(
             len_ -= len(buf)
         if update is not None:
             update(buf)
+
+
+class ParallelPipeline(Generic[T]):
+    '''Fan-out producer/consumer pipeline over a Trio nursery.
+
+    Subclasses override:
+      - `produce`: an async method that performs orchestrator-task setup and returns
+        an iterable of work units. Called once before any worker is spawned, so any
+        side effects (creating files, populating instance attributes) are visible
+        to workers when they start.
+      - `consume`: receives an async iterable of work units. Invoked once per
+        worker.
+      - `finalize` (optional): post-pipeline hook, called after all workers complete.
+
+    The only public entry point is `run(n_workers, buffer_size=0)`.
+    '''
+
+    async def produce(self) -> Iterable[T]:
+        raise NotImplementedError
+
+    async def consume(self, jobs: AsyncIterable[T]) -> None:
+        raise NotImplementedError
+
+    def finalize(self) -> None:
+        pass
+
+    async def run(self, n_workers: int, buffer_size: int = 0) -> None:
+        # Run setup synchronously on the orchestrator task: any side effects
+        # (e.g. creating a destination file) are observable to workers when
+        # they start.
+        log.debug('ParallelPipeline.run: producing job list')
+        jobs = await self.produce()
+
+        # When we know the job count up front, don't spawn workers we cannot use.
+        if isinstance(jobs, Sized):
+            n_workers = min(n_workers, len(jobs))
+
+        send_chan, recv_chan = trio.open_memory_channel[T](buffer_size)
+        log.debug('ParallelPipeline.run: spawning %d workers', n_workers)
+        async with trio.open_nursery() as nursery:
+            async with recv_chan:
+                for _ in range(n_workers):
+                    nursery.start_soon(self._drive_consumer, recv_chan.clone())
+            # Drive the producer inline on the orchestrator task. The
+            # `await send_chan.send(item)` is a checkpoint, so consumers run
+            # concurrently. Closing the send channel on exit lets consumers
+            # drain their clones and exit cleanly.
+            async with send_chan:
+                for item in jobs:
+                    await send_chan.send(item)
+        log.debug('ParallelPipeline.run: workers complete, finalizing')
+        self.finalize()
+
+    async def _drive_consumer(self, recv_chan: trio.MemoryReceiveChannel[T]) -> None:
+        async with recv_chan:
+            await self.consume(recv_chan)
