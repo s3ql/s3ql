@@ -130,6 +130,34 @@ class TestAdm:
         plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
         assert [k async for k in plain_backend.list()] == []
 
+    def test_upgrade_noop(self):
+        # Regression test: `s3qladm upgrade` against a freshly-created (current
+        # revision) filesystem must short-circuit cleanly instead of trying to
+        # read the legacy single 's3ql_metadata' object that no longer exists
+        # at the current revision.
+        self.mkfs()
+
+        proc = subprocess.Popen(
+            [
+                's3qladm',
+                '--quiet',
+                '--log',
+                'none',
+                '--authfile',
+                '/dev/null',
+                '--cachedir',
+                self.cache_dir,
+                'upgrade',
+                self.storage_url,
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            universal_newlines=True,
+        )
+        stdout, _ = proc.communicate(input=self.passphrase + '\n')
+        assert proc.returncode == 0
+        assert 'already at most-recent revision' in stdout
+
     @pytest.mark.trio
     async def test_key_recovery(self):
         mkfs_output = self.mkfs()

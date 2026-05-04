@@ -39,7 +39,7 @@ from s3ql.database import (
 from s3ql.mount import determine_threads, get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends.common import AsyncBackend
+from .backends.common import AsyncBackend, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .backends.pool import BackendPool
 from .common import (
@@ -366,7 +366,16 @@ async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:
     with open(params_path, 'rb') as fh:
         local_params: BasicMappingT = thaw_basic_mapping(fh.read())
     async with pool() as backend:
-        remote_params = await backend.lookup('s3ql_metadata')
+        try:
+            remote_params = await backend.lookup('s3ql_metadata')
+
+        # Filesystem may have been updated already
+        except NoSuchObject:
+            remote_params_typed = await read_remote_params(backend)
+            remote_params = {
+                'seq_no': remote_params_typed.seq_no,
+                'revision': remote_params_typed.revision,
+            }
 
     local_seq_no = local_params['seq_no']
     remote_seq_no = remote_params['seq_no']
