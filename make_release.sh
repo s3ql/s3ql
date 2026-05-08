@@ -2,6 +2,12 @@
 
 set -e
 
+if [ -z "${S3QL_SIGNING_KEYS_DIR}" ] || [ ! -d "${S3QL_SIGNING_KEYS_DIR}" ]; then
+    echo "S3QL_SIGNING_KEYS_DIR must point to the directory containing the release" >&2
+    echo "signing .sec files (see developer-notes/release-process.md)." >&2
+    exit 1
+fi
+
 if [ -z "$1" ]; then
     TAG="$(git tag --list 's3ql-*' --sort=-creatordate | head -1)"
 else
@@ -29,7 +35,7 @@ uv build --sdist
 
 # Ideally we'd use -z here to embed the signature in the gz header.
 # However, this is currently buggy: bugs.debian.org/1042837
-signify -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
+signify -S -s "${S3QL_SIGNING_KEYS_DIR}/${MAJOR_REV}.sec" -m "dist/${TAG}.tar.gz"
 #mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
 echo "Uploading documentation..."
@@ -44,7 +50,9 @@ CHANGELOG=$(awk -v ver="$VERSION" '
     in_section { print }
 ' ChangeLog.rst)
 
-CONTRIBUTORS=$(git log --pretty="format:%an" "${PREV_TAG}..${TAG}" | sort -u)
+CONTRIBUTORS=$(git log --pretty="format:%an" "${PREV_TAG}..${TAG}" \
+    | grep -vEi 'copilot|claude|\[bot\]' \
+    | sort -u)
 
 echo
 echo "================================================================"
