@@ -547,9 +547,10 @@ class ParallelPipeline(Generic[T]):
 
     Subclasses override:
       - `produce`: an async method that performs orchestrator-task setup and returns
-        an iterable of work units. Called once before any worker is spawned, so any
-        side effects (creating files, populating instance attributes) are visible
-        to workers when they start.
+        an iterable of work units (sync or async). Called once before any worker is
+        spawned, so any side effects (creating files, populating instance attributes)
+        are visible to workers when they start. Return an `AsyncIterable` to stream
+        work units lazily from an async source (e.g. a backend listing).
       - `consume`: receives an async iterable of work units. Invoked once per
         worker.
       - `finalize` (optional): post-pipeline hook, called after all workers complete.
@@ -557,7 +558,7 @@ class ParallelPipeline(Generic[T]):
     The only public entry point is `run(n_workers, buffer_size=0)`.
     '''
 
-    async def produce(self) -> Iterable[T]:
+    async def produce(self) -> Iterable[T] | AsyncIterable[T]:
         raise NotImplementedError
 
     async def consume(self, jobs: AsyncIterable[T]) -> None:
@@ -588,8 +589,12 @@ class ParallelPipeline(Generic[T]):
             # concurrently. Closing the send channel on exit lets consumers
             # drain their clones and exit cleanly.
             async with send_chan:
-                for item in jobs:
-                    await send_chan.send(item)
+                if isinstance(jobs, AsyncIterable):
+                    async for item in jobs:
+                        await send_chan.send(item)
+                else:
+                    for item in jobs:
+                        await send_chan.send(item)
         log.debug('ParallelPipeline.run: workers complete, finalizing')
         self.finalize()
 

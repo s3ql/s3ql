@@ -19,7 +19,7 @@ import tempfile
 import textwrap
 import time
 from base64 import b64decode
-from collections.abc import Sequence
+from collections.abc import AsyncIterable, AsyncIterator, Sequence
 from datetime import datetime
 from getpass import getpass
 
@@ -43,6 +43,7 @@ from .backends.common import AsyncBackend
 from .backends.comprenc import AsyncComprencBackend
 from .backends.pool import BackendPool
 from .common import (
+    ParallelPipeline,
     async_get_backend,
     get_backend_factory,
     is_mounted,
@@ -236,6 +237,42 @@ async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
     await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
+@dataclasses.dataclass
+class ClearBackend(ParallelPipeline[str]):
+    '''Parallel pipeline that deletes every visible object from a backend.
+
+    Each worker creates its own backend connection (no `BackendPool`) and deletes
+    objects as their keys arrive on the channel. Keys stream lazily from
+    *listing_backend*'s `list()` so very large buckets do not have to be
+    materialised in memory before deletion starts.
+    '''
+
+    listing_backend: AsyncBackend
+    options: argparse.Namespace
+
+    async def produce(self) -> AsyncIterator[str]:
+        return self._iter_keys()
+
+    async def _iter_keys(self) -> AsyncIterator[str]:
+        i = 0
+        async for key in self.listing_backend.list():
+            log.info(
+                'Deleting objects (%d so far)...',
+                i,
+                extra={'rate_limit': 1, 'update_console': True},
+            )
+            yield key
+            i += 1
+
+    async def consume(self, jobs: AsyncIterable[str]) -> None:
+        async with await async_get_backend(self.options, raw=True) as backend:
+            async for key in jobs:
+                await backend.delete(key)
+
+    def finalize(self) -> None:
+        log.info('All visible objects deleted.')
+
+
 async def clear(options: argparse.Namespace) -> None:
     async with await async_get_backend(options, raw=True) as backend:
         print(
@@ -264,34 +301,8 @@ async def clear(options: argparse.Namespace) -> None:
         if os.path.exists(name):
             shutil.rmtree(name)
 
-        send_channel, receive_channel = trio.open_memory_channel[str](
-            max_buffer_size=options.max_connections
-        )
-
-        async def removal_task(
-            recv: trio.MemoryReceiveChannel[str],
-        ) -> None:
-            async with recv, await options.backend_class.create(options) as worker_backend:
-                async for key in recv:
-                    await worker_backend.delete(key)
-
-        async with trio.open_nursery() as nursery:
-            for _ in range(options.max_connections):
-                nursery.start_soon(removal_task, receive_channel.clone())
-            await receive_channel.aclose()
-
-            async with send_channel:
-                i = 0
-                async for obj_id in backend.list():
-                    log.info(
-                        'Deleting objects (%d so far)...',
-                        i,
-                        extra={'rate_limit': 1, 'update_console': True},
-                    )
-                    await send_channel.send(obj_id)
-                    i += 1
-
-    log.info('All visible objects deleted.')
+        op = ClearBackend(listing_backend=backend, options=options)
+        await op.run(n_workers=options.max_connections, buffer_size=options.max_connections)
 
 
 def get_old_rev_msg(rev: int, prog: str) -> str:
