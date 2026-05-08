@@ -1,3 +1,28 @@
+S3QL 6.1.0 (2026-05-08)
+=======================
+
+* Mounting and unmounting filesystems with many metadata blocks is now
+  significantly faster: per-block metadata uploads and downloads run in
+  parallel across the backend connection pool, instead of serialising on
+  a single connection.
+
+* `mkfs.s3ql`, `fsck.s3ql`, `s3qladm` and `s3ql_verify` now accept
+  `--max-connections` and `--max-threads`, matching the options that
+  `mount.s3ql` already exposed. `s3ql_verify`'s old `--parallel` option
+  has been removed in favour of the new flags.
+
+* `s3qladm upgrade` no longer crashes with a `NoSuchObject` error when
+  run against a filesystem that is already at the current revision.
+
+* `umount.s3ql` now falls back to `fusermount3` if `fusermount` is not
+  installed. This makes umount work on distributions that ship libfuse 3
+  only (e.g. recent Debian/Ubuntu).
+
+* Fixed two issues in the Backblaze B2 backend: the async `close()`
+  function now works correctly, and the upload connection is properly
+  disconnected after a transient error instead of leaking the underlying
+  TLS socket.
+
 S3QL 6.0.0 (2026-03-18)
 =======================
 
