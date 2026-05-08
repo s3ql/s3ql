@@ -23,16 +23,22 @@ Dependencies
 Installing from a source release
 ================================
 
-Download the release tarball from
-`GitHub <https://github.com/s3ql/s3ql/releases>`_ and validate it with
+Download the release tarball ``s3ql-A.B.C.tar.gz`` and its detached signature
+``s3ql-A.B.C.tar.gz.sig`` from
+`GitHub <https://github.com/s3ql/s3ql/releases>`_ and validate them with
 `signify <https://github.com/aperezdc/signify>`_::
 
-  signify -V -m s3ql-XX.tar.gz -p s3ql-XX.pub
+  signify -V -m s3ql-A.B.C.tar.gz -p s3ql-A.B.pub
 
-The `s3ql-XX.pub` file needs to be obtained from a trustworthy source (it contains the
-signing key). Each S3QL release contains the signing key for the release after it in the
-`signify` directory, so you only need to manually acquire this file once when you install
-S3QL for the first time).
+The same public key is used for every bugfix release in the ``A.B`` series, so
+the key file is named after the major.minor portion only (e.g. ``s3ql-6.1.pub``
+for any 6.1.x release).
+
+You need to obtain ``s3ql-A.B.pub`` from a trustworthy source for the first
+release you install. After that, the trust chain is self-sustaining: each
+release tarball contains the public key for the next release in its
+``signify/`` directory under the name ``s3ql-next.pub``. After verifying the
+tarball, extract that file and use it as ``-p`` for the following release.
 
 After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z` directory. At
 this point, you can use any tool that can work with Python `pyproject.toml` files to install S3QL.

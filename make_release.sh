@@ -9,6 +9,7 @@ else
 fi
 PREV_TAG="$(git tag --list 's3ql-*' --sort=-creatordate --merged "${TAG}^"| head -1)"
 MAJOR_REV=${TAG%.*}
+VERSION="${TAG#s3ql-}"
 
 echo "Creating release tarball for ${TAG}..."
 
@@ -28,13 +29,52 @@ uv build --sdist
 
 # Ideally we'd use -z here to embed the signature in the gz header.
 # However, this is currently buggy: bugs.debian.org/1042837
-signify-openbsd -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
+signify -S -s signify/$MAJOR_REV.sec -m dist/$TAG.tar.gz
 #mv -f dist/$TAG.tar.gz.sig dist/$TAG.tar.gz
 
 echo "Uploading documentation..."
 rsync -aHv --del doc/html/ ebox.rath.org:/srv/www.rath.org/s3ql-docs/
 
-echo "Contributors from ${PREV_TAG} to ${TAG}:"
-git log --pretty="format:%an <%aE>" "${PREV_TAG}..${TAG}" | \
-    grep -v '<none@none>$' | \
-    sort -u
+# Build the announcement email by interpolating the changelog excerpt and
+# contributor list into the template. The user copies this block into the
+# mailing-list email.
+CHANGELOG=$(awk -v ver="$VERSION" '
+    /^S3QL [0-9]/ { in_section = ($0 ~ "^S3QL " ver " "); next }
+    /^=+$/ && in_section { next }
+    in_section { print }
+' ChangeLog.rst)
+
+CONTRIBUTORS=$(git log --pretty="format:%an" "${PREV_TAG}..${TAG}" | sort -u)
+
+echo
+echo "================================================================"
+echo "Announcement email body for ${TAG} (copy between the markers):"
+echo "================================================================"
+cat <<EOF
+From: Nikolaus Rath <Nikolaus@rath.org>
+Subject: [s3ql] [ANNOUNCE] S3QL ${VERSION} has been released
+To: s3ql@googlegroups.com
+
+Dear all,
+
+I am pleased to announce a new release of S3QL, version ${VERSION}.
+
+From the changelog:
+${CHANGELOG}
+
+The following people have contributed code to this release:
+
+${CONTRIBUTORS}
+
+(The full list of contributors is available in the AUTHORS file).
+
+The release is available for download from
+https://github.com/s3ql/s3ql/releases
+
+Please report any bugs on the mailing list (s3ql@googlegroups.com) or
+the issue tracker (https://github.com/s3ql/s3ql/issues).
+
+Best,
+-Nikolaus
+EOF
+echo "================================================================"
