@@ -1094,14 +1094,14 @@ async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 
                 continue
             to_keep[blockno].add(first_le_than(candidates, seq_no))
 
-    log.info('Found %d blocks to delete', len(block_list))
-
     # Remove what's no longer needed
     for blockno, candidates in block_list.items():
         for seq_no in candidates:
             if seq_no in to_keep[blockno]:
                 continue
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
+
+    log.info('Removing %d obsolete metadata blocks', len(to_remove))
     await backend.delete_multi(to_remove)
 
     log.info('Expiration complete.')
