@@ -22,6 +22,7 @@ import socket
 import ssl
 from base64 import b64encode
 from collections.abc import Mapping, MutableMapping
+from dataclasses import dataclass
 from enum import Enum
 from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
 from typing import Optional
@@ -43,104 +44,75 @@ MAX_LINE_SIZE = BUFFER_SIZE - 1
 MAX_HEADER_SIZE = BUFFER_SIZE - 1
 
 
-class Symbol:
-    '''
-    A symbol instance represents a specific state. Its value is
-    not relevant, as it should only ever be assigned to or compared
-    with other variables.
-    '''
-
-    __slots__ = ['name']
-
-    def __init__(self, name):
-        self.name = name
-
-    def __str__(self):
-        return self.name
-
-    def __repr__(self):
-        return f'Symbol({self.name})'
-
-
 class Encodings(Enum):
     CHUNKED = 1
     IDENTITY = 2
 
 
-#: Sentinel for `HTTPConnection._out_remaining` to indicate that
-#: we're waiting for a 100-continue response from the server
-WAITING_FOR_100c = Symbol('WAITING_FOR_100c')
+class _State(Enum):
+    #: Sentinel for `HTTPConnection._out_remaining` to indicate that
+    #: we're waiting for a 100-continue response from the server.
+    WAITING_FOR_100C = 'waiting-for-100c'
 
-#: Sentinel for `HTTPConnection._in_remaining` to indicate that
-#: the response body cannot be read and that an exception
-#: (stored in the `HTTPConnection._encoding` attribute) should
-#: be raised.
-RESPONSE_BODY_ERROR = Symbol('RESPONSE_BODY_ERROR')
+    #: Sentinel for `HTTPConnection._in_remaining` to indicate that
+    #: the response body cannot be read and that an exception
+    #: (stored in the `HTTPConnection._encoding` attribute) should
+    #: be raised.
+    RESPONSE_BODY_ERROR = 'response-body-error'
 
-#: Sentinel for `HTTPConnection._in_remaining` to indicate that
-#: we should read until EOF (i.e., no keep-alive)
-READ_UNTIL_EOF = Symbol('READ_UNTIL_EOF')
+    #: Sentinel for `HTTPConnection._in_remaining` to indicate that
+    #: we should read until EOF (i.e., no keep-alive).
+    READ_UNTIL_EOF = 'read-until-eof'
+
 
 #: Sequence of ``(hostname, port)`` tuples that are used by distinguish between permanent and
 #: temporary name resolution problems.
 DNS_TEST_HOSTNAMES = (('www.google.com', 80), ('www.iana.org', 80), ('C.root-servers.org', 53))
 
 
+@dataclass(slots=True)
 class HTTPResponse:
     '''
-    This class encapsulates information about HTTP response.  Instances of this
-    class are returned by the `HTTPConnection.read_response` method and have
-    access to response status, reason, and headers.  Response body data
+    Information about an HTTP response.
+
+    Instances of this class are returned by `HTTPConnection.co_read_response`
+    and expose the response status, reason, and headers. Response body data
     has to be read directly from the `HTTPConnection` instance.
     '''
 
-    def __init__(
-        self,
-        method: str,
-        path: str,
-        status: int,
-        reason: str,
-        headers: email.message.Message,
-        length: int | None = None,
-    ) -> None:
-        #: HTTP Method of the request this was response is associated with
-        self.method = method
+    #: HTTP method of the request this response is associated with.
+    method: str
 
-        #: Path of the request this was response is associated with
-        self.path = path
+    #: Path of the request this response is associated with.
+    path: str
 
-        #: HTTP status code returned by the server
-        self.status = status
+    #: HTTP status code returned by the server.
+    status: int
 
-        #: HTTP reason phrase returned by the server
-        self.reason = reason
+    #: HTTP reason phrase returned by the server.
+    reason: str
 
-        #: HTTP Response headers, a `email.message.Message` instance
-        self.headers = headers
+    #: Response headers, an `email.message.Message` instance.
+    headers: email.message.Message
 
-        #: Length of the response body or `None` if not known. This attribute
-        #: contains the actual length of the *transmitted* response. That means
-        #: that for responses where RFC 2616 mandates that no request body
-        #: be sent (e.g. in response to HEAD requests or for 1xx response
-        #: codes) this value is zero. In these cases, the length of the body that
-        #: *would* have been send can be extracted from the ``Content-Length``
-        #: response header.
-        self.length = length
+    #: Length of the *transmitted* response body, or `None` if not known.
+    #: For responses where RFC 2616 mandates an empty body (HEAD requests,
+    #: 1xx, 204, 304) this is zero; the length of the body that *would*
+    #: have been sent can be read from the ``Content-Length`` header.
+    length: int | None = None
 
 
+@dataclass(slots=True, frozen=True)
 class BodyFollowing:
     '''
-    Sentinel class for the *body* parameter of the
-    `~HTTPConnection.co_send_request` method. Passing an instance of this
-    class declares that *length* bytes of body data will be provided in
-    separate method calls.
+    Sentinel for the *body* parameter of `HTTPConnection.co_send_request`.
+
+    Passing an instance declares that *length* bytes of body data will be
+    provided in separate method calls.
     '''
 
-    __slots__ = 'length'
-
-    def __init__(self, length: int) -> None:
-        #: the length of the body data that is going to be sent.
-        self.length = length
+    #: Number of body bytes that will be sent separately.
+    length: int
 
 
 class _ChunkTooLong(Exception):
@@ -194,8 +166,12 @@ class DNSUnavailable(Exception):
         return 'Unable to resolve %s, DNS server unavailable.' % self.name
 
 
-class HostnameNotResolvableOrDNSUnavailable(Exception):
-    '''Raised if a host name does not resolve or DNS server cannot be reached.'''
+class _DNSError(Exception):
+    '''Internal: DNS lookup failed but cause (NXDOMAIN vs. unavailable) is unclear.
+
+    `create_socket` catches this and converts it to either `HostnameNotResolvable`
+    or `DNSUnavailable` once it has probed `DNS_TEST_HOSTNAMES`.
+    '''
 
     def __init__(self, hostname: str) -> None:
         self.name = hostname
@@ -350,6 +326,9 @@ class HTTPConnection:
     `.disconnect` method will be called on exit from the managed block.
     '''
 
+    #: Default value for `_timeout_ms`: 24 hours expressed in milliseconds.
+    _DEFAULT_TIMEOUT_MS = 24 * 60 * 60 * 1000
+
     def __init__(
         self,
         hostname: str,
@@ -357,13 +336,10 @@ class HTTPConnection:
         ssl_context: Optional[ssl.SSLContext] = None,
         proxy: Optional[tuple[str, int]] = None,
     ):
-        if port is None:
-            if ssl_context is None:
-                self.port = HTTP_PORT
-            else:
-                self.port = HTTPS_PORT
-        else:
+        if port is not None:
             self.port = port
+        else:
+            self.port = HTTPS_PORT if ssl_context else HTTP_PORT
 
         self.ssl_context = ssl_context
         self.hostname = hostname
@@ -388,14 +364,14 @@ class HTTPConnection:
         #: request headers have been sent, but request body data is still
         #: pending, it is set to a ``(method, path, body_len)`` tuple. *body_len*
         #: is the number of bytes that that still need to send, or
-        #: `WAITING_FOR_100c` if we are waiting for a 100 response from the server.
-        self._out_remaining: Optional[tuple[str, str, int | Symbol]] = None
+        #: `_State.WAITING_FOR_100C` if we are waiting for a 100 response from the server.
+        self._out_remaining: Optional[tuple[str, str, int | _State]] = None
 
         #: Number of remaining bytes of the current response body (or current
-        #: chunk), `None` if there is no active response or `READ_UNTIL_EOF` if
+        #: chunk), `None` if there is no active response or `_State.READ_UNTIL_EOF` if
         #: we have to read until the connection is closed (i.e., we don't know
         #: the content-length and keep-alive is not active).
-        self._in_remaining: Optional[int | Symbol] = None
+        self._in_remaining: Optional[int | _State] = None
 
         #: Transfer encoding of the active response (if any), or an exception
         #: instance if the body cannot be read.
@@ -403,7 +379,7 @@ class HTTPConnection:
 
         #: If a regular `HTTPConnection` method is unable to send or receive data for more than
         #: this period (in ms), it will raise `ConnectionTimedOut`.
-        self._timeout_ms: int = 24 * 60 * 60 * 1000
+        self._timeout_ms: int = self._DEFAULT_TIMEOUT_MS
 
         #: Filehandler for tracing
         self.trace_fh = None
@@ -415,7 +391,7 @@ class HTTPConnection:
     @timeout.setter
     def timeout(self, value: int | float | None) -> None:
         if value is None:
-            self._timeout_ms = 24 * 60 * 60 * 1000
+            self._timeout_ms = self._DEFAULT_TIMEOUT_MS
         else:
             self._timeout_ms = int(value * 1000)
 
@@ -520,7 +496,7 @@ class HTTPConnection:
                 # that co_read_response() can hand it back to _out_remaining
                 # after the 100-continue arrives.
                 pending_body_size = body.length
-                self._out_remaining = (method, path, WAITING_FOR_100c)
+                self._out_remaining = (method, path, _State.WAITING_FOR_100C)
             else:
                 self._out_remaining = (method, path, body.length)
             headers['Content-Length'] = str(body.length)
@@ -568,6 +544,18 @@ class HTTPConnection:
         if not self._out_remaining or expect100:
             self._pending_request = (method, path, pending_body_size)
 
+    async def _wait_readable(self):
+        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+            await trio.lowlevel.wait_readable(self._sock)
+        if ctx.cancelled_caught:
+            raise ConnectionTimedOut('Timeout in recv()')
+
+    async def _wait_writable(self):
+        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
+            await trio.lowlevel.wait_writable(self._sock)
+        if ctx.cancelled_caught:
+            raise ConnectionTimedOut('Timeout in send()')
+
     async def _co_send(self, buf):
         '''Send *buf* to server'''
 
@@ -588,10 +576,7 @@ class HTTPConnection:
                     raise BlockingIOError()
             except (TimeoutError, ssl.SSLWantWriteError, BlockingIOError):
                 log.debug('yielding')
-                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                    await trio.lowlevel.wait_writable(self._sock)
-                if ctx.cancelled_caught:
-                    raise ConnectionTimedOut('Timeout in send()')
+                await self._wait_writable()
                 continue
             except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
                 raise ConnectionClosed('connection was interrupted')
@@ -628,7 +613,7 @@ class HTTPConnection:
             raise StateError('No active request with pending body data')
 
         (method, path, remaining) = self._out_remaining
-        if remaining is WAITING_FOR_100c:
+        if remaining is _State.WAITING_FOR_100C:
             raise StateError("can't write when waiting for 100-continue")
         assert isinstance(remaining, int)
 
@@ -700,7 +685,7 @@ class HTTPConnection:
 
         # Handle (expected) 100-continue
         if status == 100:
-            assert self._out_remaining == (method, path, WAITING_FOR_100c)
+            assert self._out_remaining == (method, path, _State.WAITING_FOR_100C)
 
             # We're ready to send request body now
             self._out_remaining = (method, path, body_size)
@@ -713,7 +698,7 @@ class HTTPConnection:
 
         # Handle non-100 status when waiting for 100-continue
         elif body_size is not None:
-            assert self._out_remaining == (method, path, WAITING_FOR_100c)
+            assert self._out_remaining == (method, path, _State.WAITING_FOR_100C)
             # RFC 2616 actually states that the server MAY continue to read the
             # request body after it has sent a final status code
             # (http://tools.ietf.org/html/rfc2616#section-8.2.3). However, that
@@ -756,7 +741,7 @@ class HTTPConnection:
                 body_length = int(body_length)
             except ValueError:
                 self._encoding = InvalidResponse('Invalid content-length: %s' % body_length)
-                self._in_remaining = RESPONSE_BODY_ERROR
+                self._in_remaining = _State.RESPONSE_BODY_ERROR
                 return None
 
         if status in (NO_CONTENT, NOT_MODIFIED) or 100 <= status < 200 or method == 'HEAD':
@@ -775,7 +760,7 @@ class HTTPConnection:
         elif tc != 'identity':
             log.warning('Server uses invalid response encoding "%s"', tc)
             self._encoding = InvalidResponse('Cannot handle %s encoding' % tc)
-            self._in_remaining = RESPONSE_BODY_ERROR
+            self._in_remaining = _State.RESPONSE_BODY_ERROR
             return None
 
         log.debug('identity encoding detected')
@@ -800,7 +785,7 @@ class HTTPConnection:
             # correct the connection header for library users (HTTPConnection does not need it)
             del header['Connection']
             header['Connection'] = 'close'
-        self._in_remaining = READ_UNTIL_EOF
+        self._in_remaining = _State.READ_UNTIL_EOF
         return None
 
     async def _co_read_status(self):
@@ -814,15 +799,16 @@ class HTTPConnection:
         except _ChunkTooLong:
             raise InvalidResponse('server send ridiculously long status line')
 
-        try:
-            version, status, reason = line.split(None, 2)
-        except ValueError:
-            try:
-                version, status = line.split(None, 1)
-                reason = ""
-            except ValueError:
-                # empty version will cause next test to fail.
-                version = ""
+        parts = line.split(None, 2)
+        if len(parts) == 3:
+            version, status, reason = parts
+        elif len(parts) == 2:
+            version, status = parts
+            reason = ""
+        else:
+            # empty version will cause next test to fail.
+            version = ""
+            status = ""
 
         if not version.startswith("HTTP/1"):
             raise UnsupportedResponse('%s not supported' % version)
@@ -872,7 +858,7 @@ class HTTPConnection:
 
         log.debug('start (len=%s)', len_)
 
-        if self._in_remaining is RESPONSE_BODY_ERROR:
+        if self._in_remaining is _State.RESPONSE_BODY_ERROR:
             assert isinstance(self._encoding, Exception)
             raise self._encoding
         elif len_ is None:
@@ -884,7 +870,7 @@ class HTTPConnection:
         elif self._encoding is Encodings.CHUNKED:
             return await self._co_read_chunked(len_=len_)
         else:
-            raise RuntimeError('ooops, this should not be possible')
+            raise AssertionError('unreachable encoding: %r' % self._encoding)
 
     async def co_read_raw(self, size: int) -> bytes:
         '''Read up to *size* bytes of uninterpreted data.
@@ -919,10 +905,7 @@ class HTTPConnection:
             rbuf.compact()
             res = self._try_fill_buffer()
             if res is None:
-                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                    await trio.lowlevel.wait_readable(self._sock)
-                if ctx.cancelled_caught:
-                    raise ConnectionTimedOut('Timeout in recv()')
+                await self._wait_readable()
             elif res == 0:
                 break
 
@@ -941,7 +924,7 @@ class HTTPConnection:
             return b''
 
         rbuf = self._rbuf
-        if self._in_remaining is not READ_UNTIL_EOF:
+        if self._in_remaining is not _State.READ_UNTIL_EOF:
             len_ = min(len_, self._in_remaining)
         log.debug('updated len_=%d', len_)
 
@@ -950,8 +933,7 @@ class HTTPConnection:
         # have to do it here or we never enter the while loop if the buffer
         # is empty but has no capacity (rbuf.b == rbuf.e == len(rbuf.d))
         if rbuf.b == rbuf.e:
-            rbuf.b = 0
-            rbuf.e = 0
+            rbuf.clear()
 
         # Loop while we could return more data than we have buffered
         # and buffer is not full
@@ -963,12 +945,9 @@ class HTTPConnection:
                     break
                 else:
                     log.debug('buffer empty and nothing to read, yielding..')
-                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                    await trio.lowlevel.wait_readable(self._sock)
-                if ctx.cancelled_caught:
-                    raise ConnectionTimedOut('Timeout in recv()')
+                await self._wait_readable()
             elif got_data == 0:
-                if self._in_remaining is READ_UNTIL_EOF:
+                if self._in_remaining is _State.READ_UNTIL_EOF:
                     log.debug('connection closed, %d bytes in buffer', len(rbuf))
                     self._in_remaining = len(rbuf)
                     break
@@ -976,7 +955,7 @@ class HTTPConnection:
                     raise ConnectionClosed('server closed connection')
 
         len_ = min(len_, len(rbuf))
-        if self._in_remaining is not READ_UNTIL_EOF:
+        if self._in_remaining is not _State.READ_UNTIL_EOF:
             assert isinstance(self._in_remaining, int)
             self._in_remaining -= len_
 
@@ -1089,10 +1068,7 @@ class HTTPConnection:
                 res = self._try_fill_buffer()
                 if res is None:
                     log.debug('need more data, yielding')
-                    with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                        await trio.lowlevel.wait_readable(self._sock)
-                    if ctx.cancelled_caught:
-                        raise ConnectionTimedOut('Timeout in recv()')
+                    await self._wait_readable()
                 elif res == 0:
                     raise ConnectionClosed('server closed connection')
                 else:
@@ -1127,8 +1103,7 @@ class HTTPConnection:
 
         # If buffer is empty, reset so that we start filling from beginning
         if rbuf.b == rbuf.e:
-            rbuf.b = 0
-            rbuf.e = 0
+            rbuf.clear()
 
         # There should be free capacity
         assert rbuf.e < len(rbuf.d)
@@ -1166,10 +1141,7 @@ class HTTPConnection:
                 self._rbuf.compact()
             res = self._try_fill_buffer()
             if res is None:
-                with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-                    await trio.lowlevel.wait_readable(self._sock)
-                if ctx.cancelled_caught:
-                    raise ConnectionTimedOut('Timeout in recv()')
+                await self._wait_readable()
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
 
@@ -1237,14 +1209,17 @@ class HTTPConnection:
         return False
 
 
+_AMBIGUOUS_DNS_ERRNOS = (socket.EAI_NODATA, socket.EAI_NONAME, socket.EAI_AGAIN)
+
+
 def create_socket(address):
-    '''Create socket connected to *address**
+    '''Create a TCP socket connected to *address*.
 
     Use `socket.create_connection` to create a connected socket and return
     it. If a DNS related exception is raised, capture it and attempt to
-    determine if the dns server is not reachable, or if the host name could
-    not be resolved. Then raise either `NoSuchAddress` or
-    `NameResolutionError` as appropriate.
+    determine if the DNS server is not reachable, or if the host name could
+    not be resolved. Then raise either `HostnameNotResolvable` or
+    `DNSUnavailable` as appropriate.
 
     To distinguish between an unresolvable hostname and a problem with the
     DNS server, attempt to resolve the addresses in `DNS_TEST_HOSTNAMES`. If
@@ -1252,43 +1227,66 @@ def create_socket(address):
     is available and that *address* can not be resolved.
     '''
 
-    def try_connect(fn, arg):
+    def connect():
         try:
-            return fn()
+            return socket.create_connection(address)
         except (socket.gaierror, socket.herror) as exc:
-            if exc.errno in (socket.EAI_NODATA, socket.EAI_NONAME, socket.EAI_AGAIN):
-                raise HostnameNotResolvableOrDNSUnavailable(arg)
-            else:
-                raise
+            if exc.errno in _AMBIGUOUS_DNS_ERRNOS:
+                raise _DNSError(address[0])
+            raise
 
     try:
-        return try_connect(lambda: socket.create_connection(address), address[0])
-    except HostnameNotResolvableOrDNSUnavailable:
+        return connect()
+    except _DNSError:
         pass
 
-    # Unfortunately, some exceptions do not help us to distinguish between
-    # permanent and temporary problems (cf. https://stackoverflow.com/questions/24855168/,
-    # https://stackoverflow.com/questions/24855669/). Therefore, we try to resolve
-    # "well-known" hosts to resolve the ambiguity.
-
+    # Some DNS errors don't tell us whether the issue is permanent or temporary
+    # (cf. https://stackoverflow.com/questions/24855168/,
+    # https://stackoverflow.com/questions/24855669/). Resolve a few "well-known"
+    # hosts to disambiguate.
     for hostname, port in DNS_TEST_HOSTNAMES:
         try:
-            try_connect(lambda: socket.getaddrinfo(hostname, port), address[0])  # noqa: B023
-        except HostnameNotResolvableOrDNSUnavailable:
-            pass
-        else:
-            # Reachable, now try to resolve original address again (maybe dns was only
-            # down briefly)
-            break
+            socket.getaddrinfo(hostname, port)
+        except (socket.gaierror, socket.herror) as exc:
+            if exc.errno in _AMBIGUOUS_DNS_ERRNOS:
+                continue
+            raise
+        # Reachable; try original address one more time in case DNS was only down briefly.
+        break
     else:
-        # No host was reachable
         raise DNSUnavailable(address[0])
 
-    # Try to connect to original host again
     try:
-        return try_connect(lambda: socket.create_connection(address), address[0])
-    except HostnameNotResolvableOrDNSUnavailable:
+        return connect()
+    except _DNSError:
         raise HostnameNotResolvable(address[0])
+
+
+# Errno codes that indicate a potentially temporary network problem. Computed
+# at import time because not every code exists on every platform.
+_TEMP_NETWORK_ERRNOS = frozenset(
+    code
+    for code in (
+        getattr(errno, name, None)
+        for name in (
+            'EHOSTDOWN',
+            'EHOSTUNREACH',
+            'ENETDOWN',
+            'ENETRESET',
+            'ENETUNREACH',
+            'ENOLINK',
+            'ENONET',
+            'ENOTCONN',
+            'ENXIO',
+            'EPIPE',
+            'EREMCHG',
+            'ESHUTDOWN',
+            'ETIMEDOUT',
+            'EAGAIN',
+        )
+    )
+    if code is not None
+)
 
 
 def is_temp_network_error(exc: BaseException) -> bool:
@@ -1316,32 +1314,7 @@ def is_temp_network_error(exc: BaseException) -> bool:
     ):
         return True
 
-    elif isinstance(exc, OSError):
-        # We have to be careful when retrieving errno codes, because
-        # not all of them may exist on every platform.
-        for errcode in (
-            'EHOSTDOWN',
-            'EHOSTUNREACH',
-            'ENETDOWN',
-            'ENETRESET',
-            'ENETUNREACH',
-            'ENOLINK',
-            'ENONET',
-            'ENOTCONN',
-            'ENXIO',
-            'EPIPE',
-            'EREMCHG',
-            'ESHUTDOWN',
-            'ETIMEDOUT',
-            'EAGAIN',
-        ):
-            try:
-                if getattr(errno, errcode) == exc.errno:
-                    return True
-            except AttributeError:
-                pass
-
-    return False
+    return isinstance(exc, OSError) and exc.errno in _TEMP_NETWORK_ERRNOS
 
 
 class CaseInsensitiveDict(MutableMapping):

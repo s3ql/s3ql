@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 '''
-t1_http.py - this file is part of S3QL.
+t0_http.py - this file is part of S3QL.
 
 Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 
@@ -54,10 +54,15 @@ SSL_TEST_HOST = 'www.google.com'
 TEST_DIR = os.path.dirname(__file__)
 
 
+def _client_ssl_context():
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    ctx.verify_mode = ssl.CERT_REQUIRED
+    return ctx
+
+
 def check_for_internet_access():
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
+    ssl_context = _client_ssl_context()
     ssl_context.set_default_verify_paths()
     try:
         conn = http.client.HTTPSConnection(SSL_TEST_HOST, context=ssl_context)
@@ -115,17 +120,10 @@ def pytest_generate_tests(metafunc):
     if 'http_server' not in metafunc.fixturenames:
         return
 
-    if hasattr(metafunc, 'definition'):
-        if metafunc.definition.get_closest_marker('no_ssl'):
-            params = ('plain',)
-        else:
-            params = ('plain', 'ssl')
+    if metafunc.definition.get_closest_marker('no_ssl'):
+        params = ('plain',)
     else:
-        # pytest < 3.6
-        if getattr(metafunc.function, 'no_ssl', False):
-            params = ('plain',)
-        else:
-            params = ('plain', 'ssl')
+        params = ('plain', 'ssl')
 
     metafunc.parametrize("http_server", params, indirect=True, scope='module')
 
@@ -141,9 +139,7 @@ def http_server(request):
 @pytest.fixture()
 def conn(request, http_server):
     if http_server.use_ssl:
-        ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-        ssl_context.verify_mode = ssl.CERT_REQUIRED
+        ssl_context = _client_ssl_context()
         ssl_context.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
     else:
         ssl_context = None
@@ -162,9 +158,7 @@ def random_fh(request):
 
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
 async def test_connect_ssl():
-    ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
-    ssl_context.verify_mode = ssl.CERT_REQUIRED
+    ssl_context = _client_ssl_context()
     ssl_context.set_default_verify_paths()
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=ssl_context)
@@ -179,9 +173,7 @@ async def test_connect_ssl():
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
 async def test_invalid_ssl():
     # Don't load certificates
-    context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
-    context.verify_mode = ssl.CERT_REQUIRED
+    context = _client_ssl_context()
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=context)
     with pytest.raises(ssl.SSLError):
@@ -440,7 +432,7 @@ async def test_read_identity(conn):
     assert not conn.response_pending()
 
 
-async def test_conn_close_1(conn, monkeypatch):
+async def test_conn_close_with_close_header(conn, monkeypatch):
     data_size = 500
     conn._rbuf = _Buffer(int(4 / 5 * data_size))
 
@@ -465,7 +457,7 @@ async def test_conn_close_1(conn, monkeypatch):
         await conn.co_read_response()
 
 
-async def test_conn_close_2(conn, monkeypatch):
+async def test_conn_close_no_content_length(conn, monkeypatch):
     data_size = 500
     conn._rbuf = _Buffer(int(4 / 5 * data_size))
 
@@ -492,7 +484,7 @@ async def test_conn_close_2(conn, monkeypatch):
         await conn.co_read_response()
 
 
-async def test_conn_close_3(conn, monkeypatch):
+async def test_conn_close_server_keeps_reading(conn, monkeypatch):
     # Server keeps reading
     data_size = 500
     conn._rbuf = _Buffer(int(4 / 5 * data_size))
@@ -517,7 +509,7 @@ async def test_conn_close_3(conn, monkeypatch):
         await conn.co_read_response()
 
 
-async def test_conn_close_4(conn, monkeypatch):
+async def test_conn_close_content_length_wins(conn, monkeypatch):
     # Content-Length should take precedence
     data_size = 500
     conn._rbuf = _Buffer(int(4 / 5 * data_size))
@@ -637,7 +629,7 @@ async def test_missing_content_length(conn, monkeypatch):
     """
     This tests the fallback when the content-length header is missing
     and that the connection behaves like a connection: close header was there.
-    The test test_conn_close_2 above in contrast focuses on the special case when
+    The test test_conn_close_no_content_length above in contrast focuses on the special case when
     the content-length header is missing AND the server actively closes the connection.
     """
     path = '/ooops'
