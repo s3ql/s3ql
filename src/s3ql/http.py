@@ -16,6 +16,7 @@ import email
 import email.policy
 import errno
 import hashlib
+import io
 import logging
 import os
 import socket
@@ -255,28 +256,28 @@ class _Buffer:
 
     __slots__ = ('d', 'b', 'e')
 
-    def __init__(self, size):
+    def __init__(self, size: int) -> None:
         #: Holds the actual data
-        self.d = bytearray(size)
+        self.d: bytearray = bytearray(size)
 
         #: Position of the first buffered byte that has not yet
         #: been consumed ("*b*eginning")
-        self.b = 0
+        self.b: int = 0
 
         #: Fill-level of the buffer (e is for "end")
-        self.e = 0
+        self.e: int = 0
 
-    def __len__(self):
+    def __len__(self) -> int:
         '''Return amount of data ready for consumption'''
         return self.e - self.b
 
-    def clear(self):
+    def clear(self) -> None:
         '''Forget all buffered data'''
 
         self.b = 0
         self.e = 0
 
-    def compact(self):
+    def compact(self) -> None:
         '''Ensure that buffer can be filled up to its maximum size
 
         If part of the buffer data has been consumed, the unconsumed part is
@@ -294,7 +295,7 @@ class _Buffer:
         self.b = 0
         self.e = len_
 
-    def exhaust(self):
+    def exhaust(self) -> bytearray:
         '''Return (and consume) all available data'''
 
         if self.b == 0:
@@ -345,7 +346,7 @@ class HTTPConnection:
         self.hostname = hostname
 
         #: Socket object connecting to the server
-        self._sock = None
+        self._sock: Optional[socket.socket] = None
 
         #: Read-buffer
         self._rbuf = _Buffer(BUFFER_SIZE)
@@ -375,14 +376,14 @@ class HTTPConnection:
 
         #: Transfer encoding of the active response (if any), or an exception
         #: instance if the body cannot be read.
-        self._encoding: Optional[Exception | str] = None
+        self._encoding: Optional[Encodings | Exception] = None
 
         #: If a regular `HTTPConnection` method is unable to send or receive data for more than
         #: this period (in ms), it will raise `ConnectionTimedOut`.
         self._timeout_ms: int = self._DEFAULT_TIMEOUT_MS
 
         #: Filehandler for tracing
-        self.trace_fh = None
+        self.trace_fh: Optional[io.FileIO] = None
 
     @property
     def timeout(self) -> float:
@@ -395,7 +396,7 @@ class HTTPConnection:
         else:
             self._timeout_ms = int(value * 1000)
 
-    async def connect(self):
+    async def connect(self) -> None:
         """Connect to the remote server
 
         This method generally does not need to be called manually.
@@ -430,7 +431,7 @@ class HTTPConnection:
 
         log.debug('done')
 
-    async def _co_tunnel(self):
+    async def _co_tunnel(self) -> None:
         '''Set up CONNECT tunnel to destination server'''
 
         log.debug('start connecting to %s:%d', self.hostname, self.port)
@@ -447,7 +448,14 @@ class HTTPConnection:
             self.disconnect()
             raise ConnectionError("Tunnel connection failed: %d %s" % (status, reason))
 
-    async def co_send_request(self, method, path, headers=None, body=None, expect100=False):
+    async def co_send_request(
+        self,
+        method: str,
+        path: str,
+        headers: Optional[Mapping[str, str]] = None,
+        body: bytes | bytearray | memoryview | BodyFollowing | None = None,
+        expect100: bool = False,
+    ) -> None:
         '''Send a new HTTP request to the server
 
         The message body may be passed in the *body* argument or be sent
@@ -544,19 +552,21 @@ class HTTPConnection:
         if not self._out_remaining or expect100:
             self._pending_request = (method, path, pending_body_size)
 
-    async def _wait_readable(self):
+    async def _wait_readable(self) -> None:
+        assert self._sock is not None
         with trio.move_on_after(self._timeout_ms / 1000) as ctx:
             await trio.lowlevel.wait_readable(self._sock)
         if ctx.cancelled_caught:
             raise ConnectionTimedOut('Timeout in recv()')
 
-    async def _wait_writable(self):
+    async def _wait_writable(self) -> None:
+        assert self._sock is not None
         with trio.move_on_after(self._timeout_ms / 1000) as ctx:
             await trio.lowlevel.wait_writable(self._sock)
         if ctx.cancelled_caught:
             raise ConnectionTimedOut('Timeout in send()')
 
-    async def _co_send(self, buf):
+    async def _co_send(self, buf: bytes | bytearray | memoryview) -> None:
         '''Send *buf* to server'''
 
         log.debug('trying to send %d bytes', len(buf))
@@ -600,7 +610,7 @@ class HTTPConnection:
                 log.debug('done')
                 return
 
-    async def co_write(self, buf):
+    async def co_write(self, buf: bytes | bytearray | memoryview) -> None:
         '''Write request body data
 
         `ExcessBodyData` will be raised when attempting to send more data than
@@ -642,7 +652,7 @@ class HTTPConnection:
 
         log.debug('done')
 
-    def response_pending(self):
+    def response_pending(self) -> bool:
         '''Return `True` if there is an outstanding response
 
         This includes a response that has been partially read.
@@ -650,7 +660,7 @@ class HTTPConnection:
 
         return self._sock is not None and self._pending_request is not None
 
-    async def co_read_response(self):
+    async def co_read_response(self) -> HTTPResponse:
         '''Read response status line and headers
 
         Return a `HTTPResponse` instance containing information about response
@@ -686,6 +696,7 @@ class HTTPConnection:
         # Handle (expected) 100-continue
         if status == 100:
             assert self._out_remaining == (method, path, _State.WAITING_FOR_100C)
+            assert body_size is not None
 
             # We're ready to send request body now
             self._out_remaining = (method, path, body_size)
@@ -720,7 +731,7 @@ class HTTPConnection:
         log.debug('done (in_remaining=%s)', self._in_remaining)
         return HTTPResponse(method, path, status, reason, header, body_length)
 
-    def _setup_read(self, method, status, header):
+    def _setup_read(self, method: str, status: int, header: email.message.Message) -> int | None:
         '''Prepare for reading response body
 
         Sets up `._encoding`, `_in_remaining` and returns Content-Length
@@ -788,7 +799,7 @@ class HTTPConnection:
         self._in_remaining = _State.READ_UNTIL_EOF
         return None
 
-    async def _co_read_status(self):
+    async def _co_read_status(self) -> tuple[int, str]:
         '''Read response line'''
 
         log.debug('start')
@@ -824,7 +835,7 @@ class HTTPConnection:
         log.debug('done')
         return (status, reason.strip())
 
-    async def _co_read_header(self):
+    async def _co_read_header(self) -> str:
         '''Read response header'''
 
         log.debug('start')
@@ -847,11 +858,12 @@ class HTTPConnection:
         log.debug('done (%d characters)', len(hstring))
         return hstring
 
-    async def co_read(self, len_=None):
+    async def co_read(self, len_: Optional[int] = None) -> bytes | bytearray:
         '''Read up to *len_* bytes of response body data
 
         This method may return less than *len_* bytes, but will return ``b''`` only
-        if the response body has been read completely.
+        if the response body has been read completely. The returned buffer is
+        owned by the caller and may be modified in place.
 
         If *len_* is `None`, this method returns the entire response body.
         '''
@@ -911,7 +923,7 @@ class HTTPConnection:
 
         return bytes(buf)
 
-    async def _co_read_id(self, len_):
+    async def _co_read_id(self, len_: int) -> bytes | bytearray:
         '''Read up to *len* bytes of response body assuming identity encoding'''
 
         log.debug('start (len=%d)', len_)
@@ -925,6 +937,7 @@ class HTTPConnection:
 
         rbuf = self._rbuf
         if self._in_remaining is not _State.READ_UNTIL_EOF:
+            assert isinstance(self._in_remaining, int)
             len_ = min(len_, self._in_remaining)
         log.debug('updated len_=%d', len_)
 
@@ -978,7 +991,7 @@ class HTTPConnection:
         log.debug('done (%d bytes)', len(buf))
         return buf
 
-    async def _co_read_chunked(self, len_: int):
+    async def _co_read_chunked(self, len_: int) -> bytes | bytearray:
         '''Read response body assuming chunked encoding'''
 
         assert isinstance(self._in_remaining, int)
@@ -1016,7 +1029,7 @@ class HTTPConnection:
         log.debug('done')
         return res
 
-    async def _co_readstr_until(self, substr, maxsize):
+    async def _co_readstr_until(self, substr: bytes | bytearray | memoryview, maxsize: int) -> str:
         '''Read from server until *substr*, and decode to latin1
 
         If *substr* cannot be found in the next *maxsize* bytes,
@@ -1088,7 +1101,7 @@ class HTTPConnection:
         except UnicodeDecodeError:
             raise InvalidResponse('server response cannot be decoded to latin1')
 
-    def _try_fill_buffer(self):
+    def _try_fill_buffer(self) -> Optional[int]:
         '''Try to fill up read buffer
 
         Returns the number of bytes read into buffer, or `None` if no data was
@@ -1130,7 +1143,7 @@ class HTTPConnection:
         log.debug('done (got %d bytes)', len_)
         return len_
 
-    async def _co_fill_buffer(self, len_):
+    async def _co_fill_buffer(self, len_: int) -> None:
         '''Make sure that there are at least *len_* bytes in buffer'''
 
         rbuf = self._rbuf
@@ -1145,7 +1158,7 @@ class HTTPConnection:
             elif res == 0:
                 raise ConnectionClosed('server closed connection')
 
-    async def co_readall(self):
+    async def co_readall(self) -> bytes:
         '''Read and return complete response body'''
 
         if self._in_remaining is None:
@@ -1165,7 +1178,7 @@ class HTTPConnection:
             self.trace_fh.write(buf)
         return buf
 
-    async def co_discard(self):
+    async def co_discard(self) -> None:
         '''Read and discard current response body'''
 
         if self._in_remaining is None:
@@ -1179,7 +1192,7 @@ class HTTPConnection:
             log.debug('discarding %d bytes', len(buf))
         log.debug('done')
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         '''Close HTTP connection.
 
         Discards any in-flight pending response, so that the next
@@ -1201,10 +1214,10 @@ class HTTPConnection:
             log.debug('already closed')
         self._pending_request = None
 
-    def __enter__(self):
+    def __enter__(self) -> HTTPConnection:
         return self
 
-    def __exit__(self, exc_type, exc_value, traceback):
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
         self.disconnect()
         return False
 
@@ -1212,7 +1225,7 @@ class HTTPConnection:
 _AMBIGUOUS_DNS_ERRNOS = (socket.EAI_NODATA, socket.EAI_NONAME, socket.EAI_AGAIN)
 
 
-def create_socket(address):
+def create_socket(address: tuple[str, int]) -> socket.socket:
     '''Create a TCP socket connected to *address*.
 
     Use `socket.create_connection` to create a connected socket and return
@@ -1227,7 +1240,7 @@ def create_socket(address):
     is available and that *address* can not be resolved.
     '''
 
-    def connect():
+    def connect() -> socket.socket:
         try:
             return socket.create_connection(address)
         except (socket.gaierror, socket.herror) as exc:

@@ -636,7 +636,7 @@ async def copy_to_http(
 async def copy_from_http(
     ifh: HTTPConnection,
     ofh: BinaryOutput,
-    update: Callable[[bytes], None] | None = None,
+    update: Callable[[bytes | bytearray], None] | None = None,
 ) -> None:
     '''Copy all available bytes from async HTTPConnection *ifh* to sync *ofh*.
 

@@ -356,6 +356,7 @@ class AsyncBackend(AsyncBackendBase):
                 # (mock server handles both - storage and authentication)
                 conn.disconnect()
 
+                assert o.hostname is not None
                 await self._detect_features(o.hostname, o.port, ssl_context)
 
                 conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)

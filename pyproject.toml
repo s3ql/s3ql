@@ -128,8 +128,7 @@ ignore= [
 ]
 
 [tool.ty.src]
-exclude = [ "src/s3ql/http.py",
-           'tests/',
+exclude = [ 'tests/',
            'rst/conf.py',
            "src/s3ql/backends/b2/" ]
 

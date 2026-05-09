@@ -139,7 +139,9 @@ class AsyncBackend(swift.AsyncBackend):
             }
 
             if 'identity-url' in self.options:
-                auth_url_path = self.options['identity-url']
+                identity_url = self.options['identity-url']
+                assert isinstance(identity_url, str)
+                auth_url_path = identity_url
             else:
                 auth_url_path = '/v3/auth/tokens'
 
