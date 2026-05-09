@@ -272,7 +272,7 @@ async def _test_expiration(
         )
         await upload_params(backend, params)
 
-    await expire_objects(backend, versions_to_keep=versions_to_keep)
+    await expire_objects(_pool_for(backend), versions_to_keep=versions_to_keep)
 
     expected_objects = set()
     for blockno, versions in enumerate(contents_post):
@@ -565,3 +565,70 @@ async def test_upload_metadata_parallel_correctness(incremental):
             # absorb scheduling jitter on loaded CI hosts, but still well
             # below the serial bound.
             assert elapsed < nblocks * delay * 0.6
+
+
+async def test_pool_delete_multi_parallel_fallback():
+    '''When the backend has no native delete_multi, the pool fans single
+    deletes out across its connections.
+
+    Verifies the contract documented on `BackendPool.delete_multi` and the
+    base `delete_multi`: deleted keys are removed from the input list, and
+    on a worker exception the failed key is left in the list.
+    '''
+
+    n_keys = 32
+    workers = 4
+    keys = ['s3ql_data_%d' % i for i in range(n_keys)]
+    failing_key = keys[7]
+
+    with tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir:
+
+        async def factory() -> AsyncComprencBackend:
+            raw = local.AsyncBackend(options=Namespace(storage_url='local://' + backend_dir))
+            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+
+        # Lie about has_delete_multi so the pool exercises the parallel
+        # ParallelPipeline-based fallback rather than the local backend's
+        # native (sequential) implementation.
+        factory.has_delete_multi = False  # type: ignore[attr-defined]
+        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
+
+        async with pool() as backend:
+            for key in keys:
+                await backend.store(key, b'data')
+
+        # Happy path: all keys deleted, input list emptied.
+        keys_arg = list(keys)
+        await pool.delete_multi(keys_arg)
+        assert keys_arg == []
+        async with pool() as backend:
+            assert [obj async for obj in backend.list('s3ql_data_')] == []
+
+        # Re-populate the backend so we can exercise the failure path.
+        async with pool() as backend:
+            for key in keys:
+                await backend.store(key, b'data')
+
+        # Partial-failure path: one delete raises. Stash the original method
+        # back after the test so subsequent tests are not affected.
+        orig_delete = local.AsyncBackend.delete
+
+        async def flaky_delete(self, key: str) -> None:  # type: ignore[no-untyped-def]
+            if key == failing_key:
+                raise RuntimeError('induced failure')
+            await orig_delete(self, key)
+
+        local.AsyncBackend.delete = flaky_delete  # type: ignore[method-assign]
+        keys_arg = list(keys)
+        raised: BaseException | None = None
+        try:
+            await pool.delete_multi(keys_arg)
+        except BaseException as exc:
+            raised = exc
+        finally:
+            local.AsyncBackend.delete = orig_delete  # type: ignore[method-assign]
+
+        assert raised is not None
+        # Trio wraps task exceptions in an ExceptionGroup; under either form
+        # the input list must still hold the key whose delete raised.
+        assert failing_key in keys_arg

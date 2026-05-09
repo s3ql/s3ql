@@ -1064,35 +1064,38 @@ async def get_available_seq_nos(backend: AsyncComprencBackend) -> list[int]:
     return nos
 
 
-async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 32) -> None:
+async def expire_objects(pool: BackendPool, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
     log.info('Expiring old metadata backups...')
-    block_list = await get_block_objects(backend)
-    to_remove: list[str] = []
 
-    metadata_objs = await get_available_seq_nos(backend)
-    metadata_objs.sort()
-    seq_to_keep = metadata_objs[-versions_to_keep:]
-    to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
+    # Discovery and parameter reads only need a single connection, but
+    # `pool.delete_multi` below may want all of them, so release the connection
+    # before kicking off the (potentially parallel) deletion phase.
+    async with pool() as backend:
+        block_list = await get_block_objects(backend)
+        metadata_objs = await get_available_seq_nos(backend)
+        metadata_objs.sort()
+        seq_to_keep = metadata_objs[-versions_to_keep:]
+        to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
 
-    # Determine which objects we still need
-    to_keep = collections.defaultdict(set)
-    for seq_no in seq_to_keep:
-        # We'll have to figure out what we want to do here when one of the objects
-        # has an older filesystem revision...
-        params = await read_remote_params(backend, seq_no)
-        blocksize = params.metadata_block_size
+        # Determine which objects we still need
+        to_keep = collections.defaultdict(set)
+        for seq_no in seq_to_keep:
+            # We'll have to figure out what we want to do here when one of the objects
+            # has an older filesystem revision...
+            params = await read_remote_params(backend, seq_no)
+            blocksize = params.metadata_block_size
 
-        # math.ceil() calculates the number of blocks we need. To convert to
-        # the index, need to subtract one (with one blocks, the max index is 0).
-        max_blockno = math.ceil(params.db_size / blocksize) - 1
+            # math.ceil() calculates the number of blocks we need. To convert to
+            # the index, need to subtract one (with one blocks, the max index is 0).
+            max_blockno = math.ceil(params.db_size / blocksize) - 1
 
-        for blockno, candidates in block_list.items():
-            log.debug('block %d has candidates %s', blockno, candidates)
-            if blockno > max_blockno:
-                continue
-            to_keep[blockno].add(first_le_than(candidates, seq_no))
+            for blockno, candidates in block_list.items():
+                log.debug('block %d has candidates %s', blockno, candidates)
+                if blockno > max_blockno:
+                    continue
+                to_keep[blockno].add(first_le_than(candidates, seq_no))
 
     # Remove what's no longer needed
     for blockno, candidates in block_list.items():
@@ -1102,7 +1105,7 @@ async def expire_objects(backend: AsyncComprencBackend, versions_to_keep: int = 
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
 
     log.info('Removing %d obsolete metadata blocks', len(to_remove))
-    await backend.delete_multi(to_remove)
+    await pool.delete_multi(to_remove)
 
     log.info('Expiration complete.')
 

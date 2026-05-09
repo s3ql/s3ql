@@ -348,7 +348,7 @@ async def shrink_db(pool: BackendPool, options) -> None:
     write_params(cachepath, param)
     async with pool() as backend:
         await upload_params(backend, param)
-        await expire_objects(backend)
+    await expire_objects(pool)
 
 
 async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:

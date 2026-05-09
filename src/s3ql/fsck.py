@@ -1490,7 +1490,7 @@ async def main_inner(options: Namespace, pool: BackendPool) -> None:
     write_params(cachepath, param)
     async with pool() as backend:
         await upload_params(backend, param)
-        await expire_objects(backend)
+    await expire_objects(pool)
 
     log.info('Completed fsck of %s', options.storage_url)
 

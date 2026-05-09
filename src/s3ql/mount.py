@@ -371,7 +371,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     write_params(cachepath, param)
     async with backend_pool() as backend:
         await upload_params(backend, param)
-        await expire_objects(backend)
+    await expire_objects(backend_pool)
 
     await backend_pool.flush()
 
@@ -775,7 +775,7 @@ class MetadataUploadTask:
                     write_params(self.options.cachepath, self.params)
                     await upload_params(backend, self.params)
 
-                    await expire_objects(backend)
+                await expire_objects(self.backend_pool)
 
         log.debug('finished')
 

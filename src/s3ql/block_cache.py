@@ -559,8 +559,7 @@ class BlockCache:
 
                     log.debug('removing: %s', ids)
                     try:
-                        async with self.backend_pool() as backend:
-                            await backend.delete_multi(['s3ql_data_%d' % i for i in ids])
+                        await self.backend_pool.delete_multi(['s3ql_data_%d' % i for i in ids])
                     except NoSuchObject:
                         log.warning('Backend lost object s3ql_data_%d', ids[0])
                         self.fs.failsafe = True
