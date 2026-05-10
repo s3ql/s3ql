@@ -18,10 +18,6 @@ uv run pytest -r s -x tests/
 # Run specific test file with debug logging
 uv run pytest -x --logdebug=all tests/t3_fs_api.py
 
-# Code quality (run in this order)
-uv run ruff check --fix .
-uv run ty check --output-format=concise
-uv run ruff format .
 ```
 
 Test files are organized by level: t0 (HTTP), t1 (backends/database), t2 (block cache), t3 (filesystem), t4 (admin/FUSE), t5-t6 (integration).
@@ -80,9 +76,13 @@ From `src/s3ql/__init__.py`:
 ## Workflow
 
 
-- Before completing a task, run `ruff check --fix`, `ruff format`, `ty check`, `pytest`, and
-  `./build_docs.sh` (in this order). Fix any reported issues before running the next tool.
+When you have completed all tasks, or are about to start working on a new changeset, first run
+the following code quality checks (in order), and fix any reported issues before continuing
+or returning control to the user:
 
-
-
-
+```
+uv run ruff check --fix .
+uv run ty check --output-format=concise
+uv run ruff format .
+uv run pytest -r s --exitfirst --tb=short --verbosity=0 tests/
+```
