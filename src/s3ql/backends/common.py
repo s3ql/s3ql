@@ -626,7 +626,7 @@ async def copy_to_http(
             buf = ifh.read(bufsize)
         if not buf:
             return
-        await ofh.co_write(buf)
+        await ofh.write(buf)
         if len_ is not None:
             len_ -= len(buf)
         if update is not None:
@@ -649,7 +649,7 @@ async def copy_from_http(
     use_async = not isinstance(ofh, BytesIO)
 
     while True:
-        buf = await ifh.co_read(BUFSIZE)
+        buf = await ifh.read(BUFSIZE)
         if not buf:
             return
         if use_async:

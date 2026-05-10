@@ -164,5 +164,5 @@ class AsyncBackend(s3c4.AsyncBackend):
                 raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
         except:
-            await self.conn.co_discard()
+            await self.conn.discard()
             raise

@@ -223,12 +223,12 @@ class AsyncBackend(AsyncBackendBase):
 
         if body is None:
             try:
-                body = await self.conn.co_read(2048)
+                body = await self.conn.read(2048)
                 if body:
-                    await self.conn.co_discard()
+                    await self.conn.discard()
             except UnsupportedResponse:
                 log.warning('Unsupported response, trying to retrieve data from raw socket!')
-                body = await self.conn.co_read_raw(2048)
+                body = await self.conn.read_raw(2048)
                 self.conn.disconnect()
         else:
             body = body[:2048]
@@ -243,12 +243,12 @@ class AsyncBackend(AsyncBackendBase):
     async def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
-        buf = await self.conn.co_read(2048)
+        buf = await self.conn.read(2048)
         if not buf:
             return  # expected
 
         # Log the problem
-        await self.conn.co_discard()
+        await self.conn.discard()
         log.error(
             'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
             resp.status,
@@ -293,7 +293,7 @@ class AsyncBackend(AsyncBackendBase):
         if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
             raise RuntimeError('unexpected content type: %s' % resp.headers['Content-Type'])
 
-        body = await self.conn.co_readall()
+        body = await self.conn.readall()
         etree = ElementTree.fromstring(body)
         root_xmlns_uri = _tag_xmlns_uri(etree)
         if root_xmlns_uri is None:
@@ -385,7 +385,7 @@ class AsyncBackend(AsyncBackendBase):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if resp.length is not None and resp.length < 64 * 1024:
-                await self.conn.co_discard()
+                await self.conn.discard()
             else:
                 self.conn.disconnect()
             raise
@@ -531,7 +531,7 @@ class AsyncBackend(AsyncBackendBase):
             new_url = resp.headers['Location']
             if new_url:
                 # Discard body
-                await self.conn.co_discard()
+                await self.conn.discard()
 
                 # Pylint can't infer SplitResult Types
                 # pylint: disable=E1103
@@ -606,19 +606,19 @@ class AsyncBackend(AsyncBackendBase):
         # If method == HEAD, server must not return response body
         # even in case of errors
         if resp.method.upper() == 'HEAD':
-            data = await self.conn.co_read(1)
+            data = await self.conn.read(1)
             if data != b'':
                 raise RuntimeError('Server sent response body for HEAD request')
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # If not XML, do the best we can
         if content_type is None or resp.length == 0 or not XML_CONTENT_RE.match(content_type):
-            await self.conn.co_discard()
+            await self.conn.discard()
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
-        body = await self.conn.co_readall()
+        body = await self.conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
@@ -650,7 +650,7 @@ class AsyncBackend(AsyncBackendBase):
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
         if body is None:
-            body = await self.conn.co_readall()
+            body = await self.conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
@@ -755,11 +755,11 @@ class AsyncBackend(AsyncBackendBase):
         use_expect_100c = not self.options.get('disable-expect100', False)
         log.debug('sending %s %s', method, path)
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            await self.conn.co_send_request(method, path, body=body, headers=headers)
-            return await self.conn.co_read_response()
+            await self.conn.send_request(method, path, body=body, headers=headers)
+            return await self.conn.read_response()
 
         assert isinstance(body_len, int)
-        await self.conn.co_send_request(
+        await self.conn.send_request(
             method,
             path,
             expect100=use_expect_100c,
@@ -768,7 +768,7 @@ class AsyncBackend(AsyncBackendBase):
         )
 
         if use_expect_100c:
-            resp = await self.conn.co_read_response()
+            resp = await self.conn.read_response()
             if resp.status != 100:  # Error
                 return resp
 
@@ -786,7 +786,7 @@ class AsyncBackend(AsyncBackendBase):
             # but we may still be able to read an error response
             error_resp: HTTPResponse | None = None
             with contextlib.suppress(builtins.BaseException):
-                error_resp = await self.conn.co_read_response()
+                error_resp = await self.conn.read_response()
             if error_resp is not None:
                 await self._parse_error_response(error_resp)
             else:
@@ -795,7 +795,7 @@ class AsyncBackend(AsyncBackendBase):
                 self.conn.disconnect()
                 raise
 
-        resp = await self.conn.co_read_response()
+        resp = await self.conn.read_response()
 
         # On success, check MD5. Not sure if this is returned every time we send a request body, but
         # it seems to work. If not, we have to somehow pass in the information when this is expected

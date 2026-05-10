@@ -260,7 +260,7 @@ class AsyncBackend(AsyncBackendBase):
             if mapped_exc:
                 raise mapped_exc
             raise
-        _parse_json_response(resp, await self.conn.co_readall())
+        _parse_json_response(resp, await self.conn.readall())
 
     async def reset(self) -> None:
         if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
@@ -300,7 +300,7 @@ class AsyncBackend(AsyncBackendBase):
     async def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
-        buf = await self.conn.co_read(2048)
+        buf = await self.conn.read(2048)
         if not buf:
             return  # expected
 
@@ -365,7 +365,7 @@ class AsyncBackend(AsyncBackendBase):
             if mapped_exc:
                 raise mapped_exc
             raise
-        json_resp = _parse_json_response(resp, await self.conn.co_readall())
+        json_resp = _parse_json_response(resp, await self.conn.readall())
         next_token_obj = json_resp.get('nextPageToken', None)
         next_token: str | None = str(next_token_obj) if next_token_obj is not None else None
 
@@ -394,7 +394,7 @@ class AsyncBackend(AsyncBackendBase):
             if mapped_exc:
                 raise mapped_exc
             raise
-        return _parse_json_response(resp, await self.conn.co_readall())
+        return _parse_json_response(resp, await self.conn.readall())
 
     @retry
     async def get_size(self, key: str) -> int:
@@ -502,14 +502,14 @@ class AsyncBackend(AsyncBackendBase):
         fh.seek(off)
 
         try:
-            await self.conn.co_write(body_prefix)
+            await self.conn.write(body_prefix)
             await copy_to_http(fh, self.conn, len_)
-            await self.conn.co_write(body_suffix)
+            await self.conn.write(body_suffix)
         except ConnectionClosed:
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             try:
-                resp = await self.conn.co_read_response()
+                resp = await self.conn.read_response()
             except ConnectionClosed:  # No server response available
                 pass
             else:
@@ -523,15 +523,15 @@ class AsyncBackend(AsyncBackendBase):
             self.conn.disconnect()
             raise
 
-        resp = await self.conn.co_read_response()
+        resp = await self.conn.read_response()
         # If we're really unlucky, then the token has expired while we were uploading data.
         if resp.status == 401:
-            await self.conn.co_discard()
+            await self.conn.discard()
             raise AccessTokenExpired()
         elif resp.status != 200:
-            exc_ = _parse_error_response(resp, await self.conn.co_readall())
+            exc_ = _parse_error_response(resp, await self.conn.readall())
             raise _map_request_error(exc_, key) or exc_
-        _parse_json_response(resp, await self.conn.co_readall())
+        _parse_json_response(resp, await self.conn.readall())
 
         return len_
 
@@ -574,11 +574,11 @@ class AsyncBackend(AsyncBackendBase):
             'accounts.google.com', 443, proxy=self.proxy, ssl_context=self.ssl_context
         )
         try:
-            await conn.co_send_request(
+            await conn.send_request(
                 'POST', '/o/oauth2/token', headers=headers, body=body.encode('utf-8')
             )
-            resp = await conn.co_read_response()
-            json_resp = _parse_json_response(resp, await conn.co_readall())
+            resp = await conn.read_response()
+            json_resp = _parse_json_response(resp, await conn.readall())
 
             if resp.status > 299 or resp.status < 200:
                 assert 'error' in json_resp
@@ -594,13 +594,13 @@ class AsyncBackend(AsyncBackendBase):
 
         is_truncated = False
         try:
-            body = await self.conn.co_read(2048)
-            if await self.conn.co_read(1):
+            body = await self.conn.read(2048)
+            if await self.conn.read(1):
                 is_truncated = True
-                await self.conn.co_discard()
+                await self.conn.discard()
         except UnsupportedResponse:
             log.warning('Unsupported response, trying to retrieve data from raw socket!')
-            body = await self.conn.co_read_raw(2048)
+            body = await self.conn.read_raw(2048)
             self.conn.disconnect()
 
         hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
@@ -641,15 +641,15 @@ class AsyncBackend(AsyncBackendBase):
         token = self.access_token.get(self.refresh_token, None)
         if token is not None:
             headers['Authorization'] = 'Bearer ' + token
-            await self.conn.co_send_request(
+            await self.conn.send_request(
                 method, path, body=body, headers=headers, expect100=expect100
             )
-            resp = await self.conn.co_read_response()
+            resp = await self.conn.read_response()
             if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
                 return resp
             elif resp.status != 401:
-                raise _parse_error_response(resp, await self.conn.co_readall())
-            await self.conn.co_discard()
+                raise _parse_error_response(resp, await self.conn.readall())
+            await self.conn.discard()
 
         # If we reach this point, then the access token must have
         # expired, so we try to get a new one. We use a lock to prevent
@@ -665,14 +665,14 @@ class AsyncBackend(AsyncBackendBase):
         # FIXME: We can't rely on this if e.g. the system hibernated
         # after refreshing the token, but before reaching this line.
         headers['Authorization'] = 'Bearer ' + self.access_token[self.refresh_token]
-        await self.conn.co_send_request(
+        await self.conn.send_request(
             method, path, body=body, headers=headers, expect100=expect100
         )
-        resp = await self.conn.co_read_response()
+        resp = await self.conn.read_response()
         if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
             return resp
         else:
-            raise _parse_error_response(resp, await self.conn.co_readall())
+            raise _parse_error_response(resp, await self.conn.readall())
 
 
 def _map_request_error(exc: RequestError, key: str | None) -> Exception | None:

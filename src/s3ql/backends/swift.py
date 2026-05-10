@@ -165,12 +165,12 @@ class AsyncBackend(AsyncBackendBase):
     async def _assert_empty_response(self, resp):
         '''Assert that current response body is empty'''
 
-        buf = await self.conn.co_read(2048)
+        buf = await self.conn.read(2048)
         if not buf:
             return  # expected
 
         # Log the problem
-        await self.conn.co_discard()
+        await self.conn.discard()
         log.error(
             'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
             resp.status,
@@ -189,12 +189,12 @@ class AsyncBackend(AsyncBackendBase):
 
         if body is None:
             try:
-                body = await self.conn.co_read(2048)
+                body = await self.conn.read(2048)
                 if body:
-                    await self.conn.co_discard()
+                    await self.conn.discard()
             except UnsupportedResponse:
                 log.warning('Unsupported response, trying to retrieve data from raw socket!')
-                body = await self.conn.co_read_raw(2048)
+                body = await self.conn.read_raw(2048)
                 self.conn.disconnect()
         else:
             body = body[:2048]
@@ -266,7 +266,7 @@ class AsyncBackend(AsyncBackendBase):
 
         try:
             await self._do_request('GET', '/', query_string={'limit': 1})
-            await self.conn.co_discard()
+            await self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
@@ -323,12 +323,12 @@ class AsyncBackend(AsyncBackendBase):
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
                 log.debug('GET %s', auth_path)
-                await conn.co_send_request('GET', auth_path, headers=headers)
-                resp = await conn.co_read_response()
+                await conn.send_request('GET', auth_path, headers=headers)
+                resp = await conn.read_response()
 
                 if resp.status in (404, 412):
                     log.debug('auth to %s failed, trying next path', auth_path)
-                    await conn.co_discard()
+                    await conn.discard()
                     continue
 
                 elif resp.status == 401:
@@ -427,7 +427,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # If method == HEAD, server must not return response body
         # even in case of errors
-        await self.conn.co_discard()
+        await self.conn.discard()
         raise HTTPError(resp.status, resp.reason, resp.headers)
 
     # Including this code directly in _do_request would be very messy since
@@ -439,17 +439,17 @@ class AsyncBackend(AsyncBackendBase):
         use_expect_100c = not self.options.get('disable-expect100', False)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            await self.conn.co_send_request(method, path, body=body, headers=headers)
-            return await self.conn.co_read_response()
+            await self.conn.send_request(method, path, body=body, headers=headers)
+            return await self.conn.read_response()
 
         assert body_len is not None
-        await self.conn.co_send_request(
+        await self.conn.send_request(
             method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
         )
 
         if use_expect_100c:
             log.debug('waiting for 100-continue')
-            resp = await self.conn.co_read_response()
+            resp = await self.conn.read_response()
             if resp.status != 100:
                 return resp
 
@@ -462,7 +462,7 @@ class AsyncBackend(AsyncBackendBase):
             # Server closed connection while we were writing body data -
             # but we may still be able to read an error response
             try:
-                resp = await self.conn.co_read_response()
+                resp = await self.conn.read_response()
             except ConnectionClosed:  # No server response available
                 log.debug('no response available in  buffer')
                 pass
@@ -480,7 +480,7 @@ class AsyncBackend(AsyncBackendBase):
             self.conn.disconnect()
             raise
 
-        resp = await self.conn.co_read_response()
+        resp = await self.conn.read_response()
 
         # On success, check MD5. Not sure if this is returned every time we send a request body, but
         # it seems to work. If not, we have to somehow pass in the information when this is expected
@@ -561,7 +561,7 @@ class AsyncBackend(AsyncBackendBase):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if resp.length is not None and resp.length < 64 * 1024:
-                await self.conn.co_discard()
+                await self.conn.discard()
             else:
                 self.conn.disconnect()
             raise
@@ -714,7 +714,7 @@ class AsyncBackend(AsyncBackendBase):
         # there might be an arbitrary amount of whitespace before the
         # JSON response (to keep the connection from timing out)
         # but json.loads discards these whitespace characters automatically
-        resp_dict = json.loads((await self.conn.co_readall()).decode(hit.group(2) or 'utf-8'))
+        resp_dict = json.loads((await self.conn.readall()).decode(hit.group(2) or 'utf-8'))
 
         log.debug('Response %s', resp_dict)
 
@@ -837,7 +837,7 @@ class AsyncBackend(AsyncBackendBase):
             )
             raise RuntimeError('Unexpected server reply')
 
-        body = await self.conn.co_readall()
+        body = await self.conn.readall()
         names = []
         last_name = None
         count = 0
@@ -880,8 +880,8 @@ class AsyncBackend(AsyncBackendBase):
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             log.debug('GET /info')
-            await conn.co_send_request('GET', '/info')
-            resp = await conn.co_read_response()
+            await conn.send_request('GET', '/info')
+            resp = await conn.read_response()
 
             # 200, 401, 403 and 404 are all OK since the /info endpoint
             # may not be accessible (misconfiguration) or may not
@@ -889,7 +889,7 @@ class AsyncBackend(AsyncBackendBase):
             if resp.status not in (200, 401, 403, 404):
                 log.error(
                     "Wrong server response.\n%s",
-                    await self._dump_response(resp, body=await conn.co_read(2048)),
+                    await self._dump_response(resp, body=await conn.read(2048)),
                 )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
@@ -900,11 +900,11 @@ class AsyncBackend(AsyncBackendBase):
                 if not hit:
                     log.error(
                         "Wrong server response. Expected json. Got: \n%s",
-                        await self._dump_response(resp, body=await conn.co_read(2048)),
+                        await self._dump_response(resp, body=await conn.read(2048)),
                     )
                     raise RuntimeError('Unexpected server reply')
 
-                info = json.loads((await conn.co_readall()).decode(hit.group(2) or 'utf-8'))
+                info = json.loads((await conn.readall()).decode(hit.group(2) or 'utf-8'))
                 swift_info = info.get('swift', {})
 
                 log.debug('%s:%s/info returns %s', hostname, port, info)

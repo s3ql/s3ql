@@ -162,11 +162,11 @@ async def test_connect_ssl():
     ssl_context.set_default_verify_paths()
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=ssl_context)
-    await conn.co_send_request('GET', '/')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/')
+    resp = await conn.read_response()
     assert resp.status in (200, 301, 302)
     assert resp.path == '/'
-    await conn.co_discard()
+    await conn.discard()
     conn.disconnect()
 
 
@@ -177,7 +177,7 @@ async def test_invalid_ssl():
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=context)
     with pytest.raises(ssl.SSLError):
-        await conn.co_send_request('GET', '/')
+        await conn.send_request('GET', '/')
     conn.disconnect()
 
 
@@ -216,10 +216,10 @@ async def test_http_proxy(http_server, monkeypatch, test_port):
 
     conn = HTTPConnection(test_host, test_port, proxy=(http_server.host, http_server.port))
     try:
-        await conn.co_send_request('GET', test_path)
-        resp = await conn.co_read_response()
+        await conn.send_request('GET', test_path)
+        resp = await conn.read_response()
         assert resp.status == 200
-        await conn.co_discard()
+        await conn.discard()
     finally:
         conn.disconnect()
 
@@ -289,10 +289,10 @@ async def test_connect_proxy(http_server, monkeypatch, test_port):
         ssl_context=FakeSSLContext(),
     )
     try:
-        await conn.co_send_request('GET', test_path)
-        resp = await conn.co_read_response()
+        await conn.send_request('GET', test_path)
+        resp = await conn.read_response()
         assert resp.status == 200
-        await conn.co_discard()
+        await conn.discard()
     finally:
         conn.disconnect()
 
@@ -336,9 +336,9 @@ def get_chunked_GET_handler(path, chunks, delay=None):
 async def test_send_before_read(conn):
     # Sending a second request before reading the first response is no
     # longer allowed.
-    await conn.co_send_request('GET', '/send_120_bytes')
+    await conn.send_request('GET', '/send_120_bytes')
     with pytest.raises(StateError):
-        await conn.co_send_request('GET', '/send_120_bytes')
+        await conn.send_request('GET', '/send_120_bytes')
 
 
 class CountSuspensions:
@@ -374,15 +374,15 @@ async def test_blocking_read(conn, monkeypatch):
         monkeypatch.setattr(
             MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks, delay)
         )
-        await conn.co_send_request('GET', path)
+        await conn.send_request('GET', path)
 
-        resp = await conn.co_read_response()
+        resp = await conn.read_response()
         assert resp.status == 200
 
         t = CountSuspensions()
         parts = []
         while True:
-            buf = await t(conn.co_read, 100)
+            buf = await t(conn.read, 100)
             if not buf:
                 break
             parts.append(buf)
@@ -399,12 +399,12 @@ async def test_blocking_read(conn, monkeypatch):
 async def test_discard(conn, monkeypatch):
     data_len = 512
     path = '/send_%d_bytes' % data_len
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == path
     assert resp.length == data_len
-    await conn.co_discard()
+    await conn.discard()
     assert not conn.response_pending()
 
 
@@ -413,22 +413,22 @@ async def test_discard_chunked(conn, monkeypatch):
     chunks = [512, 312, 837, 361]
     monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
 
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == path
     assert resp.length is None
-    await conn.co_discard()
+    await conn.discard()
     assert not conn.response_pending()
 
 
 async def test_read_identity(conn):
-    await conn.co_send_request('GET', '/send_512_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
-    assert await conn.co_readall() == DUMMY_DATA[:512]
+    assert await conn.readall() == DUMMY_DATA[:512]
     assert not conn.response_pending()
 
 
@@ -447,14 +447,14 @@ async def test_conn_close_with_close_header(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.co_send_request('GET', '/whatever')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/whatever')
+    resp = await conn.read_response()
     assert resp.status == 200
-    assert await conn.co_readall() == DUMMY_DATA[:data_size]
+    assert await conn.readall() == DUMMY_DATA[:data_size]
 
     with pytest.raises(ConnectionClosed):
-        await conn.co_send_request('GET', '/whatever')
-        await conn.co_read_response()
+        await conn.send_request('GET', '/whatever')
+        await conn.read_response()
 
 
 async def test_conn_close_no_content_length(conn, monkeypatch):
@@ -471,17 +471,17 @@ async def test_conn_close_no_content_length(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.co_send_request('GET', '/whatever')
+    await conn.send_request('GET', '/whatever')
     with assert_logs(
         r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
     ):
-        resp = await conn.co_read_response()
+        resp = await conn.read_response()
     assert resp.status == 200
-    assert await conn.co_readall() == DUMMY_DATA[:data_size]
+    assert await conn.readall() == DUMMY_DATA[:data_size]
 
     with pytest.raises(ConnectionClosed):
-        await conn.co_send_request('GET', '/whatever')
-        await conn.co_read_response()
+        await conn.send_request('GET', '/whatever')
+        await conn.read_response()
 
 
 async def test_conn_close_server_keeps_reading(conn, monkeypatch):
@@ -499,14 +499,14 @@ async def test_conn_close_server_keeps_reading(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.co_send_request('GET', '/whatever')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/whatever')
+    resp = await conn.read_response()
     assert resp.status == 200
-    assert await conn.co_readall() == DUMMY_DATA[:data_size]
+    assert await conn.readall() == DUMMY_DATA[:data_size]
 
     with pytest.raises(ConnectionClosed):
-        await conn.co_send_request('GET', '/whatever')
-        await conn.co_read_response()
+        await conn.send_request('GET', '/whatever')
+        await conn.read_response()
 
 
 async def test_conn_close_content_length_wins(conn, monkeypatch):
@@ -525,37 +525,37 @@ async def test_conn_close_content_length_wins(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.co_send_request('GET', '/whatever')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/whatever')
+    resp = await conn.read_response()
     assert resp.status == 200
-    assert await conn.co_readall() == DUMMY_DATA[:data_size]
+    assert await conn.readall() == DUMMY_DATA[:data_size]
 
 
 @pytest.mark.no_ssl
 async def test_exhaust_buffer(conn):
     conn._rbuf = _Buffer(600)
-    await conn.co_send_request('GET', '/send_512_bytes')
-    await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    await conn.read_response()
 
     # Test the case where the read buffer is truncated and
     # returned, instead of copied
     conn._rbuf.compact()
-    await conn._co_fill_buffer(1)
+    await conn._fill_buffer(1)
     assert conn._rbuf.b == 0
     assert conn._rbuf.e > 0
-    buf = await conn.co_read(600)
+    buf = await conn.read(600)
     assert len(conn._rbuf.d) == 600
     assert buf == DUMMY_DATA[: len(buf)]
-    assert await conn.co_readall() == DUMMY_DATA[len(buf) : 512]
+    assert await conn.readall() == DUMMY_DATA[len(buf) : 512]
 
 
 @pytest.mark.no_ssl
 async def test_full_buffer(conn):
     conn._rbuf = _Buffer(100)
-    await conn.co_send_request('GET', '/send_512_bytes')
-    await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    await conn.read_response()
 
-    buf = await conn.co_read(101)
+    buf = await conn.read(101)
     pos = len(buf)
     assert buf == DUMMY_DATA[:pos]
 
@@ -564,19 +564,19 @@ async def test_full_buffer(conn):
     conn._rbuf.e = len(conn._rbuf.d)
     conn._rbuf.b = conn._rbuf.e
 
-    assert await conn.co_readall() == DUMMY_DATA[pos:512]
+    assert await conn.readall() == DUMMY_DATA[pos:512]
 
 
 async def test_read_chunked(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [300, 283, 377]
     monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == path
     assert resp.length is None
-    assert await conn.co_readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
+    assert await conn.readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
     assert not conn.response_pending()
 
 
@@ -584,23 +584,23 @@ async def test_read_chunked2(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [5] * 10
     monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.length is None
     assert resp.path == path
-    assert await conn.co_readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
+    assert await conn.readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
     assert not conn.response_pending()
 
 
 async def test_double_read(conn):
-    await conn.co_send_request('GET', '/send_10_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_10_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.length == 10
     assert resp.path == '/send_10_bytes'
     with pytest.raises(StateError):
-        resp = await conn.co_read_response()
+        resp = await conn.read_response()
 
 
 async def test_read_raw(conn, monkeypatch):
@@ -616,13 +616,13 @@ async def test_read_raw(conn, monkeypatch):
         self.wfile.close()
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
     with pytest.raises(InvalidResponse):
-        await conn.co_readall()
-    assert await conn.co_read_raw(512) == b'body data'
-    assert await conn.co_read_raw(512) == b''
+        await conn.readall()
+    assert await conn.read_raw(512) == b'body data'
+    assert await conn.read_raw(512) == b''
 
 
 async def test_missing_content_length(conn, monkeypatch):
@@ -644,101 +644,101 @@ async def test_missing_content_length(conn, monkeypatch):
         self.wfile.close()
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-    await conn.co_send_request('GET', path)
+    await conn.send_request('GET', path)
     with assert_logs(
         r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
     ):
-        resp = await conn.co_read_response()
+        resp = await conn.read_response()
     assert resp.status == 200
     assert resp.headers['Connection'] == 'close'
     assert resp.headers['Content-Length'] is None
-    assert await conn.co_readall() == b'body data'
+    assert await conn.readall() == b'body data'
 
 
 async def test_abort_read(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [300, 317, 283]
     monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.co_send_request('GET', path)
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', path)
+    resp = await conn.read_response()
     assert resp.status == 200
-    await conn.co_read(200)
+    await conn.read(200)
     conn.disconnect()
     with pytest.raises(ConnectionClosed):
-        await conn.co_read(200)
+        await conn.read(200)
 
 
 async def test_abort_write(conn):
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.co_write(b'fooo')
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
+    await conn.write(b'fooo')
     conn.disconnect()
     with pytest.raises(ConnectionClosed):
-        await conn.co_write(b'baar')
+        await conn.write(b'baar')
 
 
 async def test_write_toomuch(conn):
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(42))
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
     with pytest.raises(ExcessBodyData):
-        await conn.co_write(DUMMY_DATA[:43])
+        await conn.write(DUMMY_DATA[:43])
 
 
 async def test_write_toolittle(conn):
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.co_write(DUMMY_DATA[:24])
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
+    await conn.write(DUMMY_DATA[:24])
     with pytest.raises(StateError):
-        await conn.co_send_request('GET', '/send_5_bytes')
+        await conn.send_request('GET', '/send_5_bytes')
 
 
 async def test_write_toolittle2(conn):
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.co_write(DUMMY_DATA[:24])
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
+    await conn.write(DUMMY_DATA[:24])
     with pytest.raises(StateError):
-        await conn.co_read_response()
+        await conn.read_response()
 
 
 async def test_put(conn):
     data = DUMMY_DATA
-    await conn.co_send_request('PUT', '/allgood', body=data)
-    resp = await conn.co_read_response()
-    await conn.co_discard()
+    await conn.send_request('PUT', '/allgood', body=data)
+    resp = await conn.read_response()
+    await conn.discard()
     assert resp.status == 204
     assert resp.length == 0
     assert resp.reason == 'MD5 matched'
 
     headers = CaseInsensitiveDict()
     headers['Content-MD5'] = 'nUzaJEag3tOdobQVU/39GA=='
-    await conn.co_send_request('PUT', '/allgood', body=data, headers=headers)
-    resp = await conn.co_read_response()
-    await conn.co_discard()
+    await conn.send_request('PUT', '/allgood', body=data, headers=headers)
+    resp = await conn.read_response()
+    await conn.discard()
     assert resp.status == 400
     assert resp.reason.startswith('MD5 mismatch')
 
 
 async def test_put_separate(conn):
     data = DUMMY_DATA
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(len(data)))
-    await conn.co_write(data)
-    resp = await conn.co_read_response()
-    await conn.co_discard()
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)))
+    await conn.write(data)
+    resp = await conn.read_response()
+    await conn.discard()
     assert resp.status == 204
     assert resp.length == 0
     assert resp.reason == 'Ok, but no MD5'
 
     headers = CaseInsensitiveDict()
     headers['Content-MD5'] = b64encode(hashlib.md5(data).digest()).decode('ascii')
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
-    await conn.co_write(data)
-    resp = await conn.co_read_response()
-    await conn.co_discard()
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
+    await conn.write(data)
+    resp = await conn.read_response()
+    await conn.discard()
     assert resp.status == 204
     assert resp.length == 0
     assert resp.reason == 'MD5 matched'
 
     headers['Content-MD5'] = 'nUzaJEag3tOdobQVU/39GA=='
-    await conn.co_send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
-    await conn.co_write(data)
-    resp = await conn.co_read_response()
-    await conn.co_discard()
+    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
+    await conn.write(data)
+    resp = await conn.read_response()
+    await conn.discard()
     assert resp.status == 400
     assert resp.reason.startswith('MD5 mismatch')
 
@@ -754,10 +754,10 @@ async def test_100cont(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
 
-    await conn.co_send_request('PUT', path, body=BodyFollowing(256), expect100=True)
-    resp = await conn.co_read_response()
+    await conn.send_request('PUT', path, body=BodyFollowing(256), expect100=True)
+    resp = await conn.read_response()
     assert resp.status == 403
-    await conn.co_discard()
+    await conn.discard()
 
     def handle_expect_100(self):
         if self.path != path:
@@ -769,12 +769,12 @@ async def test_100cont(conn, monkeypatch):
         return True
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.co_send_request('PUT', path, body=BodyFollowing(256), expect100=True)
-    resp = await conn.co_read_response()
+    await conn.send_request('PUT', path, body=BodyFollowing(256), expect100=True)
+    resp = await conn.read_response()
     assert resp.status == 100
     assert resp.length == 0
-    await conn.co_write(DUMMY_DATA[:256])
-    resp = await conn.co_read_response()
+    await conn.write(DUMMY_DATA[:256])
+    resp = await conn.read_response()
     assert resp.status == 204
     assert resp.length == 0
 
@@ -784,13 +784,13 @@ async def test_100cont_2(conn, monkeypatch):
         self.send_error(403)
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.co_send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
+    await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
 
     with pytest.raises(StateError):
-        await conn.co_send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
+        await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
 
-    await conn.co_read_response()
-    await conn.co_readall()
+    await conn.read_response()
+    await conn.readall()
 
 
 async def test_100cont_3(conn, monkeypatch):
@@ -798,13 +798,13 @@ async def test_100cont_3(conn, monkeypatch):
         self.send_error(403)
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.co_send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
+    await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
 
     with pytest.raises(StateError):
-        await conn.co_write(b'barf!')
+        await conn.write(b'barf!')
 
-    await conn.co_read_response()
-    await conn.co_readall()
+    await conn.read_response()
+    await conn.readall()
 
 
 async def test_aborted_write1(conn, monkeypatch, random_fh):
@@ -821,20 +821,20 @@ async def test_aborted_write1(conn, monkeypatch, random_fh):
     monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
 
     # Send request
-    await conn.co_send_request(
+    await conn.send_request(
         'PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True
     )
-    resp = await conn.co_read_response()
+    resp = await conn.read_response()
     assert resp.status == 100
     assert resp.length == 0
 
     # Try to write data
     with pytest.raises(ConnectionClosed):
         for _ in range(50):
-            await conn.co_write(random_fh.read(BUFSIZE))
+            await conn.write(random_fh.read(BUFSIZE))
 
     # Nevertheless, try to read response
-    resp = await conn.co_read_response()
+    resp = await conn.read_response()
     assert resp.status == 401
     assert resp.reason == 'Please stop!'
 
@@ -851,46 +851,46 @@ async def test_aborted_write2(conn, monkeypatch, random_fh):
     monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
 
     # Send request
-    await conn.co_send_request(
+    await conn.send_request(
         'PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True
     )
-    resp = await conn.co_read_response()
+    resp = await conn.read_response()
     assert resp.status == 100
     assert resp.length == 0
 
     # Try to write data
     with pytest.raises(ConnectionClosed):
         for _ in range(50):
-            await conn.co_write(random_fh.read(BUFSIZE))
+            await conn.write(random_fh.read(BUFSIZE))
 
     # Nevertheless, try to read response
     with pytest.raises((ConnectionClosed, ssl.SSLError)):
-        await conn.co_read_response()
+        await conn.read_response()
 
 
 async def test_read_toomuch(conn):
-    await conn.co_send_request('GET', '/send_10_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_10_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_10_bytes'
-    assert await conn.co_readall() == DUMMY_DATA[:10]
-    assert await conn.co_read(8) == b''
+    assert await conn.readall() == DUMMY_DATA[:10]
+    assert await conn.read(8) == b''
 
 
 async def test_read_toolittle(conn):
-    await conn.co_send_request('GET', '/send_10_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_10_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_10_bytes'
-    buf = await conn.co_read(8)
+    buf = await conn.read(8)
     assert buf == DUMMY_DATA[: len(buf)]
     with pytest.raises(StateError):
-        resp = await conn.co_read_response()
+        resp = await conn.read_response()
 
 
 async def test_empty_response(conn):
-    await conn.co_send_request('HEAD', '/send_512_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('HEAD', '/send_512_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 0
@@ -898,29 +898,29 @@ async def test_empty_response(conn):
     # Check that we can go to the next response without
     # reading anything
     assert not conn.response_pending()
-    await conn.co_send_request('GET', '/send_512_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
-    assert await conn.co_readall() == DUMMY_DATA[:512]
+    assert await conn.readall() == DUMMY_DATA[:512]
     assert not conn.response_pending()
 
 
 async def test_head(conn, monkeypatch):
-    await conn.co_send_request('HEAD', '/send_10_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('HEAD', '/send_10_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
-    assert len(await conn.co_readall()) == 0
+    assert len(await conn.readall()) == 0
 
     def do_HEAD(self):
         self.send_error(317)
 
     monkeypatch.setattr(MockRequestHandler, 'do_HEAD', do_HEAD)
-    await conn.co_send_request('HEAD', '/fail_with_317')
-    resp = await conn.co_read_response()
+    await conn.send_request('HEAD', '/fail_with_317')
+    resp = await conn.read_response()
     assert resp.status == 317
-    assert len(await conn.co_readall()) == 0
+    assert len(await conn.readall()) == 0
 
 
 @pytest.fixture(params=(63, 64, 65, 100, 99, 103, 500, 511, 512, 513))
@@ -930,12 +930,12 @@ def buffer_size(request):
 
 async def test_smallbuffer(conn, buffer_size):
     conn._rbuf = _Buffer(buffer_size)
-    await conn.co_send_request('GET', '/send_512_bytes')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    resp = await conn.read_response()
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
-    assert await conn.co_readall() == DUMMY_DATA[:512]
+    assert await conn.readall() == DUMMY_DATA[:512]
     assert not conn.response_pending()
 
 
@@ -944,13 +944,13 @@ async def test_mutable_read(conn):
     # affect the buffer
 
     conn._rbuf = _Buffer(129)
-    await conn.co_send_request('GET', '/send_512_bytes')
-    await conn.co_read_response()
+    await conn.send_request('GET', '/send_512_bytes')
+    await conn.read_response()
 
     # Assert that buffer is full, but does not start at beginning
     assert conn._rbuf.b > 0
 
-    buf = await conn.co_read(150)
+    buf = await conn.read(150)
     pos = len(buf)
     assert buf == DUMMY_DATA[:pos]
     memoryview(buf)[:10] = b'\0' * 10
@@ -958,12 +958,12 @@ async def test_mutable_read(conn):
     # Assert that buffer is empty
     assert conn._rbuf.b == 0
     assert conn._rbuf.e == 0
-    buf = await conn.co_read(150)
+    buf = await conn.read(150)
     assert buf == DUMMY_DATA[pos : pos + len(buf)]
     memoryview(buf)[:10] = b'\0' * 10
     pos += len(buf)
 
-    assert await conn.co_readall() == DUMMY_DATA[pos:512]
+    assert await conn.readall() == DUMMY_DATA[pos:512]
     assert not conn.response_pending()
 
 
@@ -980,12 +980,12 @@ async def test_recv_timeout(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.co_send_request('GET', '/send_something')
-    resp = await conn.co_read_response()
+    await conn.send_request('GET', '/send_something')
+    resp = await conn.read_response()
     assert resp.status == 200
-    assert await conn.co_read(50) == b'x' * 25
+    assert await conn.read(50) == b'x' * 25
     with pytest.raises(ConnectionTimedOut):
-        await conn.co_read(50)
+        await conn.read(50)
 
 
 async def test_send_timeout(conn, monkeypatch, random_fh):
@@ -1004,10 +1004,10 @@ async def test_send_timeout(conn, monkeypatch, random_fh):
     # We don't know how much data can be buffered, so we
     # claim to send a lot and do so in a loop.
     len_ = 1024**3
-    await conn.co_send_request('PUT', '/recv_something', body=BodyFollowing(len_))
+    await conn.send_request('PUT', '/recv_something', body=BodyFollowing(len_))
     with pytest.raises(ConnectionTimedOut):
         while len_ > 0:
-            await conn.co_write(random_fh.read(min(len_, 16 * 1024)))
+            await conn.write(random_fh.read(min(len_, 16 * 1024)))
 
 
 @pytest.mark.no_ssl
@@ -1029,10 +1029,10 @@ Your browser didn't send a complete request in time.
 
     monkeypatch.setattr(socket, 'recv_into', recv_into)
 
-    await conn.co_send_request('GET', '/send_10_bytes')
-    response = await conn.co_read_response()
+    await conn.send_request('GET', '/send_10_bytes')
+    response = await conn.read_response()
     assert response.status == 408
-    assert await conn.co_readall() == body
+    assert await conn.readall() == body
     assert not conn.response_pending()
 
 
@@ -1042,8 +1042,8 @@ async def test_request_timeout_two():
     await conn.connect()
     try:
         time.sleep(12)  # timeout is 10 seconds
-        await conn.co_send_request('GET', '/')
-        response = await conn.co_read_response()
+        await conn.send_request('GET', '/')
+        response = await conn.read_response()
         assert response.status == 408
     finally:
         conn.disconnect()

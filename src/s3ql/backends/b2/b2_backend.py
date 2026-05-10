@@ -207,9 +207,9 @@ class AsyncB2Backend(AsyncBackend):
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
-            await connection.co_send_request('GET', authorize_url, headers=headers, body=None)
-            response = await connection.co_read_response()
-            response_body = await connection.co_readall()
+            await connection.send_request('GET', authorize_url, headers=headers, body=None)
+            response = await connection.read_response()
+            response_body = await connection.readall()
 
             if response.status != 200:
                 raise RuntimeError('Authorization failed.')
@@ -255,21 +255,21 @@ class AsyncB2Backend(AsyncBackend):
         log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
         if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            await connection.co_send_request(method, path, headers=headers, body=body)
+            await connection.send_request(method, path, headers=headers, body=body)
         else:
             body_length = os.fstat(body.fileno()).st_size
-            await connection.co_send_request(
+            await connection.send_request(
                 method, path, headers=headers, body=BodyFollowing(body_length)
             )
 
             await copy_to_http(body, connection, body_length)
 
-        response = await connection.co_read_response()
+        response = await connection.read_response()
 
         if (
             download_body is True or response.status != 200
         ):  # Backblaze always returns a json with error information in body
-            response_body = await connection.co_readall()
+            response_body = await connection.readall()
         else:
             response_body = None
 
@@ -442,7 +442,7 @@ class AsyncB2Backend(AsyncBackend):
             # If there's less than 64 kb of data, read and throw
             # away. Otherwise re-establish connection.
             if response.length is not None and response.length < 64 * 1024:
-                await (await self._get_download_connection()).co_discard()
+                await (await self._get_download_connection()).discard()
             else:
                 self._close_connections()
             raise
@@ -505,14 +505,14 @@ class AsyncB2Backend(AsyncBackend):
         sha1 = hashlib.sha1()
         try:
             # 40 extra characters for hexdigest
-            await conn.co_send_request(
+            await conn.send_request(
                 'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
             )
             await copy_to_http(fh, conn, len_, update=sha1.update)
-            await conn.co_write(sha1.hexdigest().encode())
+            await conn.write(sha1.hexdigest().encode())
 
-            response = await conn.co_read_response()
-            response_body = await conn.co_readall()
+            response = await conn.read_response()
+            response_body = await conn.readall()
 
             if response.status != 200:
                 if not response_body:
