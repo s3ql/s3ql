@@ -156,15 +156,17 @@ class AsyncBackend(swift.AsyncBackend):
             if tenant:
                 auth_body['auth']['tenantName'] = tenant
 
-        with HTTPConnection(
+        async with HTTPConnection(
             self.hostname, port=self.port, proxy=self.proxy, ssl_context=ssl_context
         ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
-            await conn.send_request(
-                'POST', auth_url_path, headers=headers, body=json.dumps(auth_body).encode('utf-8')
+            resp = await conn.send_request(
+                'POST',
+                auth_url_path,
+                headers=headers,
+                body=[json.dumps(auth_body).encode('utf-8')],
             )
-            resp = await conn.read_response()
 
             if resp.status == 401:
                 raise AuthorizationError(resp.reason)
@@ -172,7 +174,7 @@ class AsyncBackend(swift.AsyncBackend):
             elif resp.status > 299 or resp.status < 200:
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
-            cat = json.loads((await conn.read()).decode('utf-8'))
+            cat = json.loads((await conn.readall()).decode('utf-8'))
 
             if domain:
                 self.auth_token = resp.headers['X-Subject-Token']

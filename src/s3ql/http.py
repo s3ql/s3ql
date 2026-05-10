@@ -12,1266 +12,41 @@ licensed under the Apache License, Version 2.0
 
 from __future__ import annotations
 
+import contextlib
 import email
 import email.policy
 import errno
-import hashlib
-import io
 import logging
 import os
 import socket
 import ssl
-from base64 import b64encode
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass
-from enum import Enum
-from http.client import HTTP_PORT, HTTPS_PORT, NO_CONTENT, NOT_MODIFIED
+from http.client import HTTP_PORT, HTTPS_PORT
+from io import BytesIO, UnsupportedOperation
 from typing import Optional
 
+import h11
+import httpcore
 import trio
+import trio.lowlevel
+from httpcore._backends.base import AsyncNetworkStream
+from httpcore._backends.trio import TrioBackend
+
+from s3ql import BUFSIZE
+from s3ql.types import BinaryInput, BinaryOutput
 
 log = logging.getLogger(__name__)
 
-#: Internal buffer size
-BUFFER_SIZE = 64 * 1024
-
-#: Maximal length of HTTP status line. If the server sends a line longer than
-#: this value, `InvalidResponse` will be raised.
-MAX_LINE_SIZE = BUFFER_SIZE - 1
-
-#: Maximal length of a response header (i.e., for all header
-#: lines together). If the server sends a header segment longer than
-#: this value, `InvalidResponse` will be raised.
-MAX_HEADER_SIZE = BUFFER_SIZE - 1
-
-
-class Encodings(Enum):
-    CHUNKED = 1
-    IDENTITY = 2
-
-
-class _State(Enum):
-    #: Sentinel for `HTTPConnection._out_remaining` to indicate that
-    #: we're waiting for a 100-continue response from the server.
-    WAITING_FOR_100C = 'waiting-for-100c'
-
-    #: Sentinel for `HTTPConnection._in_remaining` to indicate that
-    #: the response body cannot be read and that an exception
-    #: (stored in the `HTTPConnection._encoding` attribute) should
-    #: be raised.
-    RESPONSE_BODY_ERROR = 'response-body-error'
-
-    #: Sentinel for `HTTPConnection._in_remaining` to indicate that
-    #: we should read until EOF (i.e., no keep-alive).
-    READ_UNTIL_EOF = 'read-until-eof'
-
-
-#: Sequence of ``(hostname, port)`` tuples that are used by distinguish between permanent and
-#: temporary name resolution problems.
+#: Sequence of ``(hostname, port)`` tuples used to distinguish between permanent
+#: and temporary name resolution problems. If at least one of these resolves,
+#: an unresolvable target is reported as `HostnameNotResolvable`; otherwise as
+#: `DNSUnavailable`.
 DNS_TEST_HOSTNAMES = (('www.google.com', 80), ('www.iana.org', 80), ('C.root-servers.org', 53))
-
-
-@dataclass(slots=True)
-class HTTPResponse:
-    '''
-    Information about an HTTP response.
-
-    Instances of this class are returned by `HTTPConnection.read_response`
-    and expose the response status, reason, and headers. Response body data
-    has to be read directly from the `HTTPConnection` instance.
-    '''
-
-    #: HTTP method of the request this response is associated with.
-    method: str
-
-    #: Path of the request this response is associated with.
-    path: str
-
-    #: HTTP status code returned by the server.
-    status: int
-
-    #: HTTP reason phrase returned by the server.
-    reason: str
-
-    #: Response headers, an `email.message.Message` instance.
-    headers: email.message.Message
-
-    #: Length of the *transmitted* response body, or `None` if not known.
-    #: For responses where RFC 2616 mandates an empty body (HEAD requests,
-    #: 1xx, 204, 304) this is zero; the length of the body that *would*
-    #: have been sent can be read from the ``Content-Length`` header.
-    length: int | None = None
-
-
-@dataclass(slots=True, frozen=True)
-class BodyFollowing:
-    '''
-    Sentinel for the *body* parameter of `HTTPConnection.send_request`.
-
-    Passing an instance declares that *length* bytes of body data will be
-    provided in separate method calls.
-    '''
-
-    #: Number of body bytes that will be sent separately.
-    length: int
-
-
-class _ChunkTooLong(Exception):
-    '''
-    Raised by `_readstr_until` if the requested end pattern
-    cannot be found within the specified byte limit.
-    '''
-
-    pass
-
-
-class _GeneralError(Exception):
-    msg = 'General HTTP Error'
-
-    def __init__(self, msg: str | None = None) -> None:
-        if msg:
-            self.msg = msg
-
-    def __str__(self) -> str:
-        return self.msg
-
-
-class HostnameNotResolvable(Exception):
-    '''Raised if a host name does not resolve to an ip address.
-
-    This exception is raised if a resolution attempt results in a `socket.gaierror` or
-    `socket.herror` exception with errno :const:`!socket.EAI_NODATA` or
-    :const:`!socket.EAI_NONAME`, but at least one of the hostnames in `DNS_TEST_HOSTNAMES`
-    can be resolved.
-    '''
-
-    def __init__(self, hostname: str) -> None:
-        self.name = hostname
-
-    def __str__(self) -> str:
-        return 'Host %s does not have any ip addresses' % self.name
-
-
-class DNSUnavailable(Exception):
-    '''Raised if the DNS server cannot be reached.
-
-    This exception is raised if a resolution attempt results in a `socket.gaierror` or
-    `socket.herror` exception with errno :const:`socket.EAI_AGAIN`, or if none of the
-    hostnames in `DNS_TEST_HOSTNAMES` can be resolved.
-    '''
-
-    def __init__(self, hostname: str) -> None:
-        self.name = hostname
-
-    def __str__(self) -> str:
-        return 'Unable to resolve %s, DNS server unavailable.' % self.name
-
-
-class _DNSError(Exception):
-    '''Internal: DNS lookup failed but cause (NXDOMAIN vs. unavailable) is unclear.
-
-    `create_socket` catches this and converts it to either `HostnameNotResolvable`
-    or `DNSUnavailable` once it has probed `DNS_TEST_HOSTNAMES`.
-    '''
-
-    def __init__(self, hostname: str) -> None:
-        self.name = hostname
-
-    def __str__(self) -> str:
-        return 'Unable to resolve host %s' % self.name
-
-
-class StateError(_GeneralError):
-    '''
-    Raised when attempting an operation that doesn't make
-    sense in the current connection state.
-    '''
-
-    msg = 'Operation invalid in current connection state'
-
-
-class ExcessBodyData(_GeneralError):
-    '''
-    Raised when trying to send more data to the server than
-    announced.
-    '''
-
-    msg = 'Cannot send larger request body than announced'
-
-
-class InvalidResponse(_GeneralError):
-    '''
-    Raised if the server produced an invalid response (i.e, something
-    that is not proper HTTP 1.0 or 1.1).
-    '''
-
-    msg = 'Server sent invalid response'
-
-
-class UnsupportedResponse(_GeneralError):
-    '''
-    This exception is raised if the server produced a response that is not
-    supported. This should not happen for servers that are HTTP 1.1 compatible.
-
-    If an `UnsupportedResponse` exception has been raised, this typically means
-    that synchronization with the server will be lost (i.e., we cannot
-    determine where the current response ends and the next response starts), so
-    the connection needs to be reset by calling the
-    :meth:`~HTTPConnection.disconnect` method.
-    '''
-
-    msg = 'Server sent unsupported response'
-
-
-class ConnectionClosed(_GeneralError):
-    '''
-    Raised if the connection was unexpectedly closed.
-
-    This exception is raised also if the server declared that it will close the
-    connection (by sending a ``Connection: close`` header). Such responses can
-    still be read completely, but the next attempt to send a request or read a
-    response will raise the exception. To re-use the connection after the server
-    has closed it, call `HTTPConnection.disconnect`; the next request will
-    automatically reconnect.
-    '''
-
-    msg = 'connection closed unexpectedly'
-
-
-class ConnectionTimedOut(_GeneralError):
-    '''
-    Raised if a regular `HTTPConnection` method (i.e., no coroutine) was
-    unable to send or receive data for the timeout specified in the
-    `HTTPConnection.timeout` attribute.
-    '''
-
-    msg = 'send/recv timeout exceeded'
-
-
-class _Buffer:
-    '''
-    This class represents a buffer with a fixed size, but varying
-    fill level.
-    '''
-
-    __slots__ = ('d', 'b', 'e')
-
-    def __init__(self, size: int) -> None:
-        #: Holds the actual data
-        self.d: bytearray = bytearray(size)
-
-        #: Position of the first buffered byte that has not yet
-        #: been consumed ("*b*eginning")
-        self.b: int = 0
-
-        #: Fill-level of the buffer (e is for "end")
-        self.e: int = 0
-
-    def __len__(self) -> int:
-        '''Return amount of data ready for consumption'''
-        return self.e - self.b
-
-    def clear(self) -> None:
-        '''Forget all buffered data'''
-
-        self.b = 0
-        self.e = 0
-
-    def compact(self) -> None:
-        '''Ensure that buffer can be filled up to its maximum size
-
-        If part of the buffer data has been consumed, the unconsumed part is
-        copied to the beginning of the buffer to maximize the available space.
-        '''
-
-        if self.b == 0:
-            return
-
-        log.debug('compacting buffer')
-        buf = memoryview(self.d)[self.b : self.e]
-        len_ = len(buf)
-        self.d = bytearray(len(self.d))
-        self.d[:len_] = buf
-        self.b = 0
-        self.e = len_
-
-    def exhaust(self) -> bytearray:
-        '''Return (and consume) all available data'''
-
-        if self.b == 0:
-            log.debug('exhausting buffer (truncating)')
-            # Return existing buffer after truncating it
-            buf = self.d
-            self.d = bytearray(len(self.d))
-            buf[self.e :] = b''
-        else:
-            log.debug('exhausting buffer (copying)')
-            buf = self.d[self.b : self.e]
-
-        self.b = 0
-        self.e = 0
-
-        return buf
-
-
-class HTTPConnection:
-    '''
-    This class encapsulates a HTTP connection.
-
-    `HTTPConnection` instances can be used as context managers. The
-    `.disconnect` method will be called on exit from the managed block.
-    '''
-
-    #: Default value for `_timeout_ms`: 24 hours expressed in milliseconds.
-    _DEFAULT_TIMEOUT_MS = 24 * 60 * 60 * 1000
-
-    def __init__(
-        self,
-        hostname: str,
-        port: Optional[int] = None,
-        ssl_context: Optional[ssl.SSLContext] = None,
-        proxy: Optional[tuple[str, int]] = None,
-    ):
-        if port is not None:
-            self.port = port
-        else:
-            self.port = HTTPS_PORT if ssl_context else HTTP_PORT
-
-        self.ssl_context = ssl_context
-        self.hostname = hostname
-
-        #: Socket object connecting to the server
-        self._sock: Optional[socket.socket] = None
-
-        #: Read-buffer
-        self._rbuf = _Buffer(BUFFER_SIZE)
-
-        #: a tuple ``(hostname, port)`` of the proxy server to use or `None`.
-        self.proxy = proxy
-
-        #: ``(method, path, body_len)`` describing the in-flight request whose
-        #: response has not yet been read completely, or `None` if no such
-        #: request exists. *body_len* is `None` except while waiting for a
-        #: 100-continue response, in which case it is the size of the request
-        #: body that still has to be sent.
-        self._pending_request: Optional[tuple[str, str, Optional[int]]] = None
-
-        #: This attribute is `None` when a request has been sent completely.  If
-        #: request headers have been sent, but request body data is still
-        #: pending, it is set to a ``(method, path, body_len)`` tuple. *body_len*
-        #: is the number of bytes that that still need to send, or
-        #: `_State.WAITING_FOR_100C` if we are waiting for a 100 response from the server.
-        self._out_remaining: Optional[tuple[str, str, int | _State]] = None
-
-        #: Number of remaining bytes of the current response body (or current
-        #: chunk), `None` if there is no active response or `_State.READ_UNTIL_EOF` if
-        #: we have to read until the connection is closed (i.e., we don't know
-        #: the content-length and keep-alive is not active).
-        self._in_remaining: Optional[int | _State] = None
-
-        #: Transfer encoding of the active response (if any), or an exception
-        #: instance if the body cannot be read.
-        self._encoding: Optional[Encodings | Exception] = None
-
-        #: If a regular `HTTPConnection` method is unable to send or receive data for more than
-        #: this period (in ms), it will raise `ConnectionTimedOut`.
-        self._timeout_ms: int = self._DEFAULT_TIMEOUT_MS
-
-        #: Filehandler for tracing
-        self.trace_fh: Optional[io.FileIO] = None
-
-    @property
-    def timeout(self) -> float:
-        return self._timeout_ms / 1000
-
-    @timeout.setter
-    def timeout(self, value: int | float | None) -> None:
-        if value is None:
-            self._timeout_ms = self._DEFAULT_TIMEOUT_MS
-        else:
-            self._timeout_ms = int(value * 1000)
-
-    async def connect(self) -> None:
-        """Connect to the remote server
-
-        This method generally does not need to be called manually.
-        """
-
-        log.debug('start')
-
-        if self.proxy:
-            log.debug('connecting to %s', self.proxy)
-            self._sock = create_socket(self.proxy)
-            if self.ssl_context:
-                await self._tunnel()
-        else:
-            log.debug('connecting to %s', (self.hostname, self.port))
-            self._sock = create_socket((self.hostname, self.port))
-
-        if self.ssl_context:
-            log.debug('establishing ssl layer')
-
-            self._sock = self.ssl_context.wrap_socket(self._sock, server_hostname=self.hostname)
-
-        self._sock.setblocking(False)
-        self._rbuf.clear()
-        self._out_remaining = None
-        self._in_remaining = None
-        self._pending_request = None
-
-        if 'S3QL_HTTP_TRACEFILE' in os.environ:
-            self.trace_fh = open(  # noqa: SIM115
-                os.environ['S3QL_HTTP_TRACEFILE'] % id(self._sock), 'wb+', buffering=0
-            )
-
-        log.debug('done')
-
-    async def _tunnel(self) -> None:
-        '''Set up CONNECT tunnel to destination server'''
-
-        log.debug('start connecting to %s:%d', self.hostname, self.port)
-
-        await self._send(
-            ("CONNECT %s:%d HTTP/1.0\r\n\r\n" % (self.hostname, self.port)).encode('latin1')
-        )
-
-        (status, reason) = await self._read_status()
-        log.debug('got %03d %s', status, reason)
-        await self._read_header()
-
-        if status != 200:
-            self.disconnect()
-            raise ConnectionError("Tunnel connection failed: %d %s" % (status, reason))
-
-    async def send_request(
-        self,
-        method: str,
-        path: str,
-        headers: Optional[Mapping[str, str]] = None,
-        body: bytes | bytearray | memoryview | BodyFollowing | None = None,
-        expect100: bool = False,
-    ) -> None:
-        '''Send a new HTTP request to the server
-
-        The message body may be passed in the *body* argument or be sent
-        separately. In the former case, *body* must be a :term:`bytes-like
-        object`. In the latter case, *body* must be a `BodyFollowing` instance
-        specifying the length of the data that will be sent.
-
-        *headers* should be a mapping containing the HTTP headers to be send
-        with the request. Multiple header lines with the same key are not
-        supported. It is recommended to pass a `CaseInsensitiveDict` instance,
-        other mappings will be converted to `CaseInsensitiveDict` automatically.
-
-        If *body* is a provided as a :term:`bytes-like object`, a
-        ``Content-MD5`` header is generated automatically unless it has been
-        provided in *headers* already.
-        '''
-
-        log.debug('start')
-
-        if expect100 and not isinstance(body, BodyFollowing):
-            raise ValueError('expect100 only allowed for separate body')
-
-        if self._sock is None:
-            await self.connect()
-
-        if self._out_remaining:
-            raise StateError('body data has not been sent completely yet')
-
-        if self._pending_request is not None:
-            raise StateError('previous response has not been read')
-
-        if headers is None:
-            headers = CaseInsensitiveDict()
-        elif not isinstance(headers, CaseInsensitiveDict):
-            headers = CaseInsensitiveDict(headers)
-
-        pending_body_size: Optional[int] = None
-        if body is None:
-            headers['Content-Length'] = '0'
-        elif isinstance(body, BodyFollowing):
-            log.debug('preparing to send %d bytes of body data', body.length)
-            if expect100:
-                headers['Expect'] = '100-continue'
-                # Do not set _out_remaining, we must only send data once we've
-                # read the response. Stash the body size on _pending_request so
-                # that read_response() can hand it back to _out_remaining
-                # after the 100-continue arrives.
-                pending_body_size = body.length
-                self._out_remaining = (method, path, _State.WAITING_FOR_100C)
-            else:
-                self._out_remaining = (method, path, body.length)
-            headers['Content-Length'] = str(body.length)
-            body = None
-        elif isinstance(body, (bytes, bytearray, memoryview)):
-            headers['Content-Length'] = str(len(body))
-            if 'Content-MD5' not in headers:
-                log.debug('computing content-md5')
-                headers['Content-MD5'] = b64encode(hashlib.md5(body).digest()).decode('ascii')
-        else:
-            raise TypeError('*body* must be None, bytes-like or BodyFollowing')
-
-        # Generate host header
-        host = self.hostname
-        if host.find(':') >= 0:
-            host = f'[{host}]'
-        default_port = HTTPS_PORT if self.ssl_context else HTTP_PORT
-        if self.port == default_port:
-            headers['Host'] = host
-        else:
-            headers['Host'] = f'{host}:{self.port}'
-
-        # Assemble request
-        headers['Accept-Encoding'] = 'identity'
-        if 'Connection' not in headers:
-            headers['Connection'] = 'keep-alive'
-        if self.proxy and not self.ssl_context:
-            gpath = "http://{}{}".format(headers['Host'], path)
-        else:
-            gpath = path
-        request = [f'{method} {gpath} HTTP/1.1'.encode('latin1')]
-        for key, val in headers.items():
-            request.append(f'{key}: {val}'.encode('latin1'))
-        request.append(b'')
-
-        if body is not None:
-            request.append(body)
-        else:
-            request.append(b'')
-
-        buf = b'\r\n'.join(request)
-
-        log.debug('sending %s %s', method, path)
-        await self._send(buf)
-        if not self._out_remaining or expect100:
-            self._pending_request = (method, path, pending_body_size)
-
-    async def _wait_readable(self) -> None:
-        assert self._sock is not None
-        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-            await trio.lowlevel.wait_readable(self._sock)
-        if ctx.cancelled_caught:
-            raise ConnectionTimedOut('Timeout in recv()')
-
-    async def _wait_writable(self) -> None:
-        assert self._sock is not None
-        with trio.move_on_after(self._timeout_ms / 1000) as ctx:
-            await trio.lowlevel.wait_writable(self._sock)
-        if ctx.cancelled_caught:
-            raise ConnectionTimedOut('Timeout in send()')
-
-    async def _send(self, buf: bytes | bytearray | memoryview) -> None:
-        '''Send *buf* to server'''
-
-        log.debug('trying to send %d bytes', len(buf))
-
-        if not isinstance(buf, memoryview):
-            buf = memoryview(buf)
-
-        while True:
-            try:
-                if self._sock is None:
-                    raise ConnectionClosed('connection has been closed locally')
-                len_ = self._sock.send(buf)
-                # An SSL socket has the nasty habit of returning zero
-                # instead of raising an exception when in non-blocking
-                # mode.
-                if len_ == 0:
-                    raise BlockingIOError()
-            except (TimeoutError, ssl.SSLWantWriteError, BlockingIOError):
-                log.debug('yielding')
-                await self._wait_writable()
-                continue
-            except (BrokenPipeError, ConnectionResetError, ssl.SSLEOFError):
-                raise ConnectionClosed('connection was interrupted')
-            except InterruptedError:
-                log.debug('interrupted')
-                # According to send(2), this means that no data has been sent
-                # at all before the interruption, so we just try again.
-                continue
-            except OSError as exc:
-                if exc.errno == errno.EINVAL:
-                    # Blackhole routing, according to ip(7)
-                    raise ConnectionClosed('ip route goes into black hole')
-                else:
-                    raise
-
-            log.debug('sent %d bytes', len_)
-            if self.trace_fh:
-                self.trace_fh.write(buf[:len_])
-            buf = buf[len_:]
-            if len(buf) == 0:
-                log.debug('done')
-                return
-
-    async def write(self, buf: bytes | bytearray | memoryview) -> None:
-        '''Write request body data
-
-        `ExcessBodyData` will be raised when attempting to send more data than
-        required to complete the request body of the active request.
-        '''
-
-        log.debug('start (len=%d)', len(buf))
-
-        if not self._out_remaining:
-            raise StateError('No active request with pending body data')
-
-        (method, path, remaining) = self._out_remaining
-        if remaining is _State.WAITING_FOR_100C:
-            raise StateError("can't write when waiting for 100-continue")
-        assert isinstance(remaining, int)
-
-        if len(buf) > remaining:
-            raise ExcessBodyData(
-                'trying to write %d bytes, but only %d bytes pending' % (len(buf), remaining)
-            )
-
-        try:
-            await self._send(buf)
-        except ConnectionClosed:
-            # If the server closed the connection, we pretend that all data
-            # has been sent, so that we can still read a (buffered) error
-            # response.
-            self._out_remaining = None
-            self._pending_request = (method, path, None)
-            raise
-
-        len_ = len(buf)
-        if len_ == remaining:
-            log.debug('body sent fully')
-            self._out_remaining = None
-            self._pending_request = (method, path, None)
-        else:
-            self._out_remaining = (method, path, remaining - len_)
-
-        log.debug('done')
-
-    def response_pending(self) -> bool:
-        '''Return `True` if there is an outstanding response
-
-        This includes a response that has been partially read.
-        '''
-
-        return self._sock is not None and self._pending_request is not None
-
-    async def read_response(self) -> HTTPResponse:
-        '''Read response status line and headers
-
-        Return a `HTTPResponse` instance containing information about response
-        status, reason, and headers. The response body data must be retrieved
-        separately (e.g. using `.read` or `.readall`).
-        '''
-
-        log.debug('start')
-
-        if self._pending_request is None:
-            raise StateError('No pending request')
-
-        if self._in_remaining is not None:
-            raise StateError('Previous response not read completely')
-
-        (method, path, body_size) = self._pending_request
-
-        # Need to loop to handle any 1xx responses
-        while True:
-            (status, reason) = await self._read_status()
-            log.debug('got %03d %s', status, reason)
-
-            hstring = await self._read_header()
-            header = email.message_from_string(hstring, policy=email.policy.HTTP)
-
-            if status < 100 or status > 199:
-                break
-
-            # We are waiting for 100-continue
-            if body_size is not None and status == 100:
-                break
-
-        # Handle (expected) 100-continue
-        if status == 100:
-            assert self._out_remaining == (method, path, _State.WAITING_FOR_100C)
-            assert body_size is not None
-
-            # We're ready to send request body now
-            self._out_remaining = (method, path, body_size)
-            self._pending_request = None
-            self._in_remaining = None
-
-            # Return early, because we don't have to prepare
-            # for reading the response body at this time
-            return HTTPResponse(method, path, status, reason, header, length=0)
-
-        # Handle non-100 status when waiting for 100-continue
-        elif body_size is not None:
-            assert self._out_remaining == (method, path, _State.WAITING_FOR_100C)
-            # RFC 2616 actually states that the server MAY continue to read the
-            # request body after it has sent a final status code
-            # (http://tools.ietf.org/html/rfc2616#section-8.2.3). However, that
-            # totally defeats the purpose of 100-continue, so we hope that the
-            # server behaves sanely and does not attempt to read the body of a
-            # request it has already handled.
-            self._out_remaining = None
-
-        #
-        # Prepare to read body
-        #
-        body_length = self._setup_read(method, status, header)
-
-        # Don't require calls to read() et al if there is
-        # nothing to be read.
-        if self._in_remaining is None:
-            self._pending_request = None
-
-        log.debug('done (in_remaining=%s)', self._in_remaining)
-        return HTTPResponse(method, path, status, reason, header, body_length)
-
-    def _setup_read(self, method: str, status: int, header: email.message.Message) -> int | None:
-        '''Prepare for reading response body
-
-        Sets up `._encoding`, `_in_remaining` and returns Content-Length
-        (if available).
-
-        See RFC 2616, sec. 4.4 for specific rules.
-        '''
-
-        # On error, the exception is stored in _encoding and raised on
-        # the next call to read() et al - that way we can still
-        # return the http status and headers.
-
-        will_close = header.get('Connection', 'keep-alive').lower() == 'close'
-
-        body_length = header['Content-Length']
-        if body_length is not None:
-            try:
-                body_length = int(body_length)
-            except ValueError:
-                self._encoding = InvalidResponse('Invalid content-length: %s' % body_length)
-                self._in_remaining = _State.RESPONSE_BODY_ERROR
-                return None
-
-        if status in (NO_CONTENT, NOT_MODIFIED) or 100 <= status < 200 or method == 'HEAD':
-            log.debug('no content by RFC')
-            self._in_remaining = None
-            self._encoding = None
-            return 0
-
-        tc = header.get('Transfer-Encoding', 'identity').lower()
-        if tc == 'chunked':
-            log.debug('Chunked encoding detected')
-            self._encoding = Encodings.CHUNKED
-            self._in_remaining = 0
-            return None
-
-        elif tc != 'identity':
-            log.warning('Server uses invalid response encoding "%s"', tc)
-            self._encoding = InvalidResponse('Cannot handle %s encoding' % tc)
-            self._in_remaining = _State.RESPONSE_BODY_ERROR
-            return None
-
-        log.debug('identity encoding detected')
-        self._encoding = Encodings.IDENTITY
-
-        if body_length is not None:
-            log.debug('Will read response body of %d bytes', body_length)
-            self._in_remaining = body_length or None
-            return body_length
-
-        if will_close:
-            log.debug('no content-length, will read until EOF')
-        else:
-            log.warning(
-                '%s:%d sent response with missing content-length header. This is not HTTP/1.1 '
-                'specification compliant but we will ignore this error. Response headers: %s',
-                self.hostname,
-                self.port,
-                header,
-                extra={'rate_limit': 60},
-            )
-            # correct the connection header for library users (HTTPConnection does not need it)
-            del header['Connection']
-            header['Connection'] = 'close'
-        self._in_remaining = _State.READ_UNTIL_EOF
-        return None
-
-    async def _read_status(self) -> tuple[int, str]:
-        '''Read response line'''
-
-        log.debug('start')
-
-        # read status
-        try:
-            line = await self._readstr_until(b'\r\n', MAX_LINE_SIZE)
-        except _ChunkTooLong:
-            raise InvalidResponse('server send ridiculously long status line')
-
-        parts = line.split(None, 2)
-        if len(parts) == 3:
-            version, status, reason = parts
-        elif len(parts) == 2:
-            version, status = parts
-            reason = ""
-        else:
-            # empty version will cause next test to fail.
-            version = ""
-            status = ""
-
-        if not version.startswith("HTTP/1"):
-            raise UnsupportedResponse('%s not supported' % version)
-
-        # The status code is a three-digit number
-        try:
-            status = int(status)
-            if status < 100 or status > 999:
-                raise InvalidResponse('%d is not a valid status' % status)
-        except ValueError:
-            raise InvalidResponse('%s is not a valid status' % status)
-
-        log.debug('done')
-        return (status, reason.strip())
-
-    async def _read_header(self) -> str:
-        '''Read response header'''
-
-        log.debug('start')
-
-        # Peek into buffer. If the first characters are \r\n, then the header
-        # is empty (so our search for \r\n\r\n would fail)
-        rbuf = self._rbuf
-        if len(rbuf) < 2:
-            await self._fill_buffer(2)
-        if rbuf.d[rbuf.b : rbuf.b + 2] == b'\r\n':
-            log.debug('done (empty header)')
-            rbuf.b += 2
-            return ''
-
-        try:
-            hstring = await self._readstr_until(b'\r\n\r\n', MAX_HEADER_SIZE)
-        except _ChunkTooLong:
-            raise InvalidResponse('server sent ridiculously long header')
-
-        log.debug('done (%d characters)', len(hstring))
-        return hstring
-
-    async def read(self, len_: Optional[int] = None) -> bytes | bytearray:
-        '''Read up to *len_* bytes of response body data
-
-        This method may return less than *len_* bytes, but will return ``b''`` only
-        if the response body has been read completely. The returned buffer is
-        owned by the caller and may be modified in place.
-
-        If *len_* is `None`, this method returns the entire response body.
-        '''
-
-        log.debug('start (len=%s)', len_)
-
-        if self._in_remaining is _State.RESPONSE_BODY_ERROR:
-            assert isinstance(self._encoding, Exception)
-            raise self._encoding
-        elif len_ is None:
-            return await self.readall()
-        elif len_ == 0 or self._in_remaining is None:
-            return b''
-        elif self._encoding is Encodings.IDENTITY:
-            return await self._read_id(len_)
-        elif self._encoding is Encodings.CHUNKED:
-            return await self._read_chunked(len_=len_)
-        else:
-            raise AssertionError('unreachable encoding: %r' % self._encoding)
-
-    async def read_raw(self, size: int) -> bytes:
-        '''Read up to *size* bytes of uninterpreted data.
-
-        May be called even after `UnsupportedResponse` or `InvalidResponse`
-        has been raised. Reads raw bytes from the socket without trying to
-        interpret them as part of an HTTP response, which is useful for
-        capturing a misbehaving server's response body for diagnostics.
-        Returns an empty bytes object once the connection has been closed
-        by the peer.
-
-        After this method returns, the connection's framing state is no
-        longer trustworthy. The caller must call `disconnect` before
-        sending further requests.
-
-        **Don't use this method unless you know exactly what you are
-        doing.**
-        '''
-
-        if self._sock is None:
-            raise ConnectionClosed('connection has been closed locally')
-
-        buf = bytearray()
-        rbuf = self._rbuf
-        while len(buf) < size:
-            if len(rbuf):
-                take = min(size - len(buf), len(rbuf))
-                buf += rbuf.d[rbuf.b : rbuf.b + take]
-                rbuf.b += take
-                continue
-
-            rbuf.compact()
-            res = self._try_fill_buffer()
-            if res is None:
-                await self._wait_readable()
-            elif res == 0:
-                break
-
-        return bytes(buf)
-
-    async def _read_id(self, len_: int) -> bytes | bytearray:
-        '''Read up to *len* bytes of response body assuming identity encoding'''
-
-        log.debug('start (len=%d)', len_)
-        assert self._in_remaining is not None
-
-        if not self._in_remaining:
-            # Body retrieved completely, clean up
-            self._in_remaining = None
-            self._pending_request = None
-            return b''
-
-        rbuf = self._rbuf
-        if self._in_remaining is not _State.READ_UNTIL_EOF:
-            assert isinstance(self._in_remaining, int)
-            len_ = min(len_, self._in_remaining)
-        log.debug('updated len_=%d', len_)
-
-        # If buffer is empty, reset so that we start filling from
-        # beginning. This check is already done by _try_fill_buffer(), but we
-        # have to do it here or we never enter the while loop if the buffer
-        # is empty but has no capacity (rbuf.b == rbuf.e == len(rbuf.d))
-        if rbuf.b == rbuf.e:
-            rbuf.clear()
-
-        # Loop while we could return more data than we have buffered
-        # and buffer is not full
-        while len(rbuf) < len_ and rbuf.e < len(rbuf.d):
-            got_data = self._try_fill_buffer()
-            if got_data is None:
-                if rbuf:
-                    log.debug('nothing more to read')
-                    break
-                else:
-                    log.debug('buffer empty and nothing to read, yielding..')
-                await self._wait_readable()
-            elif got_data == 0:
-                if self._in_remaining is _State.READ_UNTIL_EOF:
-                    log.debug('connection closed, %d bytes in buffer', len(rbuf))
-                    self._in_remaining = len(rbuf)
-                    break
-                else:
-                    raise ConnectionClosed('server closed connection')
-
-        len_ = min(len_, len(rbuf))
-        if self._in_remaining is not _State.READ_UNTIL_EOF:
-            assert isinstance(self._in_remaining, int)
-            self._in_remaining -= len_
-
-        if len_ < len(rbuf):
-            buf = rbuf.d[rbuf.b : rbuf.b + len_]
-            rbuf.b += len_
-        else:
-            buf = rbuf.exhaust()
-
-        # When reading until EOF, it is possible that we read only the EOF. In
-        # this case we won't get called again, so we need to clean-up the
-        # request. This can not happen when we know the number of remaining
-        # bytes, because in this case either the check at the start of the
-        # function hits, or we can't read the remaining data and raise.
-        if len(buf) == 0:
-            assert self._in_remaining == 0
-            self._in_remaining = None
-            self._pending_request = None
-
-        log.debug('done (%d bytes)', len(buf))
-        return buf
-
-    async def _read_chunked(self, len_: int) -> bytes | bytearray:
-        '''Read response body assuming chunked encoding'''
-
-        assert isinstance(self._in_remaining, int)
-
-        if self._in_remaining == 0:
-            log.debug('starting next chunk')
-            try:
-                line = await self._readstr_until(b'\r\n', MAX_LINE_SIZE)
-            except _ChunkTooLong:
-                raise InvalidResponse('could not find next chunk marker')
-
-            i = line.find(";")
-            if i >= 0:
-                log.debug('stripping chunk extensions: %s', line[i:])
-                line = line[:i]  # strip chunk-extensions
-            try:
-                self._in_remaining = int(line, 16)
-            except ValueError:
-                raise InvalidResponse('Cannot read chunk size %r' % line[:20])
-
-            log.debug('chunk size is %d', self._in_remaining)
-            if self._in_remaining == 0:
-                self._in_remaining = None
-                self._pending_request = None
-
-        if self._in_remaining is None:
-            res = b''
-        else:
-            res = await self._read_id(len_)
-
-        if not self._in_remaining:
-            log.debug('chunk complete')
-            await self._read_header()
-
-        log.debug('done')
-        return res
-
-    async def _readstr_until(self, substr: bytes | bytearray | memoryview, maxsize: int) -> str:
-        '''Read from server until *substr*, and decode to latin1
-
-        If *substr* cannot be found in the next *maxsize* bytes,
-        raises `_ChunkTooLong`.
-        '''
-
-        if not isinstance(substr, (bytes, bytearray, memoryview)):
-            raise TypeError('*substr* must be bytes-like')
-
-        log.debug('reading until %s', substr)
-
-        rbuf = self._rbuf
-        sub_len = len(substr)
-
-        # Make sure that substr cannot be split over more than one part
-        assert len(rbuf.d) > sub_len
-
-        parts = []
-        while True:
-            # substr may be split between last part and current buffer
-            # This isn't very performant, but it should be pretty rare
-            if parts and sub_len > 1:
-                buf = b''.join(
-                    (parts[-1][-sub_len:], rbuf.d[rbuf.b : min(rbuf.e, rbuf.b + sub_len - 1)])
-                )
-                idx = buf.find(substr)
-                if idx >= 0:
-                    idx -= sub_len
-                    break
-
-            # log.debug('rbuf is: %s', rbuf.d[rbuf.b:min(rbuf.e, rbuf.b+512)])
-            stop = min(rbuf.e, rbuf.b + maxsize)
-            idx = rbuf.d.find(substr, rbuf.b, stop)
-
-            if idx >= 0:  # found
-                break
-            if stop != rbuf.e:
-                raise _ChunkTooLong()
-
-            # If buffer is full, store away the part that we need for sure
-            if rbuf.e == len(rbuf.d):
-                log.debug('buffer is full, storing part')
-                buf = rbuf.exhaust()
-                parts.append(buf)
-                maxsize -= len(buf)
-
-            # Refill buffer
-            while True:
-                res = self._try_fill_buffer()
-                if res is None:
-                    log.debug('need more data, yielding')
-                    await self._wait_readable()
-                elif res == 0:
-                    raise ConnectionClosed('server closed connection')
-                else:
-                    break
-
-        log.debug('found substr at %d', idx)
-        idx += len(substr)
-        buf = rbuf.d[rbuf.b : idx]
-        rbuf.b = idx
-
-        if parts:
-            parts.append(buf)
-            buf = b''.join(parts)
-
-        try:
-            return buf.decode('latin1')
-        except UnicodeDecodeError:
-            raise InvalidResponse('server response cannot be decoded to latin1')
-
-    def _try_fill_buffer(self) -> Optional[int]:
-        '''Try to fill up read buffer
-
-        Returns the number of bytes read into buffer, or `None` if no data was
-        available on the socket. Return zero if the TCP connection has been
-        properly closed but the socket object still exists. On other problems
-        (e.g. if the socket object has been destroyed or the connection
-        interrupted), raise `ConnectionClosed`.
-        '''
-
-        log.debug('start')
-        rbuf = self._rbuf
-
-        # If buffer is empty, reset so that we start filling from beginning
-        if rbuf.b == rbuf.e:
-            rbuf.clear()
-
-        # There should be free capacity
-        assert rbuf.e < len(rbuf.d)
-
-        if self._sock is None:
-            raise ConnectionClosed('connection has been closed locally')
-
-        try:
-            len_ = self._sock.recv_into(memoryview(rbuf.d)[rbuf.e :])
-            if self.trace_fh:
-                self.trace_fh.write(rbuf.d[rbuf.e : rbuf.e + len_])
-        except (TimeoutError, ssl.SSLWantReadError, BlockingIOError):
-            log.debug('done (nothing ready)')
-            return None
-        except (ConnectionResetError, BrokenPipeError, ssl.SSLEOFError):
-            raise ConnectionClosed('connection was interrupted')
-        except ssl.SSLError as exc:
-            if exc.library == 'SSL' and exc.reason == 'UNEXPECTED_EOF_WHILE_READING':
-                raise ConnectionClosed('connection was interrupted')
-            else:
-                raise
-
-        rbuf.e += len_
-        log.debug('done (got %d bytes)', len_)
-        return len_
-
-    async def _fill_buffer(self, len_: int) -> None:
-        '''Make sure that there are at least *len_* bytes in buffer'''
-
-        rbuf = self._rbuf
-        if len_ > len(rbuf.d):
-            raise ValueError('Requested more bytes than buffer has capacity')
-        while len(rbuf) < len_:
-            if len(rbuf.d) - rbuf.b < len_:
-                self._rbuf.compact()
-            res = self._try_fill_buffer()
-            if res is None:
-                await self._wait_readable()
-            elif res == 0:
-                raise ConnectionClosed('server closed connection')
-
-    async def readall(self) -> bytes:
-        '''Read and return complete response body'''
-
-        if self._in_remaining is None:
-            return b''
-
-        log.debug('start')
-        parts = []
-        while True:
-            buf = await self.read(BUFFER_SIZE)
-            log.debug('got %d bytes', len(buf))
-            if not buf:
-                break
-            parts.append(buf)
-        buf = b''.join(parts)
-        log.debug('done (%d bytes)', len(buf))
-        if self.trace_fh:
-            self.trace_fh.write(buf)
-        return buf
-
-    async def discard(self) -> None:
-        '''Read and discard current response body'''
-
-        if self._in_remaining is None:
-            return
-
-        log.debug('start')
-        while True:
-            buf = await self.read(BUFFER_SIZE)
-            if not buf:
-                break
-            log.debug('discarding %d bytes', len(buf))
-        log.debug('done')
-
-    def disconnect(self) -> None:
-        '''Close HTTP connection.
-
-        Discards any in-flight pending response, so that the next
-        `send_request` can reconnect and start fresh. Any partially
-        sent request (`_out_remaining`) or partially read response
-        (`_in_remaining`) state is left in place: subsequent
-        `write`/`read` calls will raise `ConnectionClosed`,
-        whereas `send_request` reconnects and resets everything.
-        '''
-
-        log.debug('start')
-        if self.trace_fh:
-            self.trace_fh.close()
-        if self._sock:
-            self._sock.close()
-            self._sock = None
-            self._rbuf.clear()
-        else:
-            log.debug('already closed')
-        self._pending_request = None
-
-    def __enter__(self) -> HTTPConnection:
-        return self
-
-    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
-        self.disconnect()
-        return False
-
 
 _AMBIGUOUS_DNS_ERRNOS = (socket.EAI_NODATA, socket.EAI_NONAME, socket.EAI_AGAIN)
 
-
-def create_socket(address: tuple[str, int]) -> socket.socket:
-    '''Create a TCP socket connected to *address*.
-
-    Use `socket.create_connection` to create a connected socket and return
-    it. If a DNS related exception is raised, capture it and attempt to
-    determine if the DNS server is not reachable, or if the host name could
-    not be resolved. Then raise either `HostnameNotResolvable` or
-    `DNSUnavailable` as appropriate.
-
-    To distinguish between an unresolvable hostname and a problem with the
-    DNS server, attempt to resolve the addresses in `DNS_TEST_HOSTNAMES`. If
-    at least one test hostname can be resolved, assume that the DNS server
-    is available and that *address* can not be resolved.
-    '''
-
-    def connect() -> socket.socket:
-        try:
-            return socket.create_connection(address)
-        except (socket.gaierror, socket.herror) as exc:
-            if exc.errno in _AMBIGUOUS_DNS_ERRNOS:
-                raise _DNSError(address[0])
-            raise
-
-    try:
-        return connect()
-    except _DNSError:
-        pass
-
-    # Some DNS errors don't tell us whether the issue is permanent or temporary
-    # (cf. https://stackoverflow.com/questions/24855168/,
-    # https://stackoverflow.com/questions/24855669/). Resolve a few "well-known"
-    # hosts to disambiguate.
-    for hostname, port in DNS_TEST_HOSTNAMES:
-        try:
-            socket.getaddrinfo(hostname, port)
-        except (socket.gaierror, socket.herror) as exc:
-            if exc.errno in _AMBIGUOUS_DNS_ERRNOS:
-                continue
-            raise
-        # Reachable; try original address one more time in case DNS was only down briefly.
-        break
-    else:
-        raise DNSUnavailable(address[0])
-
-    try:
-        return connect()
-    except _DNSError:
-        raise HostnameNotResolvable(address[0])
-
-
-# Errno codes that indicate a potentially temporary network problem. Computed
-# at import time because not every code exists on every platform.
+#: Errno codes that indicate a potentially temporary network problem.
 _TEMP_NETWORK_ERRNOS = frozenset(
     code
     for code in (
@@ -1296,13 +71,824 @@ _TEMP_NETWORK_ERRNOS = frozenset(
     if code is not None
 )
 
+#: Default per-operation I/O timeout, in seconds. Applied to each individual
+#: network operation (`connect_tcp`, TLS handshake, single `read`, single
+#: `write`), *not* to a full request/response cycle. Callers that need a
+#: deadline on the whole operation must impose it themselves with
+#: `trio.move_on_after`.
+_DEFAULT_TIMEOUT_S: float = 30
+
+#: How many bytes to pull from the network in one go when assembling h11 events.
+_READ_CHUNK = 64 * 1024
+
+
+#: Type alias for the *body* parameter of `HTTPConnection.send_request`.
+#:
+#: A request body is always a sequence so that retries (e.g. on redirect)
+#: can re-iterate it. Items may be raw `bytes` chunks (sent verbatim) or
+#: seekable `BinaryInput` instances (read from offset 0 until EOF).
+BodyT = Sequence[bytes | BinaryInput]
+
+
+def fh_size(fh: BinaryInput) -> int:
+    '''Return the size of *fh* in bytes.
+
+    The file position after this call is undefined. Callers that need *fh*
+    positioned somewhere must seek explicitly.
+    '''
+
+    if isinstance(fh, BytesIO):
+        return fh.getbuffer().nbytes
+
+    fileno = getattr(fh, 'fileno', None)
+    if fileno is not None:
+        try:
+            fd = fileno()
+        except (OSError, UnsupportedOperation):
+            pass
+        else:
+            return os.fstat(fd).st_size
+
+    fh.seek(0, 2)
+    return fh.tell()
+
+
+@dataclass(slots=True)
+class HTTPResponse:
+    '''
+    Information about an HTTP response.
+
+    Instances of this class are returned by `HTTPConnection.send_request`
+    and expose the response status, reason, and headers. Response body
+    data has to be read directly from the `HTTPConnection` instance.
+    '''
+
+    #: HTTP method of the request this response is associated with.
+    method: str
+
+    #: Path of the request this response is associated with.
+    path: str
+
+    #: HTTP status code returned by the server.
+    status: int
+
+    #: HTTP reason phrase returned by the server.
+    reason: str
+
+    #: Response headers, an `email.message.Message` instance.
+    headers: email.message.Message
+
+    #: Length of the *transmitted* response body, or `None` if not known.
+    #: For responses where RFC 2616 mandates an empty body (HEAD requests,
+    #: 1xx, 204, 304) this is zero; the length of the body that *would*
+    #: have been sent can be read from the ``Content-Length`` header.
+    length: int | None = None
+
+
+class HostnameNotResolvable(Exception):
+    '''Raised if a host name does not resolve to an IP address.
+
+    Raised when a resolution attempt results in a `socket.gaierror` or
+    `socket.herror` exception with errno `socket.EAI_NODATA` or
+    `socket.EAI_NONAME`, but at least one of the hostnames in
+    `DNS_TEST_HOSTNAMES` can be resolved.
+    '''
+
+    def __init__(self, hostname: str) -> None:
+        self.name = hostname
+
+    def __str__(self) -> str:
+        return 'Host %s does not have any ip addresses' % self.name
+
+
+class DNSUnavailable(Exception):
+    '''Raised if the DNS server cannot be reached.
+
+    Raised when a resolution attempt results in a `socket.gaierror` or
+    `socket.herror` exception with errno `socket.EAI_AGAIN`, or if none of the
+    hostnames in `DNS_TEST_HOSTNAMES` can be resolved.
+    '''
+
+    def __init__(self, hostname: str) -> None:
+        self.name = hostname
+
+    def __str__(self) -> str:
+        return 'Unable to resolve %s, DNS server unavailable.' % self.name
+
+
+class _GeneralError(Exception):
+    msg = 'General HTTP Error'
+
+    def __init__(self, msg: str | None = None) -> None:
+        if msg:
+            self.msg = msg
+
+    def __str__(self) -> str:
+        return self.msg
+
+
+class StateError(_GeneralError):
+    '''Raised when an operation is invalid in the current connection state.'''
+
+    msg = 'Operation invalid in current connection state'
+
+
+class ExcessBodyData(_GeneralError):
+    '''Raised when more data is being written to the request body than announced.'''
+
+    msg = 'Cannot send larger request body than announced'
+
+
+class InvalidResponse(_GeneralError):
+    '''Raised if the server produced a response that is not valid HTTP.'''
+
+    msg = 'Server sent invalid response'
+
+
+class ConnectionClosed(_GeneralError):
+    '''
+    Raised when the connection has unexpectedly closed.
+
+    Also raised if the server signals it will close the connection (via a
+    ``Connection: close`` header). Such a response can still be read in full,
+    but the next attempt to send a request or read a response will raise the
+    exception. Call `HTTPConnection.aclose`; the next request will
+    automatically reconnect.
+    '''
+
+    msg = 'connection closed unexpectedly'
+
+
+class ConnectionTimedOut(_GeneralError):
+    '''Raised when an I/O operation does not complete within the configured timeout.'''
+
+    msg = 'send/recv timeout exceeded'
+
+
+class HTTPConnection:
+    '''
+    Encapsulates an HTTP/1.1 connection to a remote server.
+
+    Instances may be used as async context managers; `aclose` is called on exit.
+    '''
+
+    def __init__(
+        self,
+        hostname: str,
+        port: Optional[int] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        proxy: Optional[tuple[str, int]] = None,
+    ):
+        self.hostname = hostname
+        self.port = port if port is not None else (HTTPS_PORT if ssl_context else HTTP_PORT)
+        self.ssl_context = ssl_context
+        self.proxy = proxy
+
+        self._stream: AsyncNetworkStream | None = None
+        self._h11: h11.Connection | None = None
+        self._timeout: float = _DEFAULT_TIMEOUT_S
+
+        #: Method of the request whose response has not yet been completely
+        #: consumed; `None` otherwise. Used both to populate
+        #: `HTTPResponse.method`/`path` and to enforce send/read sequencing.
+        self._pending_method: str | None = None
+        self._pending_path: str | None = None
+
+        #: True when a response has been received but its body has not yet
+        #: been completely consumed.
+        self._response_open: bool = False
+
+    @property
+    def timeout(self) -> float:
+        return self._timeout
+
+    @timeout.setter
+    def timeout(self, value: int | float | None) -> None:
+        self._timeout = _DEFAULT_TIMEOUT_S if value is None else float(value)
+
+    async def connect(self) -> None:
+        '''Open the underlying TCP connection. Usually called automatically.'''
+
+        log.debug('start')
+        assert self._stream is None
+        backend = TrioBackend()
+
+        try:
+            if self.proxy:
+                log.debug('connecting to proxy %s', self.proxy)
+                self._stream = await backend.connect_tcp(
+                    host=self.proxy[0], port=self.proxy[1], timeout=self._timeout
+                )
+                if self.ssl_context:
+                    await self._tunnel()
+            else:
+                log.debug('connecting to %s:%d', self.hostname, self.port)
+                self._stream = await backend.connect_tcp(
+                    host=self.hostname, port=self.port, timeout=self._timeout
+                )
+        except httpcore.ConnectTimeout as exc:
+            raise ConnectionTimedOut(str(exc))
+        except httpcore.ConnectError as exc:
+            self._raise_dns_disambiguated(exc)
+            raise
+
+        if self.ssl_context and not self.proxy:
+            log.debug('starting TLS for %s', self.hostname)
+            assert self._stream is not None
+            try:
+                self._stream = await self._stream.start_tls(
+                    ssl_context=self.ssl_context,
+                    server_hostname=self.hostname,
+                    timeout=self._timeout,
+                )
+            except httpcore.ConnectTimeout as exc:
+                raise ConnectionTimedOut(str(exc))
+            except httpcore.ConnectError as exc:
+                _reraise_ssl_or_connection_closed(exc)
+
+        self._h11 = h11.Connection(our_role=h11.CLIENT)
+        self._pending_method = None
+        self._pending_path = None
+        self._response_open = False
+
+        log.debug('done')
+
+    def _raise_dns_disambiguated(self, exc: httpcore.ConnectError) -> None:
+        '''Translate a httpcore ConnectError with ambiguous DNS semantics.
+
+        For DNS-related errors that don't distinguish NXDOMAIN from "DNS
+        server unreachable", probe `DNS_TEST_HOSTNAMES` and raise either
+        `HostnameNotResolvable` or `DNSUnavailable`. For any other
+        `ConnectError`, return without raising so the caller can let the
+        original exception propagate.
+        '''
+        cause = exc.__cause__ or (exc.args[0] if exc.args else None)
+        if isinstance(cause, (socket.gaierror, socket.herror)) and (
+            cause.errno in _AMBIGUOUS_DNS_ERRNOS
+        ):
+            target = self.proxy[0] if self.proxy else self.hostname
+            for hostname, port in DNS_TEST_HOSTNAMES:
+                try:
+                    socket.getaddrinfo(hostname, port)
+                except (socket.gaierror, socket.herror) as probe_exc:
+                    if probe_exc.errno in _AMBIGUOUS_DNS_ERRNOS:
+                        continue
+                    raise
+                raise HostnameNotResolvable(target)
+            raise DNSUnavailable(target)
+
+    async def _tunnel(self) -> None:
+        '''Establish a CONNECT tunnel through an HTTP proxy for HTTPS traffic.'''
+
+        assert self._stream is not None
+        log.debug('CONNECT %s:%d', self.hostname, self.port)
+        request = ('CONNECT %s:%d HTTP/1.0\r\n\r\n' % (self.hostname, self.port)).encode('latin1')
+        await self._raw_write(request)
+
+        # Read until \r\n\r\n; CONNECT responses are short and headers-only.
+        buf = bytearray()
+        while b'\r\n\r\n' not in buf:
+            chunk = await self._raw_read(_READ_CHUNK)
+            if not chunk:
+                raise ConnectionClosed('proxy closed connection during CONNECT')
+            buf.extend(chunk)
+            if len(buf) > 64 * 1024:
+                raise InvalidResponse('CONNECT response exceeds 64 KiB')
+
+        status_line = bytes(buf).split(b'\r\n', 1)[0].decode('latin1', errors='replace')
+        parts = status_line.split(None, 2)
+        if len(parts) < 2 or not parts[1].isdigit():
+            raise InvalidResponse('CONNECT response invalid: %r' % status_line)
+        status = int(parts[1])
+        if status != 200:
+            await self.aclose()
+            raise ConnectionError('Tunnel connection failed: %s' % status_line)
+
+        # Wrap the proxy stream in TLS to talk to the destination server.
+        assert self.ssl_context is not None
+        try:
+            self._stream = await self._stream.start_tls(
+                ssl_context=self.ssl_context,
+                server_hostname=self.hostname,
+                timeout=self._timeout,
+            )
+        except httpcore.ConnectTimeout as exc:
+            raise ConnectionTimedOut(str(exc))
+        except httpcore.ConnectError as exc:
+            _reraise_ssl_or_connection_closed(exc)
+
+    async def _raw_write(self, data: bytes) -> None:
+        assert self._stream is not None
+        try:
+            await self._stream.write(data, timeout=self._timeout)
+        except httpcore.WriteTimeout as exc:
+            raise ConnectionTimedOut(str(exc))
+        except httpcore.WriteError as exc:
+            raise ConnectionClosed(str(exc))
+
+    async def _raw_read(self, size: int) -> bytes:
+        assert self._stream is not None
+        try:
+            return await self._stream.read(size, timeout=self._timeout)
+        except httpcore.ReadTimeout as exc:
+            raise ConnectionTimedOut(str(exc))
+        except httpcore.ReadError as exc:
+            raise ConnectionClosed(str(exc))
+
+    async def send_request(
+        self,
+        method: str,
+        path: str,
+        headers: Optional[Mapping[str, str]] = None,
+        body: BodyT = (),
+        body_len: int | None = None,
+        expect100: bool | None = None,
+    ) -> HTTPResponse:
+        '''Send an HTTP request and return the response.
+
+        *body* is a sequence of `bytes` chunks and/or seekable binary
+        file objects. An empty sequence (the default) sends no body.
+        File objects are seek'ed to position 0 before being read.
+
+        If *body_len* is given, it is used as the request's
+        ``Content-Length`` and takes precedence over a size derived from
+        the body items. Otherwise the length is computed by summing
+        `len()` of `bytes` items and `fh_size()` of file items, so every
+        file item must be seekable. Pass *body_len* explicitly when a stream
+        is not supported by `fh_size()`.
+
+        *expect100* controls the use of ``Expect: 100-continue``. When
+        unset (`None`), it defaults to `True` when the body contains
+        at least one stream and `False` otherwise. With
+        100-continue enabled the request headers are sent first; if the
+        server replies with a non-100 final response the body is
+        abandoned and that response is returned.
+
+        Returns an `HTTPResponse` describing the server's final response.
+        The response body must be read via `read`, `readall`, or
+        `discard` before the next request can be issued.
+        '''
+
+        log.debug('start (%s %s)', method, path)
+
+        # A body item that is not `bytes` must be a seekable file-like
+        # object. Treat a body that contains at least one such item as
+        # "streaming" — that decides the default for `Expect: 100-continue`
+        # and whether file positions need to be reset before sending.
+        has_fh = any(not isinstance(item, bytes) for item in body)
+
+        if body_len is None:
+            content_length = sum(
+                len(item) if isinstance(item, bytes) else fh_size(item) for item in body
+            )
+        else:
+            content_length = body_len
+
+        if expect100 is None:
+            expect100 = has_fh
+        if expect100 and not body:
+            raise ValueError('expect100 requires a body')
+
+        if self._stream is None:
+            await self.connect()
+        assert self._h11 is not None
+
+        if (
+            self._h11.our_state is h11.MUST_CLOSE
+            or self._h11.their_state is h11.MUST_CLOSE
+            or self._h11.our_state is h11.CLOSED
+            or self._h11.their_state is h11.CLOSED
+        ):
+            raise ConnectionClosed('connection was marked must-close')
+        if self._response_open or self._pending_method is not None:
+            raise StateError('previous response has not been read')
+        if self._h11.our_state is not h11.IDLE:
+            raise StateError('previous request not finished sending')
+
+        if headers is None:
+            req_headers = CaseInsensitiveDict()
+        elif isinstance(headers, CaseInsensitiveDict):
+            req_headers = headers
+        else:
+            req_headers = CaseInsensitiveDict(headers)
+
+        req_headers['Content-Length'] = str(content_length)
+        if expect100:
+            req_headers['Expect'] = '100-continue'
+
+        # Host header per RFC 7230 §5.4.
+        host = self.hostname
+        if host.find(':') >= 0:
+            host = f'[{host}]'
+        default_port = HTTPS_PORT if self.ssl_context else HTTP_PORT
+        req_headers['Host'] = host if self.port == default_port else f'{host}:{self.port}'
+
+        req_headers.setdefault('Accept-Encoding', 'identity')
+        req_headers.setdefault('Connection', 'keep-alive')
+
+        if self.proxy and not self.ssl_context:
+            target = 'http://{}{}'.format(req_headers['Host'], path).encode('latin1')
+        else:
+            target = path.encode('latin1')
+
+        h11_headers = [
+            (k.encode('latin1'), str(v).encode('latin1')) for k, v in req_headers.items()
+        ]
+        try:
+            await self._send_event(
+                h11.Request(method=method.encode('latin1'), target=target, headers=h11_headers)
+            )
+        except h11.LocalProtocolError as exc:
+            raise StateError(str(exc))
+
+        self._pending_method = method
+        self._pending_path = path
+
+        if not body:
+            await self._send_event(h11.EndOfMessage())
+            return await self._read_response()
+
+        if expect100:
+            resp = await self._read_response()
+            if resp.status != 100:
+                # Server rejected the body before it was sent. Once the
+                # caller has consumed the response body, `_finish_cycle`
+                # will reset h11 because our_state is stuck in SEND_BODY.
+                return resp
+
+        try:
+            await self._stream_body(body, content_length)
+            await self._send_event(h11.EndOfMessage())
+        except ConnectionClosed:
+            # Server closed connection while body was being sent. The
+            # error response, if any, may already be sitting in the
+            # receive buffer; try to read it. Otherwise drop the
+            # half-broken connection and re-raise.
+            try:
+                return await self._read_response()
+            except Exception:
+                log.debug('no usable response after mid-body close')
+                await self.aclose()
+                raise
+
+        return await self._read_response()
+
+    async def _stream_body(self, body: BodyT, total: int) -> None:
+        '''Stream *body* items as h11 Data events, sending exactly *total* bytes.
+
+        `bytes` items are emitted verbatim. File items are seek'ed to 0
+        and read until EOF or until *total* has been sent.
+        '''
+
+        remaining = total
+        for item in body:
+            if remaining <= 0:
+                break
+            if isinstance(item, bytes):
+                if len(item) > remaining:
+                    raise ExcessBodyData(
+                        'streaming body produced %d extra bytes' % (len(item) - remaining)
+                    )
+                if item:
+                    await self._send_event(h11.Data(data=item))
+                remaining -= len(item)
+            else:
+                remaining = await self._stream_file(item, remaining)
+        if remaining > 0:
+            raise StateError('streaming body produced %d bytes less than announced' % remaining)
+
+    async def _stream_file(self, fh: BinaryInput, remaining: int) -> int:
+        '''Read up to *remaining* bytes from *fh* (from position 0) as h11 Data events.
+
+        Reads happen off-thread for non-`BytesIO` files. Returns the new
+        *remaining* counter. The file is read until EOF or until
+        *remaining* bytes have been sent, whichever comes first.
+        '''
+
+        fh.seek(0)
+        sync = isinstance(fh, BytesIO)
+        while remaining > 0:
+            n = min(BUFSIZE, remaining)
+            if sync:
+                chunk = fh.read(n)
+            else:
+                # Wrapping the file object with `trio.wrap_file()` would be cleaner, but adds extra
+                # overhead and undefined behavior (will the sync object be closed when the async
+                # wrapper is garbage collected?), and just calls trio.to_thread.run_sync()
+                # internally anyway.
+                chunk = await trio.to_thread.run_sync(fh.read, n)
+            if not chunk:
+                return remaining
+            await self._send_event(h11.Data(data=bytes(chunk)))
+            remaining -= len(chunk)
+        return remaining
+
+    async def _send_event(self, event: h11.Event) -> None:
+        '''Serialise *event* through h11 and write the produced bytes.'''
+        assert self._h11 is not None
+        try:
+            data = self._h11.send(event)
+        except h11.LocalProtocolError as exc:
+            raise StateError(str(exc))
+        if data is not None:
+            await self._raw_write(data)
+
+    async def _read_response(self) -> HTTPResponse:
+        '''Read the response status line and headers and return an `HTTPResponse`.'''
+
+        log.debug('start')
+
+        assert self._h11 is not None
+        assert self._pending_method is not None
+        method = self._pending_method
+        path = self._pending_path
+        assert path is not None
+
+        while True:
+            try:
+                event = await self._next_event()
+            except h11.RemoteProtocolError as exc:
+                raise InvalidResponse(str(exc))
+
+            if isinstance(event, h11.InformationalResponse):
+                if event.status_code == 100:
+                    return HTTPResponse(
+                        method=method,
+                        path=path,
+                        status=100,
+                        reason=event.reason.decode('latin1'),
+                        headers=email.message.Message(policy=email.policy.HTTP),
+                        length=0,
+                    )
+                # Other 1xx (incl. 101 Upgrade) - skip per RFC 7231 §6.2.
+                log.debug('skipping 1xx response %d', event.status_code)
+                continue
+
+            if isinstance(event, h11.Response):
+                return self._make_response(
+                    method, path, event.status_code, event.reason.decode('latin1'), event.headers
+                )
+
+            raise InvalidResponse('unexpected h11 event during headers: %r' % type(event))
+
+    def _make_response(
+        self,
+        method: str,
+        path: str,
+        status: int,
+        reason: str,
+        h11_headers: object,
+    ) -> HTTPResponse:
+        '''Build an `HTTPResponse` and prime body-reading state.'''
+
+        assert self._h11 is not None
+        msg = email.message.Message(policy=email.policy.HTTP)
+        for k, v in h11_headers:  # type: ignore[attr-defined]
+            msg[k.decode('latin1')] = v.decode('latin1')
+
+        body_length: int | None
+        if status in (204, 304) or 100 <= status < 200 or method == 'HEAD':
+            body_length = 0
+        else:
+            body_length_str = msg.get('Content-Length')
+            if body_length_str is None:
+                body_length = None
+            else:
+                try:
+                    body_length = int(body_length_str)
+                except ValueError:
+                    raise InvalidResponse('Invalid content-length: %s' % body_length_str)
+
+        # If the body is known to be empty (HEAD, 204, 304, 1xx), drain the
+        # synthetic EndOfMessage that h11 emits so the cycle ends cleanly
+        # without forcing the caller to call read().
+        if body_length == 0:
+            with contextlib.suppress(h11.RemoteProtocolError):
+                next_event = self._h11.next_event()
+                if isinstance(next_event, h11.EndOfMessage) or next_event is h11.PAUSED:
+                    self._finish_cycle()
+                    return HTTPResponse(
+                        method=method,
+                        path=path,
+                        status=status,
+                        reason=reason,
+                        headers=msg,
+                        length=body_length,
+                    )
+        self._response_open = True
+
+        return HTTPResponse(
+            method=method,
+            path=path,
+            status=status,
+            reason=reason,
+            headers=msg,
+            length=body_length,
+        )
+
+    async def read(self) -> bytes | bytearray:
+        '''Read the next chunk of response body data.
+
+        Returns whatever the next ``h11.Data`` event yields (at most
+        ``_READ_CHUNK`` bytes), or ``b''`` at end-of-body. The returned
+        buffer is owned by the caller and may be modified in place.
+        '''
+        if self._stream is None:
+            raise ConnectionClosed('connection has been closed locally')
+        if not self._response_open:
+            return b''
+
+        while True:
+            try:
+                event = await self._next_event()
+            except h11.RemoteProtocolError as exc:
+                raise InvalidResponse(str(exc))
+
+            if isinstance(event, h11.Data):
+                if not event.data:
+                    continue
+                return bytearray(event.data)
+
+            if isinstance(event, h11.EndOfMessage) or event is h11.PAUSED:
+                self._finish_cycle()
+                return b''
+
+            raise InvalidResponse('unexpected h11 event during body: %r' % type(event))
+
+    async def read_raw(self) -> bytes:
+        '''Read uninterpreted data from the wire after a protocol error.
+
+        Returns whatever bytes h11 had already buffered (its
+        ``trailing_data``) prepended to a single socket read of up to
+        ``_READ_CHUNK`` bytes, or ``b''`` if the connection has been
+        closed and nothing remains. Intended for a single diagnostic
+        dump after `InvalidResponse`; after this call the connection's
+        framing state is no longer trustworthy, so call `aclose` before
+        sending further requests.
+        '''
+
+        if self._h11 is None:
+            trailing = b''
+        else:
+            trailing = self._h11.trailing_data[0]
+
+        if self._stream is None:
+            return trailing
+
+        return trailing + (await self._raw_read(_READ_CHUNK))
+
+    async def readall(self) -> bytes:
+        '''Read and return the complete response body.'''
+        if not self._response_open:
+            return b''
+        parts: list[bytes | bytearray] = []
+        while True:
+            buf = await self.read()
+            if not buf:
+                break
+            parts.append(buf)
+        return b''.join(parts)
+
+    async def discard(self) -> None:
+        '''Read and discard the entire response body.'''
+        while await self.read():
+            pass
+
+    async def readinto_fh(
+        self,
+        ofh: BinaryOutput,
+        update: Callable[[bytes | bytearray], None] | None = None,
+    ) -> None:
+        '''Copy the remaining response body into *ofh*.
+
+        Writes happen off-thread for non-`BytesIO` sinks. If *update* is
+        given, call it with each chunk after it has been written.
+        '''
+        use_async = not isinstance(ofh, BytesIO)
+        while True:
+            buf = await self.read()
+            if not buf:
+                return
+            if use_async:
+                await trio.to_thread.run_sync(ofh.write, buf)
+            else:
+                ofh.write(buf)
+            if update is not None:
+                update(buf)
+
+    async def _next_event(self) -> h11.Event | type[h11.NEED_DATA] | type[h11.PAUSED]:
+        '''Pull the next h11 event'''
+        assert self._h11 is not None
+        eof_seen = False
+        while True:
+            try:
+                event = self._h11.next_event()
+            except h11.RemoteProtocolError:
+                if eof_seen:
+                    # Peer closed before completing the message — surface as
+                    # ConnectionClosed rather than h11's protocol error.
+                    raise ConnectionClosed('server closed connection mid-response')
+                raise
+            if event is h11.NEED_DATA:
+                if eof_seen:
+                    raise ConnectionClosed('server closed connection mid-response')
+                data = await self._raw_read(_READ_CHUNK)
+                if not data:
+                    eof_seen = True
+                    self._h11.receive_data(b'')
+                else:
+                    self._h11.receive_data(data)
+                continue
+            return event
+
+    def _finish_cycle(self) -> None:
+        '''Reset per-cycle state and try to advance h11 to IDLE for keep-alive.'''
+        self._response_open = False
+        self._pending_method = None
+        self._pending_path = None
+
+        assert self._h11 is not None
+        if self._h11.our_state is h11.SEND_BODY:
+            # 100-continue rejection left our_state stuck in SEND_BODY; the
+            # wire is still keep-alive-clean since neither side sent a body.
+            self._h11 = h11.Connection(our_role=h11.CLIENT)
+            return
+        if self._h11.our_state is h11.DONE and self._h11.their_state is h11.DONE:
+            self._h11.start_next_cycle()
+        elif (
+            self._h11.our_state is h11.MUST_CLOSE
+            or self._h11.their_state is h11.MUST_CLOSE
+            or self._h11.our_state is h11.CLOSED
+            or self._h11.their_state is h11.CLOSED
+        ):
+            # Server signalled Connection: close; let the next send_request
+            # surface ConnectionClosed via its state check.
+            pass
+        else:
+            # Reaching this branch means h11 ended a cycle in a state that is
+            # neither IDLE-ready, must-close, nor closed. That violates the
+            # invariants of `send_request`/`_read_response` (or the server
+            # produced something we should have rejected earlier) and is a
+            # bug rather than something to paper over.
+            raise StateError(
+                'unexpected h11 state at end of cycle: our_state=%r, their_state=%r'
+                % (self._h11.our_state, self._h11.their_state)
+            )
+
+    async def aclose(self) -> None:
+        '''Close the underlying TCP connection'''
+
+        log.debug('start')
+        stream = self._stream
+        if stream is not None:
+            with contextlib.suppress(Exception):
+                await stream.aclose()
+            self._stream = None
+
+    def reset(self) -> None:
+        '''Invalidate active TCP connection and reset protocol state.
+
+        Schedules an asynchronous close of any attached stream before
+        clearing the reference, so the underlying socket is released
+        even when this is called from a synchronous context.
+        '''
+
+        log.debug('start')
+        if self._stream is not None:
+            trio.lowlevel.spawn_system_task(_aclose_stream, self._stream)
+            self._stream = None
+
+    async def __aenter__(self) -> HTTPConnection:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
+        await self.aclose()
+        return False
+
+
+async def _aclose_stream(stream: AsyncNetworkStream) -> None:
+    with contextlib.suppress(Exception):
+        await stream.aclose()
+
+
+def _reraise_ssl_or_connection_closed(exc: BaseException) -> None:
+    '''Walk *exc*'s cause chain; re-raise an SSL error if found, else ConnectionClosed.'''
+    cur: BaseException | None = exc
+    seen: set[int] = set()
+    while cur is not None and id(cur) not in seen:
+        if isinstance(cur, ssl.SSLError):
+            raise cur
+        seen.add(id(cur))
+        cur = cur.__cause__ or cur.__context__
+    raise ConnectionClosed(str(exc))
+
 
 def is_temp_network_error(exc: BaseException) -> bool:
-    '''Return true if *exc* represents a potentially temporary network problem
+    '''Return `True` if *exc* represents a potentially temporary network problem.
 
-    DNS resolution errors (`socket.gaierror` or `socket.herror`) are considered
-    permanent, because `HTTPConnection` employs a heuristic to convert these
-    exceptions to `HostnameNotResolvable` or `DNSUnavailable` instead.
+    DNS resolution errors (`socket.gaierror`, `socket.herror`) are considered
+    permanent because `HTTPConnection` already converts them to
+    `HostnameNotResolvable` or `DNSUnavailable`.
     '''
 
     if isinstance(
@@ -1313,13 +899,22 @@ def is_temp_network_error(exc: BaseException) -> bool:
             TimeoutError,
             InterruptedError,
             ConnectionClosed,
+            ConnectionTimedOut,
             ssl.SSLZeroReturnError,
             ssl.SSLEOFError,
             ssl.SSLSyscallError,
-            ConnectionTimedOut,
             DNSUnavailable,
+            httpcore.ConnectError,
+            httpcore.ConnectTimeout,
+            httpcore.ReadError,
+            httpcore.ReadTimeout,
+            httpcore.WriteError,
+            httpcore.WriteTimeout,
         ),
     ):
+        return True
+
+    if isinstance(exc, h11.RemoteProtocolError):
         return True
 
     return isinstance(exc, OSError) and exc.errno in _TEMP_NETWORK_ERRNOS
@@ -1329,65 +924,41 @@ class CaseInsensitiveDict(MutableMapping):
     """A case-insensitive `dict`-like object.
 
     Implements all methods and operations of
-    :class:`collections.abc.MutableMapping` as well as `.copy`.
+    :class:`collections.abc.MutableMapping`.
 
-    All keys are expected to be strings. The structure remembers the case of the
-    last key to be set, and :meth:`!iter`, :meth:`!keys` and :meth:`!items` will
-    contain case-sensitive keys. However, querying and contains testing is
-    case-insensitive::
+    All keys are expected to be strings. The structure remembers the case of
+    the last key to be set; iteration and `keys`/`items` return case-sensitive
+    keys, but lookups and `__contains__` are case-insensitive::
 
         cid = CaseInsensitiveDict()
         cid['Accept'] = 'application/json'
-        cid['aCCEPT'] == 'application/json' # True
-        list(cid) == ['Accept'] # True
+        cid['aCCEPT'] == 'application/json'  # True
+        list(cid) == ['Accept']               # True
 
-    For example, ``headers['content-encoding']`` will return the value of a
-    ``'Content-Encoding'`` response header, regardless of how the header name
-    was originally stored.
-
-    If the constructor, :meth:`!update`, or equality comparison operations are
-    given multiple keys that have equal lower-case representations, the behavior
-    is undefined.
+    Set operations preserve the case of the last-set key. If two keys differ
+    only in case, the last set value wins.
     """
 
-    def __init__(self, data: Mapping[str, str] | None = None, **kwargs: str) -> None:
-        self._store: dict[str, tuple[str, str]] = dict()
+    def __init__(self, data=None, **kwargs):
+        self._store: dict[str, tuple[str, str]] = {}
         if data is None:
             data = {}
         self.update(data, **kwargs)
 
-    def __setitem__(self, key: str, value: str) -> None:
-        # Use the lowercased key for lookups, but store the actual
-        # key alongside the value.
+    def __setitem__(self, key, value):
         self._store[key.lower()] = (key, value)
 
-    def __getitem__(self, key: str) -> str:
+    def __getitem__(self, key):
         return self._store[key.lower()][1]
 
-    def __delitem__(self, key: str) -> None:
+    def __delitem__(self, key):
         del self._store[key.lower()]
 
     def __iter__(self):
-        return (casedkey for casedkey, _ in self._store.values())
+        return (cased_key for cased_key, _value in self._store.values())
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self._store)
 
-    def lower_items(self):
-        """Like :meth:`!items`, but with all lowercase keys."""
-        return ((lowerkey, keyval[1]) for (lowerkey, keyval) in self._store.items())
-
-    def __eq__(self, other: object) -> bool:
-        if isinstance(other, Mapping):
-            other = CaseInsensitiveDict(other)  # type: ignore[arg-type]
-        else:
-            return NotImplemented
-        # Compare insensitively
-        return dict(self.lower_items()) == dict(other.lower_items())
-
-    # Copy is required
-    def copy(self) -> CaseInsensitiveDict:
-        return CaseInsensitiveDict(self._store.values())  # type: ignore[arg-type]
-
-    def __repr__(self) -> str:
-        return '%s(%r)' % (self.__class__.__name__, dict(self.items()))
+    def __repr__(self):
+        return str(dict(self.items()))

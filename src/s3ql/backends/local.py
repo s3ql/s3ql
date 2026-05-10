@@ -106,22 +106,19 @@ class AsyncBackend(AsyncBackendBase):
             except ThawError:
                 raise CorruptedObjectError('Invalid metadata')
 
-            copyfh(ifh, ofh)
+            await trio.to_thread.run_sync(copyfh, ifh, ofh)
         return metadata
 
     async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
-        len_: int,
         metadata: BasicMappingT | None = None,
     ) -> int:
-        '''Upload *len_* bytes from *fh* under *key*.
-
-        The data will be read at the current offset.
+        '''Upload the full contents of *fh* under *key*.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
-        retried.  Returns the size of the resulting storage object .
+        retried. Returns the size of the resulting storage object.
         '''
 
         if self.request_delay > 0:
@@ -139,6 +136,7 @@ class AsyncBackend(AsyncBackendBase):
         # conflicts between parallel reads, the last one wins
         tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
 
+        fh.seek(0)
         with ExitStack() as es:
             try:
                 dest = es.enter_context(open(tmpname, 'wb', buffering=0))
@@ -153,7 +151,7 @@ class AsyncBackend(AsyncBackendBase):
             dest.write(b's3ql_1\n')
             dest.write(struct.pack('<H', len(buf)))
             dest.write(buf)
-            copyfh(fh, dest, len_)
+            await trio.to_thread.run_sync(copyfh, fh, dest)
             size = dest.tell()
         os.rename(tmpname, path)
 

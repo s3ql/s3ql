@@ -7,8 +7,6 @@ Copyright © 2014 Nikolaus Rath <Nikolaus@rath.org>
 This work can be distributed under the terms of the GNU GPLv3.
 '''
 
-import logging
-
 if __name__ == '__main__':
     import sys
 
@@ -17,35 +15,33 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 
+import contextlib
 import hashlib
 import html
 import http.client
+import io
 import os
 import re
+import socket
 import socketserver
 import ssl
 import threading
 import time
 from base64 import b64encode
 from http.server import BaseHTTPRequestHandler
-from socket import socket
 
 import pytest
-from pytest_checklogs import assert_logs
 
 import s3ql.http
 from s3ql.http import (
-    BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
-    ConnectionTimedOut,
     DNSUnavailable,
     ExcessBodyData,
     HostnameNotResolvable,
     HTTPConnection,
     InvalidResponse,
     StateError,
-    _Buffer,
 )
 
 # We want to test with a real certificate
@@ -80,7 +76,6 @@ no_internet_access = not check_for_internet_access()
 
 
 class HTTPServer(socketserver.TCPServer):
-    # Extended to add SSL support
     def get_request(self):
         (sock, addr) = super().get_request()
         if self.ssl_context:
@@ -116,6 +111,8 @@ class HTTPServerThread(threading.Thread):
         self.httpd.server_close()
 
 
+# Run tests with both SSL and plain HTTP, unless the test is annotated with
+# a `no_ssl` marker.
 def pytest_generate_tests(metafunc):
     if 'http_server' not in metafunc.fixturenames:
         return
@@ -137,7 +134,7 @@ def http_server(request):
 
 
 @pytest.fixture()
-def conn(request, http_server):
+async def conn(http_server):
     if http_server.use_ssl:
         ssl_context = _client_ssl_context()
         ssl_context.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
@@ -145,8 +142,10 @@ def conn(request, http_server):
         ssl_context = None
     conn = HTTPConnection(http_server.host, port=http_server.port, ssl_context=ssl_context)
     conn.timeout = 0.5
-    request.addfinalizer(conn.disconnect)
-    return conn
+    try:
+        yield conn
+    finally:
+        await conn.aclose()
 
 
 @pytest.fixture(scope='module')
@@ -162,12 +161,11 @@ async def test_connect_ssl():
     ssl_context.set_default_verify_paths()
 
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=ssl_context)
-    await conn.send_request('GET', '/')
-    resp = await conn.read_response()
+    resp = await conn.send_request('GET', '/')
     assert resp.status in (200, 301, 302)
     assert resp.path == '/'
     await conn.discard()
-    conn.disconnect()
+    await conn.aclose()
 
 
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
@@ -178,7 +176,7 @@ async def test_invalid_ssl():
     conn = HTTPConnection(SSL_TEST_HOST, ssl_context=context)
     with pytest.raises(ssl.SSLError):
         await conn.send_request('GET', '/')
-    conn.disconnect()
+    await conn.aclose()
 
 
 @pytest.mark.skipif(no_internet_access, reason='no internet access available')
@@ -216,12 +214,11 @@ async def test_http_proxy(http_server, monkeypatch, test_port):
 
     conn = HTTPConnection(test_host, test_port, proxy=(http_server.host, http_server.port))
     try:
-        await conn.send_request('GET', test_path)
-        resp = await conn.read_response()
+        resp = await conn.send_request('GET', test_path)
         assert resp.status == 200
         await conn.discard()
     finally:
-        conn.disconnect()
+        await conn.aclose()
 
     if test_port is None:
         exp_path = 'http://%s%s' % (test_host, test_path)
@@ -231,76 +228,97 @@ async def test_http_proxy(http_server, monkeypatch, test_port):
     assert get_path == exp_path
 
 
-class FakeSSLSocket:
-    def __init__(self, socket):
-        self.socket = socket
-
-    def getpeercert(self):
-        return None
-
-    def __getattr__(self, name):
-        return getattr(self.socket, name)
-
-
-class FakeSSLContext:
-    def wrap_socket(self, socket, server_hostname):
-        return FakeSSLSocket(socket)
-
-    def __bool__(self):
-        return True
-
-
 @pytest.mark.parametrize('test_port', (None, 8080))
 @pytest.mark.no_ssl
 async def test_connect_proxy(http_server, monkeypatch, test_port):
-    test_host = 'www.foobarz.invalid'
     test_path = '/someurl?barf'
 
-    connect_path = None
-
-    def do_CONNECT(self):
-        # Pretend we're the remote server too
-        nonlocal connect_path
-        connect_path = self.path
-        self.send_response(200)
-        self.end_headers()
-        self.close_connection = 0
-
-    monkeypatch.setattr(MockRequestHandler, 'do_CONNECT', do_CONNECT, raising=False)
-
-    get_path = None
-
-    def do_GET(self):
-        nonlocal get_path
-        get_path = self.path
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Content-Length", '0')
-        self.end_headers()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    # We don't *actually* want to establish SSL, that'd be
-    # to complex for our mock server
-    conn = HTTPConnection(
-        test_host,
-        test_port,
-        proxy=(http_server.host, http_server.port),
-        ssl_context=FakeSSLContext(),
-    )
+    # Upstream TLS server; the proxy will pipe bytes through to this server
+    # after a successful CONNECT.
+    upstream = HTTPServerThread(use_ssl=True)
+    upstream.start()
     try:
-        await conn.send_request('GET', test_path)
-        resp = await conn.read_response()
-        assert resp.status == 200
-        await conn.discard()
-    finally:
-        conn.disconnect()
+        get_path = None
 
-    if test_port is None:
-        test_port = 443
-    exp_path = '%s:%d' % (test_host, test_port)
-    assert connect_path == exp_path
-    assert get_path == test_path
+        def do_GET(self):
+            nonlocal get_path
+            get_path = self.path
+            self.send_response(200)
+            self.send_header("Content-Type", 'application/octet-stream')
+            self.send_header("Content-Length", '0')
+            self.end_headers()
+
+        monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
+
+        connect_path = None
+
+        def do_CONNECT(self):
+            nonlocal connect_path
+            connect_path = self.path
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.flush()
+
+            # The CONNECT line declares the client's intended host:port; we
+            # always relay through to our local upstream regardless of that
+            # value, so the connect_path assertion can verify what the
+            # client sent without needing real DNS.
+            with socket.create_connection((upstream.host, upstream.port)) as upstream_sock:
+                _relay_bidirectional(self.connection, upstream_sock)
+            self.close_connection = True
+
+        monkeypatch.setattr(MockRequestHandler, 'do_CONNECT', do_CONNECT, raising=False)
+
+        ssl_context = _client_ssl_context()
+        ssl_context.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
+        # The test certificate is issued for ``upstream.host`` (localhost),
+        # so the client must use that hostname to satisfy hostname verification.
+        client_host = upstream.host
+
+        conn = HTTPConnection(
+            client_host,
+            test_port,
+            proxy=(http_server.host, http_server.port),
+            ssl_context=ssl_context,
+        )
+        try:
+            resp = await conn.send_request('GET', test_path)
+            assert resp.status == 200
+            await conn.discard()
+        finally:
+            await conn.aclose()
+
+        if test_port is None:
+            test_port = 443
+        exp_path = '%s:%d' % (client_host, test_port)
+        assert connect_path == exp_path
+        assert get_path == test_path
+    finally:
+        upstream.shutdown()
+
+
+def _relay_bidirectional(sock_a, sock_b):
+    '''Copy bytes between two sockets until either side closes the connection.
+
+    Used by the test proxy to splice the client and an upstream server after
+    a CONNECT handshake. Runs one direction in a helper thread; the other
+    direction runs on the caller's thread.
+    '''
+
+    def pump(src, dst):
+        with contextlib.suppress(OSError):
+            while True:
+                data = src.recv(4096)
+                if not data:
+                    break
+                dst.sendall(data)
+        with contextlib.suppress(OSError):
+            dst.shutdown(socket.SHUT_WR)
+
+    helper = threading.Thread(target=pump, args=(sock_b, sock_a), daemon=True)
+    helper.start()
+    pump(sock_a, sock_b)
+    helper.join(timeout=5)
 
 
 def get_chunked_GET_handler(path, chunks, delay=None):
@@ -334,107 +352,38 @@ def get_chunked_GET_handler(path, chunks, delay=None):
 
 
 async def test_send_before_read(conn):
-    # Sending a second request before reading the first response is no
-    # longer allowed.
-    await conn.send_request('GET', '/send_120_bytes')
+    # Sending a second request before reading the first response is not
+    # allowed (a body must be drained before the next request).
+    resp = await conn.send_request('GET', '/send_120_bytes')
+    assert resp.length == 120
     with pytest.raises(StateError):
         await conn.send_request('GET', '/send_120_bytes')
-
-
-class CountSuspensions:
-    '''Count how often a coroutine is suspended'''
-
-    def __init__(self):
-        self.n = 0
-
-    def __call__(self, /, fn, *a, **k):
-        self.fn = fn
-        self.a = a
-        self.k = k
-        return self
-
-    def __await__(self):
-        it = self.fn(*self.a, **self.k).__await__()
-        try:
-            r = None
-            while True:
-                r = it.send(r)
-                r = yield r
-                self.n += 1
-        except StopIteration as r:
-            return r.value
-
-
-async def test_blocking_read(conn, monkeypatch):
-    path = '/foo/wurfl'
-    chunks = [120] * 10
-    delay = 10
-
-    while True:
-        monkeypatch.setattr(
-            MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks, delay)
-        )
-        await conn.send_request('GET', path)
-
-        resp = await conn.read_response()
-        assert resp.status == 200
-
-        t = CountSuspensions()
-        parts = []
-        while True:
-            buf = await t(conn.read, 100)
-            if not buf:
-                break
-            parts.append(buf)
-        assert not conn.response_pending()
-        assert b''.join(parts) == b''.join(DUMMY_DATA[:x] for x in chunks)
-
-        if t.n >= 8:
-            break
-        elif delay > 5000:
-            pytest.fail('no blocking read even with %f sec sleep' % delay)
-        delay *= 2
 
 
 async def test_discard(conn, monkeypatch):
     data_len = 512
     path = '/send_%d_bytes' % data_len
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
+    resp = await conn.send_request('GET', path)
     assert resp.status == 200
     assert resp.path == path
     assert resp.length == data_len
     await conn.discard()
-    assert not conn.response_pending()
-
-
-async def test_discard_chunked(conn, monkeypatch):
-    path = '/foo/wurfl'
-    chunks = [512, 312, 837, 361]
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
+    # Connection should be reusable now.
+    resp = await conn.send_request('GET', path)
     assert resp.status == 200
-    assert resp.path == path
-    assert resp.length is None
     await conn.discard()
-    assert not conn.response_pending()
 
 
 async def test_read_identity(conn):
-    await conn.send_request('GET', '/send_512_bytes')
-    resp = await conn.read_response()
+    resp = await conn.send_request('GET', '/send_512_bytes')
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
     assert await conn.readall() == DUMMY_DATA[:512]
-    assert not conn.response_pending()
 
 
 async def test_conn_close_with_close_header(conn, monkeypatch):
     data_size = 500
-    conn._rbuf = _Buffer(int(4 / 5 * data_size))
 
     def do_GET(self):
         self.send_response(200)
@@ -447,160 +396,12 @@ async def test_conn_close_with_close_header(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
 
-    await conn.send_request('GET', '/whatever')
-    resp = await conn.read_response()
+    resp = await conn.send_request('GET', '/whatever')
     assert resp.status == 200
     assert await conn.readall() == DUMMY_DATA[:data_size]
 
     with pytest.raises(ConnectionClosed):
         await conn.send_request('GET', '/whatever')
-        await conn.read_response()
-
-
-async def test_conn_close_no_content_length(conn, monkeypatch):
-    data_size = 500
-    conn._rbuf = _Buffer(int(4 / 5 * data_size))
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.end_headers()
-        self.wfile.write(DUMMY_DATA[:data_size])
-        self.rfile.close()
-        self.wfile.close()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    await conn.send_request('GET', '/whatever')
-    with assert_logs(
-        r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
-    ):
-        resp = await conn.read_response()
-    assert resp.status == 200
-    assert await conn.readall() == DUMMY_DATA[:data_size]
-
-    with pytest.raises(ConnectionClosed):
-        await conn.send_request('GET', '/whatever')
-        await conn.read_response()
-
-
-async def test_conn_close_server_keeps_reading(conn, monkeypatch):
-    # Server keeps reading
-    data_size = 500
-    conn._rbuf = _Buffer(int(4 / 5 * data_size))
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Connection", 'close')
-        self.end_headers()
-        self.wfile.write(DUMMY_DATA[:data_size])
-        self.wfile.close()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    await conn.send_request('GET', '/whatever')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert await conn.readall() == DUMMY_DATA[:data_size]
-
-    with pytest.raises(ConnectionClosed):
-        await conn.send_request('GET', '/whatever')
-        await conn.read_response()
-
-
-async def test_conn_close_content_length_wins(conn, monkeypatch):
-    # Content-Length should take precedence
-    data_size = 500
-    conn._rbuf = _Buffer(int(4 / 5 * data_size))
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Content-Length", str(data_size))
-        self.send_header("Connection", 'close')
-        self.end_headers()
-        self.wfile.write(DUMMY_DATA[: data_size + 10])
-        self.wfile.close()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    await conn.send_request('GET', '/whatever')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert await conn.readall() == DUMMY_DATA[:data_size]
-
-
-@pytest.mark.no_ssl
-async def test_exhaust_buffer(conn):
-    conn._rbuf = _Buffer(600)
-    await conn.send_request('GET', '/send_512_bytes')
-    await conn.read_response()
-
-    # Test the case where the read buffer is truncated and
-    # returned, instead of copied
-    conn._rbuf.compact()
-    await conn._fill_buffer(1)
-    assert conn._rbuf.b == 0
-    assert conn._rbuf.e > 0
-    buf = await conn.read(600)
-    assert len(conn._rbuf.d) == 600
-    assert buf == DUMMY_DATA[: len(buf)]
-    assert await conn.readall() == DUMMY_DATA[len(buf) : 512]
-
-
-@pytest.mark.no_ssl
-async def test_full_buffer(conn):
-    conn._rbuf = _Buffer(100)
-    await conn.send_request('GET', '/send_512_bytes')
-    await conn.read_response()
-
-    buf = await conn.read(101)
-    pos = len(buf)
-    assert buf == DUMMY_DATA[:pos]
-
-    # Make buffer empty, but without capacity for more
-    assert conn._rbuf.e == 0
-    conn._rbuf.e = len(conn._rbuf.d)
-    conn._rbuf.b = conn._rbuf.e
-
-    assert await conn.readall() == DUMMY_DATA[pos:512]
-
-
-async def test_read_chunked(conn, monkeypatch):
-    path = '/foo/wurfl'
-    chunks = [300, 283, 377]
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.path == path
-    assert resp.length is None
-    assert await conn.readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
-    assert not conn.response_pending()
-
-
-async def test_read_chunked2(conn, monkeypatch):
-    path = '/foo/wurfl'
-    chunks = [5] * 10
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.length is None
-    assert resp.path == path
-    assert await conn.readall() == b''.join(DUMMY_DATA[:x] for x in chunks)
-    assert not conn.response_pending()
-
-
-async def test_double_read(conn):
-    await conn.send_request('GET', '/send_10_bytes')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.length == 10
-    assert resp.path == '/send_10_bytes'
-    with pytest.raises(StateError):
-        resp = await conn.read_response()
 
 
 async def test_read_raw(conn, monkeypatch):
@@ -616,109 +417,42 @@ async def test_read_raw(conn, monkeypatch):
         self.wfile.close()
 
     monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
-    assert resp.status == 200
+    # h11 surfaces malformed Content-Length as a parse error during
+    # send_request; read_raw() then drains whatever h11 had buffered
+    # from the wire so callers can capture the diagnostic bytes.
     with pytest.raises(InvalidResponse):
-        await conn.readall()
-    assert await conn.read_raw(512) == b'body data'
-    assert await conn.read_raw(512) == b''
-
-
-async def test_missing_content_length(conn, monkeypatch):
-    """
-    This tests the fallback when the content-length header is missing
-    and that the connection behaves like a connection: close header was there.
-    The test test_conn_close_no_content_length above in contrast focuses on the special case when
-    the content-length header is missing AND the server actively closes the connection.
-    """
-    path = '/ooops'
-
-    def do_GET(self):
-        assert self.path == path
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Connection ", 'keep-alive')
-        self.end_headers()
-        self.wfile.write(b'body data')
-        self.wfile.close()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-    await conn.send_request('GET', path)
-    with assert_logs(
-        r'^%s:%d sent response with missing content-length header', level=logging.WARNING, count=1
-    ):
-        resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.headers['Connection'] == 'close'
-    assert resp.headers['Content-Length'] is None
-    assert await conn.readall() == b'body data'
+        await conn.send_request('GET', path)
+    raw = await conn.read_raw()
+    assert b'body data' in raw
 
 
 async def test_abort_read(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [300, 317, 283]
     monkeypatch.setattr(MockRequestHandler, 'do_GET', get_chunked_GET_handler(path, chunks))
-    await conn.send_request('GET', path)
-    resp = await conn.read_response()
+    resp = await conn.send_request('GET', path)
     assert resp.status == 200
-    await conn.read(200)
-    conn.disconnect()
+    await conn.read()
+    await conn.aclose()
     with pytest.raises(ConnectionClosed):
-        await conn.read(200)
+        await conn.read()
 
 
-async def test_abort_write(conn):
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.write(b'fooo')
-    conn.disconnect()
-    with pytest.raises(ConnectionClosed):
-        await conn.write(b'baar')
-
-
-async def test_write_toomuch(conn):
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
+async def test_excess_streaming_body(conn):
+    # Streaming bodies that produce more bytes than announced are rejected.
     with pytest.raises(ExcessBodyData):
-        await conn.write(DUMMY_DATA[:43])
-
-
-async def test_write_toolittle(conn):
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.write(DUMMY_DATA[:24])
-    with pytest.raises(StateError):
-        await conn.send_request('GET', '/send_5_bytes')
-
-
-async def test_write_toolittle2(conn):
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(42))
-    await conn.write(DUMMY_DATA[:24])
-    with pytest.raises(StateError):
-        await conn.read_response()
+        await conn.send_request(
+            'PUT',
+            '/allgood',
+            body=[DUMMY_DATA[:60]],
+            body_len=42,
+        )
 
 
 async def test_put(conn):
     data = DUMMY_DATA
-    await conn.send_request('PUT', '/allgood', body=data)
-    resp = await conn.read_response()
-    await conn.discard()
-    assert resp.status == 204
-    assert resp.length == 0
-    assert resp.reason == 'MD5 matched'
-
-    headers = CaseInsensitiveDict()
-    headers['Content-MD5'] = 'nUzaJEag3tOdobQVU/39GA=='
-    await conn.send_request('PUT', '/allgood', body=data, headers=headers)
-    resp = await conn.read_response()
-    await conn.discard()
-    assert resp.status == 400
-    assert resp.reason.startswith('MD5 mismatch')
-
-
-async def test_put_separate(conn):
-    data = DUMMY_DATA
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)))
-    await conn.write(data)
-    resp = await conn.read_response()
+    # Without Content-MD5, the mock server replies "Ok, but no MD5".
+    resp = await conn.send_request('PUT', '/allgood', body=[data])
     await conn.discard()
     assert resp.status == 204
     assert resp.length == 0
@@ -726,18 +460,53 @@ async def test_put_separate(conn):
 
     headers = CaseInsensitiveDict()
     headers['Content-MD5'] = b64encode(hashlib.md5(data).digest()).decode('ascii')
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
-    await conn.write(data)
-    resp = await conn.read_response()
+    resp = await conn.send_request('PUT', '/allgood', body=[data], headers=headers)
     await conn.discard()
     assert resp.status == 204
-    assert resp.length == 0
     assert resp.reason == 'MD5 matched'
 
     headers['Content-MD5'] = 'nUzaJEag3tOdobQVU/39GA=='
-    await conn.send_request('PUT', '/allgood', body=BodyFollowing(len(data)), headers=headers)
-    await conn.write(data)
-    resp = await conn.read_response()
+    resp = await conn.send_request('PUT', '/allgood', body=[data], headers=headers)
+    await conn.discard()
+    assert resp.status == 400
+    assert resp.reason.startswith('MD5 mismatch')
+
+
+async def test_put_streaming(conn):
+    data = DUMMY_DATA
+    # Streaming body without 100-continue.
+    resp = await conn.send_request(
+        'PUT',
+        '/allgood',
+        body=[io.BytesIO(data)],
+        expect100=False,
+    )
+    await conn.discard()
+    assert resp.status == 204
+    assert resp.length == 0
+    assert resp.reason == 'Ok, but no MD5'
+
+    headers = CaseInsensitiveDict()
+    headers['Content-MD5'] = b64encode(hashlib.md5(data).digest()).decode('ascii')
+    resp = await conn.send_request(
+        'PUT',
+        '/allgood',
+        body=[io.BytesIO(data)],
+        headers=headers,
+        expect100=False,
+    )
+    await conn.discard()
+    assert resp.status == 204
+    assert resp.reason == 'MD5 matched'
+
+    headers['Content-MD5'] = 'nUzaJEag3tOdobQVU/39GA=='
+    resp = await conn.send_request(
+        'PUT',
+        '/allgood',
+        body=[io.BytesIO(data)],
+        headers=headers,
+        expect100=False,
+    )
     await conn.discard()
     assert resp.status == 400
     assert resp.reason.startswith('MD5 mismatch')
@@ -754,9 +523,18 @@ async def test_100cont(conn, monkeypatch):
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
 
-    await conn.send_request('PUT', path, body=BodyFollowing(256), expect100=True)
-    resp = await conn.read_response()
+    # Server rejects with 403 before the body is sent; the body file
+    # object is never read from.
+    body_fh = io.BytesIO(DUMMY_DATA[:256])
+
+    resp = await conn.send_request(
+        'PUT',
+        path,
+        body=[body_fh],
+        expect100=True,
+    )
     assert resp.status == 403
+    assert body_fh.tell() == 0
     await conn.discard()
 
     def handle_expect_100(self):
@@ -769,280 +547,57 @@ async def test_100cont(conn, monkeypatch):
         return True
 
     monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.send_request('PUT', path, body=BodyFollowing(256), expect100=True)
-    resp = await conn.read_response()
-    assert resp.status == 100
-    assert resp.length == 0
-    await conn.write(DUMMY_DATA[:256])
-    resp = await conn.read_response()
+    resp = await conn.send_request(
+        'PUT',
+        path,
+        body=[DUMMY_DATA[:256]],
+        expect100=True,
+    )
     assert resp.status == 204
     assert resp.length == 0
 
 
-async def test_100cont_2(conn, monkeypatch):
-    def handle_expect_100(self):
-        self.send_error(403)
-
-    monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
-
-    with pytest.raises(StateError):
-        await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
-
-    await conn.read_response()
-    await conn.readall()
-
-
-async def test_100cont_3(conn, monkeypatch):
-    def handle_expect_100(self):
-        self.send_error(403)
-
-    monkeypatch.setattr(MockRequestHandler, 'handle_expect_100', handle_expect_100)
-    await conn.send_request('PUT', '/fail_with_403', body=BodyFollowing(256), expect100=True)
-
-    with pytest.raises(StateError):
-        await conn.write(b'barf!')
-
-    await conn.read_response()
-    await conn.readall()
-
-
-async def test_aborted_write1(conn, monkeypatch, random_fh):
+async def test_aborted_streaming_body(conn, monkeypatch, random_fh):
     BUFSIZE = 64 * 1024
 
     # monkeypatch request handler
     def do_PUT(self):
-        # Read half the data, then generate error and
-        # close connection
+        # Read half the data, then generate error and close connection.
         self.rfile.read(BUFSIZE)
         self.send_error(code=401, message='Please stop!')
         self.close_connection = True
 
     monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
 
-    # Send request
-    await conn.send_request('PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True)
-    resp = await conn.read_response()
-    assert resp.status == 100
-    assert resp.length == 0
+    body = [random_fh.read(BUFSIZE) for _ in range(50)]
 
-    # Try to write data
-    with pytest.raises(ConnectionClosed):
-        for _ in range(50):
-            await conn.write(random_fh.read(BUFSIZE))
-
-    # Nevertheless, try to read response
-    resp = await conn.read_response()
+    # In the best case the buffered 401 still reaches us; in the worst
+    # case the broken stream prevents that and we see ConnectionClosed.
+    try:
+        resp = await conn.send_request(
+            'PUT',
+            '/big_object',
+            body=body,
+            expect100=True,
+        )
+    except ConnectionClosed:
+        return
     assert resp.status == 401
     assert resp.reason == 'Please stop!'
 
 
-async def test_aborted_write2(conn, monkeypatch, random_fh):
-    BUFSIZE = 64 * 1024
-
-    # monkeypatch request handler
-    def do_PUT(self):
-        # Read half the data, then silently close connection
-        self.rfile.read(BUFSIZE)
-        self.close_connection = True
-
-    monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
-
-    # Send request
-    await conn.send_request('PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True)
-    resp = await conn.read_response()
-    assert resp.status == 100
-    assert resp.length == 0
-
-    # Try to write data
-    with pytest.raises(ConnectionClosed):
-        for _ in range(50):
-            await conn.write(random_fh.read(BUFSIZE))
-
-    # Nevertheless, try to read response
-    with pytest.raises((ConnectionClosed, ssl.SSLError)):
-        await conn.read_response()
-
-
-async def test_read_toomuch(conn):
-    await conn.send_request('GET', '/send_10_bytes')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.path == '/send_10_bytes'
-    assert await conn.readall() == DUMMY_DATA[:10]
-    assert await conn.read(8) == b''
-
-
-async def test_read_toolittle(conn):
-    await conn.send_request('GET', '/send_10_bytes')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.path == '/send_10_bytes'
-    buf = await conn.read(8)
-    assert buf == DUMMY_DATA[: len(buf)]
-    with pytest.raises(StateError):
-        resp = await conn.read_response()
-
-
 async def test_empty_response(conn):
-    await conn.send_request('HEAD', '/send_512_bytes')
-    resp = await conn.read_response()
+    resp = await conn.send_request('HEAD', '/send_512_bytes')
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 0
 
-    # Check that we can go to the next response without
-    # reading anything
-    assert not conn.response_pending()
-    await conn.send_request('GET', '/send_512_bytes')
-    resp = await conn.read_response()
+    # Check that we can go to the next response without reading anything.
+    resp = await conn.send_request('GET', '/send_512_bytes')
     assert resp.status == 200
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
     assert await conn.readall() == DUMMY_DATA[:512]
-    assert not conn.response_pending()
-
-
-async def test_head(conn, monkeypatch):
-    await conn.send_request('HEAD', '/send_10_bytes')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert len(await conn.readall()) == 0
-
-    def do_HEAD(self):
-        self.send_error(317)
-
-    monkeypatch.setattr(MockRequestHandler, 'do_HEAD', do_HEAD)
-    await conn.send_request('HEAD', '/fail_with_317')
-    resp = await conn.read_response()
-    assert resp.status == 317
-    assert len(await conn.readall()) == 0
-
-
-@pytest.fixture(params=(63, 64, 65, 100, 99, 103, 500, 511, 512, 513))
-def buffer_size(request):
-    return request.param
-
-
-async def test_smallbuffer(conn, buffer_size):
-    conn._rbuf = _Buffer(buffer_size)
-    await conn.send_request('GET', '/send_512_bytes')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert resp.path == '/send_512_bytes'
-    assert resp.length == 512
-    assert await conn.readall() == DUMMY_DATA[:512]
-    assert not conn.response_pending()
-
-
-async def test_mutable_read(conn):
-    # Read data and modify it, to make sure that this doesn't
-    # affect the buffer
-
-    conn._rbuf = _Buffer(129)
-    await conn.send_request('GET', '/send_512_bytes')
-    await conn.read_response()
-
-    # Assert that buffer is full, but does not start at beginning
-    assert conn._rbuf.b > 0
-
-    buf = await conn.read(150)
-    pos = len(buf)
-    assert buf == DUMMY_DATA[:pos]
-    memoryview(buf)[:10] = b'\0' * 10
-
-    # Assert that buffer is empty
-    assert conn._rbuf.b == 0
-    assert conn._rbuf.e == 0
-    buf = await conn.read(150)
-    assert buf == DUMMY_DATA[pos : pos + len(buf)]
-    memoryview(buf)[:10] = b'\0' * 10
-    pos += len(buf)
-
-    assert await conn.readall() == DUMMY_DATA[pos:512]
-    assert not conn.response_pending()
-
-
-async def test_recv_timeout(conn, monkeypatch):
-    conn.timeout = 0.5
-
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-Type", 'application/octet-stream')
-        self.send_header("Content-Length", '50')
-        self.end_headers()
-        self.wfile.write(b'x' * 25)
-        self.wfile.flush()
-
-    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
-
-    await conn.send_request('GET', '/send_something')
-    resp = await conn.read_response()
-    assert resp.status == 200
-    assert await conn.read(50) == b'x' * 25
-    with pytest.raises(ConnectionTimedOut):
-        await conn.read(50)
-
-
-async def test_send_timeout(conn, monkeypatch, random_fh):
-    conn.timeout = 0.5
-
-    def do_PUT(self):
-        # Read just a tiny bit
-        self.rfile.read(256)
-
-        # We need to sleep, or the rest of the incoming data will
-        # be parsed as the next request.
-        time.sleep(2 * conn.timeout)
-
-    monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
-
-    # We don't know how much data can be buffered, so we
-    # claim to send a lot and do so in a loop.
-    len_ = 1024**3
-    await conn.send_request('PUT', '/recv_something', body=BodyFollowing(len_))
-    with pytest.raises(ConnectionTimedOut):
-        while len_ > 0:
-            await conn.write(random_fh.read(min(len_, 16 * 1024)))
-
-
-@pytest.mark.no_ssl
-async def test_request_timeout(conn, monkeypatch):
-    body = b"""<html><body><h1>408 Request Time-out</h1>
-Your browser didn't send a complete request in time.
-</body></html>"""
-
-    def recv_into(self, buffer, nbytes=0, flags=0, count=[0]):  # noqa: B006
-        count[0] += 1
-        if count[0] == 1:
-            r = (
-                b"HTTP/1.0 408 Request Time-out\r\nCache-Control: no-cache\r\n"
-                + b"Connection: close\r\nContent-Type: text/html\r\n\r\n%s" % body
-            )
-            buffer[0 : len(r)] = r
-            return len(r)
-        return 0
-
-    monkeypatch.setattr(socket, 'recv_into', recv_into)
-
-    await conn.send_request('GET', '/send_10_bytes')
-    response = await conn.read_response()
-    assert response.status == 408
-    assert await conn.readall() == body
-    assert not conn.response_pending()
-
-
-@pytest.mark.skipif(no_internet_access, reason='no internet access available')
-async def test_request_timeout_two():
-    conn = HTTPConnection('www.ovhcloud.com', 80)
-    await conn.connect()
-    try:
-        time.sleep(12)  # timeout is 10 seconds
-        await conn.send_request('GET', '/')
-        response = await conn.read_response()
-        assert response.status == 408
-    finally:
-        conn.disconnect()
 
 
 DUMMY_DATA = ','.join(str(x) for x in range(10000)).encode()

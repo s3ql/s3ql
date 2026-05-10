@@ -528,6 +528,10 @@ def copyfh(
 
     If *update* is specified, call it with each block after the block
     has been written to the output handle.
+
+    The reads and writes block, so when invoked from a Trio context the
+    call must be dispatched through `trio.to_thread.run_sync` to avoid
+    stalling the event loop.
     '''
 
     while len_ is None or len_ > 0:

@@ -227,7 +227,7 @@ async def yield_mock_backend(bi):
     if isinstance(backend, gs.AsyncBackend):
         backend.use_oauth2 = True
         backend.hdr_prefix = 'x-goog-'  # Normally set in __init__
-        backend.access_token[backend.password] = 'foobar'
+        backend._tokens[backend.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
 
     backend.unittest_info = Namespace()
 
@@ -321,7 +321,8 @@ async def test_readinto_write_fh(backend: AsyncBackend):
     with assert_raises(NoSuchObject):
         await backend.readinto_fh(key, buf)
 
-    assert await backend.write_fh(key, BytesIO(value), len(value), metadata) > 0
+    extra = {'len_': len(value)} if isinstance(backend, AsyncComprencBackend) else {}
+    assert await backend.write_fh(key, BytesIO(value), metadata=metadata, **extra) > 0
 
     assert await backend.contains(key)
 
@@ -333,7 +334,7 @@ async def test_readinto_write_fh(backend: AsyncBackend):
 
 
 @pytest.mark.trio
-@pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
+@pytest.mark.with_backend('*/{plain,aes+zlib}')
 async def test_write_fh_partial(backend: AsyncBackend):
     key = newname()
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
@@ -341,7 +342,7 @@ async def test_write_fh_partial(backend: AsyncBackend):
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert await backend.write_fh(key, buf, 20, metadata) > 0
+    assert await backend.write_fh(key, buf, len_=20, metadata=metadata) > 0
 
     buf2 = BytesIO()
     await backend.readinto_fh(key, buf2)
@@ -350,7 +351,7 @@ async def test_write_fh_partial(backend: AsyncBackend):
 
 
 @pytest.mark.trio
-@pytest.mark.with_backend('*/{plain,raw,aes+zlib}')
+@pytest.mark.with_backend('*/{plain,aes+zlib}')
 async def test_write_fh_off(backend: AsyncBackend):
     key = newname()
     metadata: BasicMappingT = {'jimmy': 'jups@42'}
@@ -358,7 +359,7 @@ async def test_write_fh_off(backend: AsyncBackend):
     buf = BytesIO(data)
 
     buf.seek(10)
-    assert await backend.write_fh(key, buf, len(data[10:]), metadata) > 0
+    assert await backend.write_fh(key, buf, len_=len(data[10:]), metadata=metadata) > 0
 
     buf2 = BytesIO()
     await backend.readinto_fh(key, buf2)
@@ -1015,7 +1016,7 @@ async def test_expired_token_get(backend, monkeypatch):
     def _get_access_token(self):
         nonlocal token_refreshed
         token_refreshed = True
-        self.access_token[self.password] = 'foobar'
+        self._tokens[self.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
 
     monkeypatch.setattr(gs.AsyncBackend, '_get_access_token', _get_access_token)
 
@@ -1053,7 +1054,7 @@ async def test_expired_token_put(backend, monkeypatch):
     def _get_access_token(self):
         nonlocal token_refreshed
         token_refreshed = True
-        self.access_token[self.password] = 'foobar'
+        self._tokens[self.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
 
     monkeypatch.setattr(gs.AsyncBackend, '_get_access_token', _get_access_token)
 
@@ -1102,7 +1103,7 @@ async def test_conn_abort(backend, monkeypatch):
 
     # Since we have disabled retry on failure, the connection is not automatically
     # reset after the error.
-    backend.backend.conn.disconnect()
+    backend.backend.conn.reset()
 
     enable_temp_fail(backend)
     assert (await backend.fetch(key))[0] == data

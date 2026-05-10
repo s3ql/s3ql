@@ -13,6 +13,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 import argparse
 import contextlib
+import io
 import logging
 import os
 import shutil
@@ -188,8 +189,9 @@ async def main_async(options: argparse.Namespace) -> None:
     while upload_time < 10 and size <= (rnd_fh_size / 2):
         size *= 2
         rnd_fh.seek(0)
+        upload_fh = io.BytesIO(rnd_fh.read(size))
         stamp = time.time()
-        upload_size = await backend.write_fh('s3ql_testdata', rnd_fh, size)
+        upload_size = await backend.write_fh('s3ql_testdata', upload_fh)
         upload_time = time.time() - stamp
         assert upload_time > 0, 'Upload took 0 seconds'
     backend_speed = upload_size / upload_time

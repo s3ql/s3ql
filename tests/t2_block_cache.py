@@ -567,9 +567,6 @@ class _MockAsyncBackend:
         async with self._pool.backend_pool() as conn:
             return await conn.get_size(key)
 
-    async def reset(self) -> None:
-        pass
-
 
 async def start_flush(cache, inode, block=None):
     """Upload data for `inode`

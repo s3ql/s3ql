@@ -17,6 +17,8 @@ import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from itertools import count
 
 import google.auth as g_auth
@@ -24,12 +26,11 @@ import google.auth.exceptions  # noqa: F401
 import trio
 
 from s3ql.http import (
-    BodyFollowing,
+    BodyT,
     CaseInsensitiveDict,
-    ConnectionClosed,
     HTTPConnection,
     HTTPResponse,
-    UnsupportedResponse,
+    fh_size,
     is_temp_network_error,
 )
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
@@ -43,8 +44,6 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
-    copy_from_http,
-    copy_to_http,
     get_proxy,
     get_ssl_context,
     retry,
@@ -101,8 +100,21 @@ class RequestError(Exception):
 
 class AccessTokenExpired(Exception):
     '''
-    Raised if the access token has expired.
+    Raised if the server rejected the access token as expired.
     '''
+
+
+@dataclass(slots=True)
+class _Token:
+    '''Cached OAuth2 bearer token with its expiry deadline.
+
+    *deadline* is a `trio.current_time()` value already adjusted by the
+    safety margin; once the current time crosses it, the token must be
+    refreshed before use.
+    '''
+
+    bearer: str
+    deadline: float
 
 
 def _parse_error_response(resp: HTTPResponse, body: bytes) -> RequestError:
@@ -162,11 +174,22 @@ class AsyncBackend(AsyncBackendBase):
 
     known_options: set[str] = {'ssl-ca-path', 'tcp-timeout'}
 
+    # Refresh access tokens at most this far before their nominal expiry.
+    # Protects against clock skew between us and the OAuth endpoint, and
+    # against tokens expiring mid-request.
+    _TOKEN_SAFETY_MARGIN = 300.0
+
+    # Conservative fallback lifetime if the server omits `expires_in` or
+    # the ADC credential has no usable expiry. Google access tokens are
+    # nominally valid for 3600s, so this still leaves us a fresh token
+    # most of the time.
+    _TOKEN_DEFAULT_LIFETIME = 30 * 60.0
+
     # We don't want to request an access token for each instance,
     # because there is a limit on the total number of valid tokens.
     # This class variable holds the mapping from refresh tokens to
     # access tokens.
-    access_token: dict[str, str] = dict()
+    _tokens: dict[str, _Token] = dict()
     _refresh_lock: trio.Lock = trio.Lock()
     adc: tuple[object, object] | None = None
 
@@ -262,11 +285,6 @@ class AsyncBackend(AsyncBackendBase):
             raise
         _parse_json_response(resp, await self.conn.readall())
 
-    async def reset(self) -> None:
-        if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
-            log.debug('Resetting state of http connection %d', id(self.conn))
-            self.conn.disconnect()
-
     def _get_conn(self) -> HTTPConnection:
         '''Return connection to server'''
 
@@ -278,17 +296,16 @@ class AsyncBackend(AsyncBackendBase):
 
     def is_temp_failure(self, exc: BaseException) -> bool:
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We probably can't use the connection anymore, so disconnect (can't use reset, since
-            # this would immediately attempt to reconnect, circumventing retry logic)
-            self.conn.disconnect()
+            # We probably can't use the connection anymore
+            self.conn.reset()
             return True
 
         elif isinstance(exc, RequestError) and (500 <= exc.code <= 599 or exc.code == 408):
             return True
 
         elif isinstance(exc, AccessTokenExpired):
-            # Delete may fail if multiple threads encounter the same error
-            self.access_token.pop(self.refresh_token, None)
+            # Concurrent failures may race to remove the same entry.
+            self._tokens.pop(self.refresh_token, None)
             return True
 
         # Not clear at all what is happening here, but in doubt we retry
@@ -300,16 +317,9 @@ class AsyncBackend(AsyncBackendBase):
     async def _assert_empty_response(self, resp: HTTPResponse) -> None:
         '''Assert that current response body is empty'''
 
-        buf = await self.conn.read(2048)
+        buf = await self.conn.read()
         if not buf:
             return  # expected
-
-        body = '\n'.join('%s: %s' % x for x in resp.headers.items())
-
-        hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
-        if hit:
-            charset = hit.group(1)
-            body += '\n' + buf.decode(charset, errors='backslashreplace')
 
         log.warning('Expected empty response body, but got data - this is odd.')
         raise ServerResponseError(resp, error='expected empty response')
@@ -427,35 +437,27 @@ class AsyncBackend(AsyncBackendBase):
                 raise mapped_exc
             raise
 
-        await copy_from_http(self.conn, fh)
+        await self.conn.readinto_fh(fh)
 
         return metadata
 
+    @retry
     async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
-        len_: int,
         metadata: BasicMappingT | None = None,
     ) -> int:
-        '''Upload *len_* bytes from *fh* under *key*.
-
-        The data will be read at the current offset.
+        '''Upload the full contents of *fh* under *key*.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried. Returns the size of the resulting storage object.
         '''
 
-        off = fh.tell()
-        return await self._write_fh(key, fh, off, len_, metadata or {})
-
-    @retry
-    async def _write_fh(
-        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: BasicMappingT
-    ) -> int:
+        size = fh_size(fh)
         metadata_s = json.dumps(
             {
-                'metadata': _wrap_user_meta(metadata),
+                'metadata': _wrap_user_meta(metadata or {}),
                 'name': self.prefix + key,
             }
         )
@@ -480,8 +482,6 @@ class AsyncBackend(AsyncBackendBase):
         ).encode()
         body_suffix = ('\n--%s--\n' % boundary).encode()
 
-        body_size = len(body_prefix) + len(body_suffix) + len_
-
         path = '/upload/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
         query_string = {'uploadType': 'multipart'}
         try:
@@ -490,7 +490,7 @@ class AsyncBackend(AsyncBackendBase):
                 path,
                 query_string=query_string,
                 headers=headers,
-                body=BodyFollowing(body_size),
+                body=[body_prefix, fh, body_suffix],
             )
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
@@ -498,56 +498,47 @@ class AsyncBackend(AsyncBackendBase):
                 raise mapped_exc
             raise
 
-        assert resp.status == 100
-        fh.seek(off)
-
-        try:
-            await self.conn.write(body_prefix)
-            await copy_to_http(fh, self.conn, len_)
-            await self.conn.write(body_suffix)
-        except ConnectionClosed:
-            # Server closed connection while we were writing body data -
-            # but we may still be able to read an error response
-            try:
-                resp = await self.conn.read_response()
-            except ConnectionClosed:  # No server response available
-                pass
-            else:
-                log.warning(
-                    'Server broke connection during upload, signaled %d %s',
-                    resp.status,
-                    resp.reason,
-                )
-            # Drop the half-broken connection and re-raise so the caller
-            # reconnects from scratch on the next request.
-            self.conn.disconnect()
-            raise
-
-        resp = await self.conn.read_response()
-        # If we're really unlucky, then the token has expired while we were uploading data.
-        if resp.status == 401:
-            await self.conn.discard()
-            raise AccessTokenExpired()
-        elif resp.status != 200:
-            exc_ = _parse_error_response(resp, await self.conn.readall())
-            raise _map_request_error(exc_, key) or exc_
         _parse_json_response(resp, await self.conn.readall())
 
-        return len_
+        return size
 
     async def close(self) -> None:
         if self.conn is not None:
-            self.conn.disconnect()
+            await self.conn.aclose()
 
     def __str__(self) -> str:
         return '<gs.Backend, name=%s, prefix=%s>' % (self.bucket_name, self.prefix)
 
-    # This method uses a different HTTP connection than its callers, but shares
-    # the same retry logic. It is therefore possible that errors with this
-    # connection cause the other connection to be reset - but this should not
-    # be a problem, because there can't be a pending request if we don't have
-    # a valid access token.
+    async def _ensure_token(self) -> str:
+        '''Return a usable bearer token, refreshing proactively if needed.
+
+        A token is reused as long as its deadline (already adjusted by
+        `_TOKEN_SAFETY_MARGIN`) is still in the future. Otherwise we take
+        `_refresh_lock` and refresh, double-checking that no concurrent
+        task has already done so while we waited for the lock.
+        '''
+
+        token = self._tokens.get(self.refresh_token)
+        if token is not None and trio.current_time() < token.deadline:
+            return token.bearer
+
+        async with self._refresh_lock:
+            token = self._tokens.get(self.refresh_token)
+            if token is None or trio.current_time() >= token.deadline:
+                await self._get_access_token()
+                token = self._tokens[self.refresh_token]
+            return token.bearer
+
+    # Uses a different HTTP connection than its callers, but shares the
+    # same retry logic. Errors with this connection may therefore reset the
+    # other connection - which is harmless, because there can't be a
+    # pending request if we don't have a valid access token.
     async def _get_access_token(self) -> None:
+        '''Acquire a fresh access token and cache it with its deadline.
+
+        Must be called with `_refresh_lock` held.
+        '''
+
         log.info('Requesting new access token')
 
         if self.adc:
@@ -555,8 +546,35 @@ class AsyncBackend(AsyncBackendBase):
                 self.adc[0].refresh(self.adc[1])  # type: ignore[attr-defined]
             except g_auth.exceptions.RefreshError as exc:
                 raise AuthenticationError('Failed to refresh credentials: ' + str(exc))
-            self.access_token[self.refresh_token] = self.adc[0].token  # type: ignore[attr-defined]
-            return
+            bearer = str(self.adc[0].token)  # type: ignore[attr-defined]
+            lifetime = self._adc_token_lifetime()
+        else:
+            bearer, lifetime = await self._fetch_oauth_token()
+
+        deadline = trio.current_time() + lifetime - self._TOKEN_SAFETY_MARGIN
+        self._tokens[self.refresh_token] = _Token(bearer=bearer, deadline=deadline)
+        log.debug('Cached access token, refresh due in %.0fs', deadline - trio.current_time())
+
+    def _adc_token_lifetime(self) -> float:
+        '''Return remaining seconds until ADC token expiry, or a fallback.'''
+
+        assert self.adc is not None
+        expiry = getattr(self.adc[0], 'expiry', None)
+        if expiry is None:
+            return self._TOKEN_DEFAULT_LIFETIME
+        # google-auth stores expiry as a naive UTC datetime.
+        try:
+            remaining = (expiry - datetime.now(timezone.utc).replace(tzinfo=None)).total_seconds()
+        except TypeError:
+            log.warning('Invalid expiry value in ADC credentials: %r', expiry)
+            return self._TOKEN_DEFAULT_LIFETIME
+        if remaining <= 0:
+            log.warning('ADC token already expired according to expiry field: %r', expiry)
+            return self._TOKEN_DEFAULT_LIFETIME
+        return remaining
+
+    async def _fetch_oauth_token(self) -> tuple[str, float]:
+        '''Exchange the refresh token for a bearer token and its lifetime.'''
 
         headers = CaseInsensitiveDict()
         headers['Content-Type'] = 'application/x-www-form-urlencoded; charset=utf-8'
@@ -570,51 +588,25 @@ class AsyncBackend(AsyncBackendBase):
             }
         )
 
-        conn = HTTPConnection(
+        async with HTTPConnection(
             'accounts.google.com', 443, proxy=self.proxy, ssl_context=self.ssl_context
-        )
-        try:
-            await conn.send_request(
-                'POST', '/o/oauth2/token', headers=headers, body=body.encode('utf-8')
+        ) as conn:
+            resp = await conn.send_request(
+                'POST', '/o/oauth2/token', headers=headers, body=[body.encode('utf-8')]
             )
-            resp = await conn.read_response()
             json_resp = _parse_json_response(resp, await conn.readall())
 
-            if resp.status > 299 or resp.status < 200:
-                assert 'error' in json_resp
-            if 'error' in json_resp:
-                raise AuthenticationError(str(json_resp['error']))
-            else:
-                self.access_token[self.refresh_token] = str(json_resp['access_token'])
-        finally:
-            conn.disconnect()
+        if 'error' in json_resp:
+            raise AuthenticationError(str(json_resp['error']))
 
-    async def _dump_body(self, resp: HTTPResponse) -> str:
-        '''Return truncated string representation of response body.'''
-
-        is_truncated = False
+        bearer = str(json_resp['access_token'])
+        expires_in = json_resp.get('expires_in')
         try:
-            body = await self.conn.read(2048)
-            if await self.conn.read(1):
-                is_truncated = True
-                await self.conn.discard()
-        except UnsupportedResponse:
-            log.warning('Unsupported response, trying to retrieve data from raw socket!')
-            body = await self.conn.read_raw(2048)
-            self.conn.disconnect()
-
-        hit = re.search(r'; charset="(.+)"$', resp.headers.get('Content-Type', ''), re.IGNORECASE)
-        if hit:
-            charset = hit.group(1)
-        else:
-            charset = 'utf-8'
-
-        body = body.decode(charset, errors='backslashreplace')
-
-        if is_truncated:
-            body += '... [truncated]'
-
-        return body
+            lifetime = float(expires_in) if expires_in is not None else self._TOKEN_DEFAULT_LIFETIME  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            log.warning('Invalid expires_in value in token response: %r', expires_in)
+            lifetime = self._TOKEN_DEFAULT_LIFETIME
+        return (bearer, lifetime)
 
     async def _do_request(
         self,
@@ -622,55 +614,35 @@ class AsyncBackend(AsyncBackendBase):
         path: str,
         query_string: dict[str, str] | None = None,
         headers: CaseInsensitiveDict | None = None,
-        body: bytes | BodyFollowing | None = None,
+        body: BodyT = (),
     ) -> HTTPResponse:
-        '''Send request, read and return response object'''
+        '''Send a single authorized request and return the response.
+
+        Acquires a bearer token (refreshing proactively when close to
+        expiry) and sends exactly one request. On 2xx the response body
+        is left unread on the connection. A 401 is signalled by raising
+        `AccessTokenExpired`. Other non-2xx responses raise `RequestError`.
+        '''
 
         log.debug('started with %s %s, qs=%s', method, path, query_string)
 
         if headers is None:
             headers = CaseInsensitiveDict()
 
-        expect100 = isinstance(body, BodyFollowing)
         headers['host'] = self.hostname
         if query_string:
             s = urllib.parse.urlencode(query_string, doseq=True)
             path += '?%s' % s
 
-        # If we have an access token, try to use it.
-        token = self.access_token.get(self.refresh_token, None)
-        if token is not None:
-            headers['Authorization'] = 'Bearer ' + token
-            await self.conn.send_request(
-                method, path, body=body, headers=headers, expect100=expect100
-            )
-            resp = await self.conn.read_response()
-            if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
-                return resp
-            elif resp.status != 401:
-                raise _parse_error_response(resp, await self.conn.readall())
-            await self.conn.discard()
+        headers['Authorization'] = 'Bearer ' + await self._ensure_token()
+        resp = await self.conn.send_request(method, path, headers=headers, body=body)
 
-        # If we reach this point, then the access token must have
-        # expired, so we try to get a new one. We use a lock to prevent
-        # multiple threads from refreshing the token simultaneously.
-        async with self._refresh_lock:
-            # Don't refresh if another task has already done so while
-            # we waited for the lock.
-            if token is None or self.access_token.get(self.refresh_token, None) == token:
-                await self._get_access_token()
-
-        # Try request again. If this still fails, propagate the error
-        # (because we have just refreshed the access token).
-        # FIXME: We can't rely on this if e.g. the system hibernated
-        # after refreshing the token, but before reaching this line.
-        headers['Authorization'] = 'Bearer ' + self.access_token[self.refresh_token]
-        await self.conn.send_request(method, path, body=body, headers=headers, expect100=expect100)
-        resp = await self.conn.read_response()
-        if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
+        if 200 <= resp.status <= 299:
             return resp
-        else:
-            raise _parse_error_response(resp, await self.conn.readall())
+        if resp.status == 401:
+            await self.conn.discard()
+            raise AccessTokenExpired()
+        raise _parse_error_response(resp, await self.conn.readall())
 
 
 def _map_request_error(exc: RequestError, key: str | None) -> Exception | None:

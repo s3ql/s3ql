@@ -15,17 +15,16 @@ import ssl
 import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from itertools import count
 from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
 
 from s3ql.http import (
-    BodyFollowing,
     CaseInsensitiveDict,
-    ConnectionClosed,
     HTTPConnection,
-    UnsupportedResponse,
+    HTTPResponse,
+    fh_size,
     is_temp_network_error,
 )
 from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
@@ -37,17 +36,18 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
+    assert_empty_response,
     checksum_basic_mapping,
-    copy_from_http,
-    copy_to_http,
+    dump_response,
     get_proxy,
     get_ssl_context,
+    hash_fh,
     retry,
 )
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
-from .s3c import BadDigestError, HTTPError, md5sum_b64
+from .s3c import BadDigestError, HTTPError
 
 log = logging.getLogger(__name__)
 
@@ -162,55 +162,6 @@ class AsyncBackend(AsyncBackendBase):
 
         return meta
 
-    async def _assert_empty_response(self, resp):
-        '''Assert that current response body is empty'''
-
-        buf = await self.conn.read(2048)
-        if not buf:
-            return  # expected
-
-        # Log the problem
-        await self.conn.discard()
-        log.error(
-            'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
-            resp.status,
-            resp.reason,
-            '\n'.join('%s: %s' % x for x in resp.headers.items()),
-            buf,
-        )
-        raise RuntimeError('Unexpected server response')
-
-    async def _dump_response(self, resp, body=None):
-        '''Return string representation of server response
-
-        Only the beginning of the response body is read, so this is
-        mostly useful for debugging.
-        '''
-
-        if body is None:
-            try:
-                body = await self.conn.read(2048)
-                if body:
-                    await self.conn.discard()
-            except UnsupportedResponse:
-                log.warning('Unsupported response, trying to retrieve data from raw socket!')
-                body = await self.conn.read_raw(2048)
-                self.conn.disconnect()
-        else:
-            body = body[:2048]
-
-        return '%d %s\n%s\n\n%s' % (
-            resp.status,
-            resp.reason,
-            '\n'.join('%s: %s' % x for x in resp.headers.items()),
-            body.decode('utf-8', errors='backslashreplace'),
-        )
-
-    async def reset(self):
-        if self.conn is not None and (self.conn.response_pending() or self.conn._out_remaining):
-            log.debug('Resetting state of http connection %d', id(self.conn))
-            self.conn.disconnect()
-
     def __init__(self, *, options: BackendOptionsProtocol) -> None:
         '''Initialize swift backend - use AsyncBackend.create() instead.'''
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
@@ -265,7 +216,7 @@ class AsyncBackend(AsyncBackendBase):
         '''Make sure that the container exists'''
 
         try:
-            await self._do_request('GET', '/', query_string={'limit': 1})
+            await self._do_request('GET', '/', query_string={'limit': '1'})
             await self.conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
@@ -281,14 +232,16 @@ class AsyncBackend(AsyncBackendBase):
         # do not retry in general, but for 408 (Request Timeout) RFC 2616
         # specifies that the client may repeat the request without
         # modifications. We also retry on 429 (Too Many Requests).
-        elif isinstance(exc, HTTPError) and (  # noqa: SIM114
+        elif isinstance(exc, HTTPError) and (
             (500 <= exc.status <= 599 and exc.status not in (501, 505, 508, 510, 511, 523))
             or exc.status in (408, 429)
             or 'client disconnected' in exc.msg.lower()
         ):
             return True
 
-        elif is_temp_network_error(exc):  # noqa: SIM114
+        elif is_temp_network_error(exc):
+            # We probably can't use the connection anymore
+            self.conn.reset()
             return True
 
         # Temporary workaround for
@@ -298,6 +251,7 @@ class AsyncBackend(AsyncBackendBase):
             str(exc).startswith('[SSL: BAD_WRITE_RETRY]')
             or str(exc).startswith('[SSL: BAD_LENGTH]')
         ):
+            self.conn.reset()
             return True
 
         return False
@@ -316,15 +270,14 @@ class AsyncBackend(AsyncBackendBase):
         headers['X-Auth-User'] = self.login
         headers['X-Auth-Key'] = self.password
 
-        with HTTPConnection(
+        async with HTTPConnection(
             self.hostname, self.port, proxy=self.proxy, ssl_context=ssl_context
         ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             for auth_path in ('/v1.0', '/auth/v1.0'):
                 log.debug('GET %s', auth_path)
-                await conn.send_request('GET', auth_path, headers=headers)
-                resp = await conn.read_response()
+                resp = await conn.send_request('GET', auth_path, headers=headers)
 
                 if resp.status in (404, 412):
                     log.debug('auth to %s failed, trying next path', auth_path)
@@ -351,33 +304,37 @@ class AsyncBackend(AsyncBackendBase):
                     pass
 
                 # mock server can only handle one connection at a time
-                # so we explicitly disconnect this connection before
-                # opening the feature detection connection
-                # (mock server handles both - storage and authentication)
-                conn.disconnect()
+                # so we explicitly close this connection before opening
+                # the feature detection connection (mock server handles
+                # both - storage and authentication)
+                await conn.aclose()
 
                 assert o.hostname is not None
                 await self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
-                conn.timeout = int(self.options.get('tcp-timeout', 20))
-                return conn
+                new_conn = HTTPConnection(
+                    o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context
+                )
+                new_conn.timeout = int(self.options.get('tcp-timeout', 20))
+                return new_conn
 
             raise RuntimeError('No valid authentication path found')
 
     async def _do_request(
         self,
-        method,
-        path,
-        subres=None,
-        query_string=None,
-        headers=None,
-        body=None,
-        body_len: Optional[int] = None,
-    ):
-        '''Send request, read and return response object
+        method: str,
+        path: str,
+        subres: Optional[str] = None,
+        query_string: Optional[dict[str, str]] = None,
+        headers: Optional[CaseInsensitiveDict] = None,
+        body: Sequence[bytes | BinaryInput] = (),
+        md5_hex: Optional[str] = None,
+    ) -> HTTPResponse:
+        '''Send request, read and return response object.
 
-        This method modifies the *headers* dictionary.
+        Modifies *headers* by adding the auth token. If *md5_hex* is
+        supplied, the server's ETag is verified against it after a
+        successful upload.
         '''
 
         log.debug(
@@ -386,9 +343,6 @@ class AsyncBackend(AsyncBackendBase):
 
         if headers is None:
             headers = CaseInsensitiveDict()
-
-        if isinstance(body, (bytes, bytearray, memoryview)):
-            headers['Content-MD5'] = md5sum_b64(body)
 
         if self.conn is None:
             log.debug('no active connection, calling _get_conn()')
@@ -405,19 +359,18 @@ class AsyncBackend(AsyncBackendBase):
         elif subres:
             path += '?%s' % subres
 
-        headers['X-Auth-Token'] = self.auth_token  # ty:ignore[invalid-assignment]
-        try:
-            resp = await self._do_request_inner(
-                method, path, body=body, headers=headers, body_len=body_len
-            )
-        except Exception as exc:
-            if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-                # We probably can't use the connection anymore
-                self.conn.disconnect()
-            raise
+        headers['X-Auth-Token'] = self.auth_token
+
+        resp = await self.conn.send_request(
+            method,
+            path,
+            headers=headers,
+            body=body,
+            expect100=False if self.options.get('disable-expect100', False) else None,
+        )
 
         # Success
-        if resp.status >= 200 and resp.status <= 299:
+        if 200 <= resp.status <= 299:
             return resp
 
         # Expired auth token
@@ -430,73 +383,6 @@ class AsyncBackend(AsyncBackendBase):
         await self.conn.discard()
         raise HTTPError(resp.status, resp.reason, resp.headers)
 
-    # Including this code directly in _do_request would be very messy since
-    # we can't `return` the response early, thus the separate method
-    async def _do_request_inner(self, method, path, body, headers, body_len: Optional[int] = None):
-        '''The guts of the _do_request method'''
-
-        log.debug('started with %s %s', method, path)
-        use_expect_100c = not self.options.get('disable-expect100', False)
-
-        if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            await self.conn.send_request(method, path, body=body, headers=headers)
-            return await self.conn.read_response()
-
-        assert body_len is not None
-        await self.conn.send_request(
-            method, path, expect100=use_expect_100c, headers=headers, body=BodyFollowing(body_len)
-        )
-
-        if use_expect_100c:
-            log.debug('waiting for 100-continue')
-            resp = await self.conn.read_response()
-            if resp.status != 100:
-                return resp
-
-        log.debug('writing body data')
-        md5 = hashlib.md5()
-        try:
-            await copy_to_http(body, self.conn, body_len, update=md5.update)
-        except ConnectionClosed:
-            log.debug('interrupted write, server closed connection')
-            # Server closed connection while we were writing body data -
-            # but we may still be able to read an error response
-            try:
-                resp = await self.conn.read_response()
-            except ConnectionClosed:  # No server response available
-                log.debug('no response available in  buffer')
-                pass
-            else:
-                if resp.status >= 400:  # error response
-                    return resp
-                log.warning(
-                    'Server broke connection during upload, but signaled %d %s',
-                    resp.status,
-                    resp.reason,
-                )
-
-            # Drop the half-broken connection and re-raise so the caller
-            # reconnects from scratch on the next request.
-            self.conn.disconnect()
-            raise
-
-        resp = await self.conn.read_response()
-
-        # On success, check MD5. Not sure if this is returned every time we send a request body, but
-        # it seems to work. If not, we have to somehow pass in the information when this is expected
-        # (i.e, when storing an object)
-        if resp.status >= 200 and resp.status <= 299:
-            etag = resp.headers['ETag'].strip('"')
-
-            if etag != md5.hexdigest():
-                raise BadDigestError(
-                    'BadDigest',
-                    f'MD5 mismatch when sending {method} {path} (received: {etag}, '
-                    f'sent: {md5.hexdigest()})',
-                )
-
-        return resp
-
     @retry
     async def lookup(self, key):
         log.debug('started with %s', key)
@@ -505,7 +391,7 @@ class AsyncBackend(AsyncBackendBase):
 
         try:
             resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await self._assert_empty_response(resp)
+            await assert_empty_response(self.conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -522,7 +408,7 @@ class AsyncBackend(AsyncBackendBase):
 
         try:
             resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await self._assert_empty_response(resp)
+            await assert_empty_response(self.conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
@@ -563,12 +449,12 @@ class AsyncBackend(AsyncBackendBase):
             if resp.length is not None and resp.length < 64 * 1024:
                 await self.conn.discard()
             else:
-                self.conn.disconnect()
+                await self.conn.aclose()
             raise
 
         md5 = hashlib.md5()
         fh.seek(off)
-        await copy_from_http(self.conn, fh, update=md5.update)
+        await self.conn.readinto_fh(fh, update=md5.update)
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -576,16 +462,14 @@ class AsyncBackend(AsyncBackendBase):
 
         return meta
 
+    @retry
     async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
-        len_: int,
         metadata: Optional[dict[str, Any]] = None,
     ):
-        '''Upload *len_* bytes from *fh* under *key*.
-
-        The data will be read at the current offset.
+        '''Upload the full contents of *fh* under *key*.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried. Returns the size of the resulting storage object.
@@ -594,33 +478,33 @@ class AsyncBackend(AsyncBackendBase):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
-        off = fh.tell()
-        return await self._write_fh(key, fh, off, len_, metadata or {})
-
-    @retry
-    async def _write_fh(
-        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]
-    ):
+        size = fh_size(fh)
         headers = CaseInsensitiveDict()
-        self._add_meta_headers(headers, metadata, chunksize=self.features.max_meta_len)
+        self._add_meta_headers(headers, metadata or {}, chunksize=self.features.max_meta_len)
 
         headers['Content-Type'] = 'application/octet-stream'
-        fh.seek(off)
+
+        if self.ssl_context:
+            md5_hex: str | None = None
+        else:
+            md5_hex = await hash_fh(fh, 'md5')
+            headers['Content-MD5'] = b64encode(bytes.fromhex(md5_hex)).decode('ascii')
+
         try:
             resp = await self._do_request(
                 'PUT',
                 '/%s%s' % (self.prefix, key),
                 headers=headers,
-                body=fh,
-                body_len=len_,
+                body=[fh],
+                md5_hex=md5_hex,
             )
         except BadDigestError:
             # Object was corrupted in transit, make sure to delete it
             await self.delete(key)
             raise
 
-        await self._assert_empty_response(resp)
-        return len_
+        await assert_empty_response(self.conn, resp)
+        return size
 
     @retry
     async def delete(self, key):
@@ -629,7 +513,7 @@ class AsyncBackend(AsyncBackendBase):
         log.debug('started with %s', key)
         try:
             resp = await self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            await self._assert_empty_response(resp)
+            await assert_empty_response(self.conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 pass
@@ -687,17 +571,21 @@ class AsyncBackend(AsyncBackendBase):
          "Number Deleted": 1}'
         """
 
-        body = []
+        lines = []
         esc_prefix = "/%s/%s" % (
             urllib.parse.quote(self.container_name),
             urllib.parse.quote(self.prefix),
         )
         for key in keys:
-            body.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
-        body = '\n'.join(body).encode('utf-8')
-        headers = {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
+            lines.append('%s%s' % (esc_prefix, urllib.parse.quote(key)))
+        body = '\n'.join(lines).encode('utf-8')
+        headers = CaseInsensitiveDict(
+            {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
+        )
 
-        resp = await self._do_request('POST', '/', subres='bulk-delete', body=body, headers=headers)
+        resp = await self._do_request(
+            'POST', '/', subres='bulk-delete', body=[body], headers=headers
+        )
 
         # bulk deletes should always return 200
         if resp.status != 200:
@@ -707,7 +595,7 @@ class AsyncBackend(AsyncBackendBase):
         if not hit:
             log.error(
                 'Unexpected server response. Expected json, got:\n%s',
-                await self._dump_response(resp),
+                await dump_response(self.conn, resp),
             )
             raise RuntimeError('Unexpected server reply')
 
@@ -833,7 +721,7 @@ class AsyncBackend(AsyncBackendBase):
         if not hit:
             log.error(
                 'Unexpected server response. Expected json, got:\n%s',
-                await self._dump_response(resp),
+                await dump_response(self.conn, resp),
             )
             raise RuntimeError('Unexpected server reply')
 
@@ -858,7 +746,7 @@ class AsyncBackend(AsyncBackendBase):
 
     async def close(self):
         if self.conn is not None:
-            self.conn.disconnect()
+            await self.conn.aclose()
 
     async def _detect_features(self, hostname, port, ssl_context):
         '''Try to figure out the Swift version and supported features by
@@ -876,12 +764,13 @@ class AsyncBackend(AsyncBackendBase):
 
         detected_features = Features()
 
-        with HTTPConnection(hostname, port, proxy=self.proxy, ssl_context=ssl_context) as conn:
+        async with HTTPConnection(
+            hostname, port, proxy=self.proxy, ssl_context=ssl_context
+        ) as conn:
             conn.timeout = int(self.options.get('tcp-timeout', 20))
 
             log.debug('GET /info')
-            await conn.send_request('GET', '/info')
-            resp = await conn.read_response()
+            resp = await conn.send_request('GET', '/info')
 
             # 200, 401, 403 and 404 are all OK since the /info endpoint
             # may not be accessible (misconfiguration) or may not
@@ -889,7 +778,7 @@ class AsyncBackend(AsyncBackendBase):
             if resp.status not in (200, 401, 403, 404):
                 log.error(
                     "Wrong server response.\n%s",
-                    await self._dump_response(resp, body=await conn.read(2048)),
+                    await dump_response(self.conn, resp, body=await conn.read()),
                 )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
@@ -900,7 +789,7 @@ class AsyncBackend(AsyncBackendBase):
                 if not hit:
                     log.error(
                         "Wrong server response. Expected json. Got: \n%s",
-                        await self._dump_response(resp, body=await conn.read(2048)),
+                        await dump_response(self.conn, resp, body=await conn.read()),
                     )
                     raise RuntimeError('Unexpected server reply')
 
@@ -954,7 +843,7 @@ class AsyncBackend(AsyncBackendBase):
     def _do_authentication_expired(self, reason):
         '''Closes the current connection and raises AuthenticationExpired'''
         log.info('OpenStack auth token seems to have expired, requesting new one.')
-        self.conn.disconnect()
+        self.conn.reset()
         # Force constructing a new connection with a new token, otherwise
         # the connection will be reestablished with the same token.
         self.conn = None  # ty:ignore[invalid-assignment]

@@ -123,7 +123,7 @@ class AsyncBackend(s3c4.AsyncBackend):
         body = '\n'.join(body_list).encode('utf-8')
         headers = CaseInsensitiveDict({'content-type': 'text/xml; charset=utf-8'})
 
-        resp = await self._do_request('POST', '/', subres='delete', body=body, headers=headers)
+        resp = await self._do_request('POST', '/', subres='delete', body=[body], headers=headers)
         try:
             root = await self._parse_xml_response(resp)
             ns_p = self.xml_ns_prefix

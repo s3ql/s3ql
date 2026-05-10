@@ -13,7 +13,6 @@ import binascii
 import hashlib
 import json
 import logging
-import os
 import re
 import ssl
 import urllib
@@ -24,11 +23,11 @@ from typing import Any, Optional
 from urllib.parse import urlparse
 
 from s3ql.http import (
-    BodyFollowing,
     CaseInsensitiveDict,
     ConnectionClosed,
     ConnectionTimedOut,
     HTTPConnection,
+    fh_size,
     is_temp_network_error,
 )
 from s3ql.types import BinaryInput, BinaryOutput
@@ -41,8 +40,6 @@ from ..common import (
     DanglingStorageURLError,
     NoSuchObject,
     checksum_basic_mapping,
-    copy_from_http,
-    copy_to_http,
     get_ssl_context,
     retry,
 )
@@ -150,15 +147,28 @@ class AsyncB2Backend(AsyncBackend):
 
     def _close_connections(self):
         if self.api_connection:
-            self.api_connection.disconnect()
+            self.api_connection.reset()
             self.api_connection = None
 
         if self.download_connection:
-            self.download_connection.disconnect()
+            self.download_connection.reset()
             self.download_connection = None
 
         if self.upload_connection:
-            self.upload_connection.disconnect()
+            self.upload_connection.reset()
+            self.upload_connection = None
+
+    async def _aclose_connections(self):
+        if self.api_connection:
+            await self.api_connection.aclose()
+            self.api_connection = None
+
+        if self.download_connection:
+            await self.download_connection.aclose()
+            self.download_connection = None
+
+        if self.upload_connection:
+            await self.upload_connection.aclose()
             self.upload_connection = None
 
     async def _get_download_connection(self):
@@ -203,12 +213,11 @@ class AsyncB2Backend(AsyncBackend):
             base64.b64encode(bytes(id_and_key, 'UTF-8')), encoding='UTF-8'
         )
 
-        with HTTPConnection(authorize_host, 443, ssl_context=self.ssl_context) as connection:
+        async with HTTPConnection(authorize_host, 443, ssl_context=self.ssl_context) as connection:
             headers = CaseInsensitiveDict()
             headers['Authorization'] = basic_auth_string
 
-            await connection.send_request('GET', authorize_url, headers=headers, body=None)
-            response = await connection.read_response()
+            response = await connection.send_request('GET', authorize_url, headers=headers)
             response_body = await connection.readall()
 
             if response.status != 200:
@@ -237,9 +246,13 @@ class AsyncB2Backend(AsyncBackend):
         return all(capability in capabilities for capability in needed_capabilities)
 
     async def _do_request(
-        self, connection, method, path, headers=None, body=None, download_body=True
+        self, connection, method, path, headers=None, body=(), download_body=True
     ):
-        '''Send request, read and return response object'''
+        '''Send request, read and return response object.
+
+        *body* is a sequence of `bytes` chunks (no streaming uploads go
+        through this helper; those use `_write_fh` directly).
+        '''
 
         log.debug('started with %s %s', method, path)
 
@@ -254,17 +267,7 @@ class AsyncB2Backend(AsyncBackend):
 
         log.debug('REQUEST: %s %s %s', connection.hostname, method, path)
 
-        if body is None or isinstance(body, (bytes, bytearray, memoryview)):
-            await connection.send_request(method, path, headers=headers, body=body)
-        else:
-            body_length = os.fstat(body.fileno()).st_size
-            await connection.send_request(
-                method, path, headers=headers, body=BodyFollowing(body_length)
-            )
-
-            await copy_to_http(body, connection, body_length)
-
-        response = await connection.read_response()
+        response = await connection.send_request(method, path, headers=headers, body=body)
 
         if (
             download_body is True or response.status != 200
@@ -303,12 +306,11 @@ class AsyncB2Backend(AsyncBackend):
         api_call_url_path = api_url_prefix + api_call_name
         body = json.dumps(data_dict).encode('utf-8')
 
-        _, body = await self._do_request(
-            await self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=body
+        _, response_body = await self._do_request(
+            await self._get_api_connection(), 'POST', api_call_url_path, headers=None, body=[body]
         )
 
-        json_response = json.loads(body.decode('utf-8'))
-        return json_response
+        return json.loads(response_body.decode('utf-8'))
 
     async def _do_download_request(self, method, key):
         key_with_prefix = self._get_key_with_prefix(key)
@@ -450,7 +452,7 @@ class AsyncB2Backend(AsyncBackend):
         connection = await self._get_download_connection()
         sha1 = hashlib.sha1()
 
-        await copy_from_http(connection, fh, update=sha1.update)
+        await connection.readinto_fh(fh, update=sha1.update)
 
         remote_sha1 = response.headers['X-Bz-Content-Sha1'].strip('"')
 
@@ -464,28 +466,20 @@ class AsyncB2Backend(AsyncBackend):
 
         return metadata
 
+    @retry
     async def write_fh(
         self,
         key: str,
         fh: BinaryInput,
-        len_: int,
         metadata: Optional[dict[str, Any]] = None,
     ):
-        '''Upload *len_* bytes from *fh* under *key*.
-
-        The data will be read at the current offset.
+        '''Upload the full contents of *fh* under *key*.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
         retried. Returns the size of the resulting storage object.
         '''
 
-        off = fh.tell()
-        return await self._write_fh(key, fh, off, len_, metadata or {})
-
-    @retry
-    async def _write_fh(
-        self, key: str, fh: BinaryInput, off: int, len_: int, metadata: dict[str, Any]
-    ):
+        size = fh_size(fh)
         headers = CaseInsensitiveDict(self._extra_headers)
         if metadata is None:
             metadata = dict()
@@ -497,21 +491,21 @@ class AsyncB2Backend(AsyncBackend):
 
         headers['X-Bz-File-Name'] = self._b2_url_encode(key_with_prefix)
         headers['Content-Type'] = 'application/octet-stream'
-        headers['Content-Length'] = str(len_)
+        # Send the SHA1 hex digest as a 40-byte trailer immediately after
+        # the object data; the server matches the request against the
+        # "hex_digits_at_end" sentinel and reads the trailer accordingly.
+        # This avoids a separate read pass to pre-compute the hash.
         headers['X-Bz-Content-Sha1'] = 'hex_digits_at_end'
         headers['Authorization'] = self.upload_token
 
-        fh.seek(off)
-        sha1 = hashlib.sha1()
         try:
-            # 40 extra characters for hexdigest
-            await conn.send_request(
-                'POST', self.upload_path, headers=headers, body=BodyFollowing(len_ + 40)
+            response = await conn.send_request(
+                'POST',
+                self.upload_path,
+                headers=headers,
+                body=[_Sha1TrailerReader(fh)],
+                body_len=size + 40,
             )
-            await copy_to_http(fh, conn, len_, update=sha1.update)
-            await conn.write(sha1.hexdigest().encode())
-
-            response = await conn.read_response()
             response_body = await conn.readall()
 
             if response.status != 200:
@@ -528,18 +522,18 @@ class AsyncB2Backend(AsyncBackend):
                 )
         except B2Error as exc:
             if exc.status == 503:
-                # storage url too busy, change it
-                self.upload_connection.disconnect()
+                # storage url too busy, drop the connection so the next
+                # attempt obtains a fresh upload URL.
                 self.upload_connection = None
             raise
 
         except (ConnectionClosed, ConnectionTimedOut):
-            # storage url too busy, change it
-            self.upload_connection.disconnect()
+            # storage url too busy, drop the connection so the next
+            # attempt obtains a fresh upload URL.
             self.upload_connection = None
             raise
 
-        return len_
+        return size
 
     async def delete(self, key, force=False):
         log.debug('started with %s', key)
@@ -666,7 +660,7 @@ class AsyncB2Backend(AsyncBackend):
         return file_id, file_name
 
     async def close(self):
-        self._close_connections()
+        await self._aclose_connections()
 
     @retry
     async def _get_upload_conn(self):
@@ -833,3 +827,45 @@ class AsyncB2Backend(AsyncBackend):
 
     def __str__(self):
         return 'b2://%s/%s' % (self.bucket_name, self.prefix)
+
+
+class _Sha1TrailerReader:
+    '''File-like wrapper for the B2 ``hex_digits_at_end`` upload protocol.
+
+    Exposes the entire contents of *fh* (read until EOF), followed by the
+    ASCII-encoded SHA1 hex digest of that data (40 bytes). The digest is
+    computed incrementally as data is read, so no extra read pass over the
+    file is required.
+    '''
+
+    def __init__(self, fh):
+        self._fh = fh
+        self._sha1 = hashlib.sha1()
+        self._data_done = False
+        self._trailer = b''
+        self._trailer_pos = 0
+        fh.seek(0)
+
+    def read(self, n=-1):
+        if not self._data_done:
+            chunk = self._fh.read(n) if n >= 0 else self._fh.read()
+            if chunk:
+                self._sha1.update(chunk)
+                return chunk
+            self._data_done = True
+            self._trailer = self._sha1.hexdigest().encode('ascii')
+        if self._trailer_pos < len(self._trailer):
+            end = len(self._trailer) if n < 0 else min(self._trailer_pos + n, len(self._trailer))
+            chunk = self._trailer[self._trailer_pos : end]
+            self._trailer_pos += len(chunk)
+            return chunk
+        return b''
+
+    def seek(self, pos):
+        if pos != 0:
+            raise ValueError('only seek(0) is supported')
+        self._fh.seek(0)
+        self._sha1 = hashlib.sha1()
+        self._data_done = False
+        self._trailer = b''
+        self._trailer_pos = 0

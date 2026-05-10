@@ -28,6 +28,7 @@ import cryptography.hazmat.primitives.ciphers.algorithms
 import cryptography.hazmat.primitives.ciphers.modes  # noqa: F401
 import trio
 
+from s3ql.http import fh_size
 from s3ql.types import (
     BasicMappingT,
     BinaryInput,
@@ -155,9 +156,6 @@ class AsyncComprencBackend(AsyncBackend):
     @property
     def has_delete_multi(self) -> bool:
         return self.backend.has_delete_multi
-
-    async def reset(self) -> None:
-        await self.backend.reset()
 
     async def lookup(self, key: str) -> BasicMappingT:
         meta_raw = await self.backend.lookup(key)
@@ -355,6 +353,9 @@ class AsyncComprencBackend(AsyncBackend):
 
         decompress_fh(buf, ofh, decompressor)
 
+    async def store(self, key: str, val: bytes, metadata: BasicMappingT | None = None) -> int:
+        return await self.write_fh(key, io.BytesIO(val), len(val), metadata)
+
     async def write_fh(
         self,
         key: str,
@@ -418,8 +419,20 @@ class AsyncComprencBackend(AsyncBackend):
         meta_buf = freeze_basic_mapping(metadata)
         meta_raw: BasicMappingT = dict(format_version=2)
 
-        if dont_compress or self.compression[0] is None:
+        no_compress = dont_compress or self.compression[0] is None
+        no_encrypt = self.passphrase is None
+
+        if no_compress:
             meta_raw['compression'] = 'None'
+            if no_encrypt and ((off := fh.tell()) != 0 or fh_size(fh) != len_):
+                # AbstractBackend.write_fh always writes the entire fh, so we
+                # may need a bounce buffer even when using neither compression
+                # nor encryption.
+                buf = io.BytesIO()
+                fh.seek(off)
+                copyfh(fh, buf, len_)
+                fh = buf
+                fh.seek(0)
         else:
             if self.compression[0] == 'zlib':
                 compr: CompressorProtocol = zlib.compressobj(self.compression[1])
@@ -457,7 +470,7 @@ class AsyncComprencBackend(AsyncBackend):
 
         # Delibertely return an Awaitable here, hidden in a tuple so trio.to_thread.run_sync
         # doesn't get confused.
-        return (self.backend.write_fh(key, fh, len_, meta_raw),)
+        return (self.backend.write_fh(key, fh, meta_raw),)
 
     async def contains(self, key: str) -> bool:
         return await self.backend.contains(key)

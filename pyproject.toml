@@ -32,6 +32,8 @@ dependencies = [
   "pyfuse3 >= 3.2.0, < 4.0",
   "anyio>=4.12.1",
   "more-itertools>=11.0.2",
+  "h11 >= 0.14",
+  "httpcore >= 1.0",
 ]
 
 [dependency-groups]

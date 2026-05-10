@@ -53,7 +53,6 @@ class BackendPool:
         '''Push connection back into pool'''
 
         try:
-            await conn.reset()
             self.pool.append(conn)
         finally:
             self._limiter.release()

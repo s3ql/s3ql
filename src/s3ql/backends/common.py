@@ -25,12 +25,12 @@ from abc import ABCMeta, abstractmethod
 from collections.abc import AsyncIterator, Callable
 from functools import wraps
 from io import BytesIO
-from typing import TYPE_CHECKING, Literal, Optional, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
 
 import trio
 
 from s3ql import BUFSIZE
-from s3ql.http import HTTPConnection
+from s3ql.http import HTTPConnection, HTTPResponse, InvalidResponse
 from s3ql.logging import LOG_ONCE, QuietError
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
 
@@ -263,17 +263,6 @@ class AsyncBackend(metaclass=ABCMeta):
 
         return False
 
-    async def reset(self) -> None:  # noqa: B027
-        '''Reset backend
-
-        This resets the backend and ensures that it is ready to process requests. In most cases,
-        this method does nothing. However, if e.g. a previous request was not send completely or
-        response not read completely because of an exception, the `reset` method will make sure that
-        any underlying connection is properly closed.
-        '''
-
-        pass
-
     @abstractmethod
     async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
@@ -288,16 +277,17 @@ class AsyncBackend(metaclass=ABCMeta):
         self,
         key: str,
         fh: BinaryInput,
-        len_: int,
         metadata: BasicMappingT | None = None,
     ) -> int:
-        '''Upload *len_* bytes from *fh* under *key*.
+        '''Upload the full contents of *fh* under *key*.
 
-        The data will be read at the current offset.
+        *fh* must be a seekable file-like object containing exactly the bytes
+        to upload from position 0 to EOF. The current position of *fh* is
+        irrelevant; the implementation seeks as needed.
 
         If a temporary error (as defined by `is_temp_failure`) occurs, the operation is
-        retried.  Returns the size of the resulting storage object (which may be less due
-        to compression)
+        retried. Returns the size of the resulting storage object (which may be less due
+        to compression).
         '''
         pass
 
@@ -330,7 +320,7 @@ class AsyncBackend(metaclass=ABCMeta):
         equivalent to ``backend.store(key, val)``.
         """
 
-        return await self.write_fh(key, BytesIO(val), len(val), metadata)
+        return await self.write_fh(key, BytesIO(val), metadata)
 
     @abstractmethod
     def is_temp_failure(self, exc: BaseException) -> bool:
@@ -598,66 +588,71 @@ def checksum_basic_mapping(metadata: BasicMappingT, key: bytes | None = None) ->
     return chk.digest()
 
 
-async def copy_to_http(
-    ifh: BinaryInput,
-    ofh: HTTPConnection,
-    len_: Optional[int],
-    update: Callable[[bytes], None] | None = None,
-) -> None:
-    '''Copy *len_* bytes from sync *ifh* to async HTTPConnection *ofh*.
+async def hash_fh(fh: BinaryInput, hash_name: str = 'md5') -> str:
+    '''Return the hex digest of *fh* from position 0 to EOF.
 
-    Reads from *ifh* (synchronously if BytesIO, otherwise in a separatet thread) and writes
-    asynchronously to *ofh* (an HTTPConnection).
-
-    If *update* is specified, call it with each block after the block has been written to the output
-    handle.
+    Leaves *fh* at EOF. Reads happen off-thread for non-`BytesIO` files.
     '''
 
-    use_async = not isinstance(ofh, BytesIO)
-
-    while len_ is None or len_ > 0:
-        bufsize = min(BUFSIZE, len_) if len_ is not None else BUFSIZE
-        if use_async:
-            # Wrapping the file object with `trio.wrap_file()` would be cleaner, but adds extra
-            # overhead and undefined behavior (will the sync object be closed when the async wrapper
-            # is garbage collected?), and just calls trio.to_thread.run_sync() internally anyway.
-            buf = await trio.to_thread.run_sync(ifh.read, bufsize)
-        else:
-            buf = ifh.read(bufsize)
-        if not buf:
-            return
-        await ofh.write(buf)
-        if len_ is not None:
-            len_ -= len(buf)
-        if update is not None:
-            update(buf)
-
-
-async def copy_from_http(
-    ifh: HTTPConnection,
-    ofh: BinaryOutput,
-    update: Callable[[bytes | bytearray], None] | None = None,
-) -> None:
-    '''Copy all available bytes from async HTTPConnection *ifh* to sync *ofh*.
-
-    Reads asynchronously from *ifh* (an HTTPConnection) and writes
-    to *ofh* (synchronously if BytesIO, otherwise in a separate thread).
-
-    If *update* is specified, call it with each block after the block
-    has been written to the output handle.
-    '''
-    use_async = not isinstance(ofh, BytesIO)
-
+    hasher = hashlib.new(hash_name)
+    fh.seek(0)
+    is_sync = isinstance(fh, BytesIO)
     while True:
-        buf = await ifh.read(BUFSIZE)
-        if not buf:
-            return
-        if use_async:
-            # Wrapping the file object with `trio.wrap_file()` would be cleaner, but adds extra
-            # overhead and undefined behavior (will the sync object be closed when the async wrapper
-            # is garbage collected?), and just calls trio.to_thread.run_sync() internally anyway.
-            await trio.to_thread.run_sync(ofh.write, buf)
-        else:
-            ofh.write(buf)
-        if update is not None:
-            update(buf)
+        chunk = fh.read(BUFSIZE) if is_sync else await trio.to_thread.run_sync(fh.read, BUFSIZE)
+        if not chunk:
+            break
+        hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+async def dump_response(
+    conn: HTTPConnection, resp: HTTPResponse, body: bytes | bytearray | None = None
+) -> str:
+    '''Return a string representation of *resp*, useful for debug logging.
+
+    If *body* is `None`, read up to one chunk of the response body from
+    *conn* (and discard the rest); otherwise format the first 2048 bytes
+    of the provided body. After this call, the response body on *conn*
+    has been fully consumed.
+    '''
+
+    if body is None:
+        try:
+            body = await conn.read()
+            if body:
+                await conn.discard()
+        except InvalidResponse:
+            log.warning('Invalid response, trying to retrieve data from raw socket!')
+            body = await conn.read_raw()
+            await conn.aclose()
+    body = body[:2048]
+
+    return '%d %s\n%s\n\n%s' % (
+        resp.status,
+        resp.reason,
+        '\n'.join('%s: %s' % x for x in resp.headers.items()),
+        body.decode('utf-8', errors='backslashreplace'),
+    )
+
+
+async def assert_empty_response(conn: HTTPConnection, resp: HTTPResponse) -> None:
+    '''Read *conn* and raise `RuntimeError` if the response body is not empty.
+
+    Used by backends after operations (DELETE, PUT, HEAD) where the
+    server should not return any payload. The body, if any, is consumed
+    and logged before the error is raised.
+    '''
+
+    buf = await conn.read()
+    if not buf:
+        return
+
+    await conn.discard()
+    log.error(
+        'Unexpected server response. Expected nothing, got:\n%d %s\n%s\n\n%s',
+        resp.status,
+        resp.reason,
+        '\n'.join('%s: %s' % x for x in resp.headers.items()),
+        buf,
+    )
+    raise RuntimeError('Unexpected server response')
