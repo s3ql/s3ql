@@ -1105,7 +1105,7 @@ async def expire_objects(pool: BackendPool, versions_to_keep: int = 32) -> None:
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
 
     log.info('Removing %d obsolete metadata blocks', len(to_remove))
-    await pool.delete_multi(to_remove)
+    await pool.delete_multi(to_remove, log_progress=True)
 
     log.info('Expiration complete.')
 

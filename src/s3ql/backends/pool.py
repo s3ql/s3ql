@@ -14,6 +14,7 @@ from collections.abc import AsyncGenerator, AsyncIterable
 from contextlib import asynccontextmanager
 
 import trio
+from more_itertools import chunked
 
 from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.common import ParallelPipeline
@@ -73,26 +74,50 @@ class BackendPool:
         finally:
             await self.push_conn(conn)
 
-    async def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(
+        self, keys: list[str], log_progress: bool = False, chunk_size=250
+    ) -> None:
         '''Delete objects stored under *keys*.
 
-        If the underlying backend has a native batch-delete API, dispatch a
-        single `delete_multi` call against one borrowed connection. Otherwise,
-        fan out single-key `delete()` calls across the pool, deleting up to
-        `max_connections` keys in parallel.
+        If the underlying backend has a native batch-delete API, dispatch *chunk_size* objects at
+        once using `delete_multi` of the backend. Otherwise, fan out single-key `delete()` calls
+        across the pool, deleting up to `max_connections` keys in parallel.
 
-        On return (whether normal or exceptional), the *keys* list contains
-        exactly those keys that have not been deleted, matching the contract
-        of `AbstractBackend.delete_multi`.
+        On return (whether normal or exceptional), the *keys* list contains exactly those keys that
+        have not been deleted, matching the contract of `AbstractBackend.delete_multi`.
+
+        If *log_progress* is True, emit periodic ``INFO`` log messages (rate-limited to 1 per
+        second, updating in-place on a console) showing how many objects have been removed so far.
         '''
 
         if not keys:
             return
         if self.has_delete_multi:
+            total = len(keys)
+            failures: list[str] = []
+            processed = 0
             async with self() as backend:
-                await backend.delete_multi(keys)
+                for batch in chunked(list(keys), chunk_size):
+                    await backend.delete_multi(batch)
+                    failures.extend(batch)
+                    processed += len(batch)
+                    if log_progress:
+                        log.info(
+                            'Removed %d/%d objects (%d%%)',
+                            processed - len(failures),
+                            total,
+                            processed * 100 // total,
+                            extra={
+                                'rate_limit': 1,
+                                'update_console': True,
+                                'is_last': processed == total,
+                            },
+                        )
+            keys[:] = failures
             return
-        await _ParallelDelete(pool=self, keys=keys).run(n_workers=self.max_connections)
+        await _ParallelDelete(pool=self, keys=keys, log_progress=log_progress).run(
+            n_workers=self.max_connections
+        )
 
 
 @dataclasses.dataclass
@@ -105,6 +130,12 @@ class _ParallelDelete(ParallelPipeline[str]):
 
     pool: BackendPool
     keys: list[str]
+    log_progress: bool = False
+    _total: int = dataclasses.field(init=False)
+    _done: int = dataclasses.field(init=False, default=0)
+
+    def __post_init__(self) -> None:
+        self._total = len(self.keys)
 
     async def produce(self) -> list[str]:
         # Snapshot so the orchestrator's iteration of the job list does not
@@ -116,3 +147,16 @@ class _ParallelDelete(ParallelPipeline[str]):
             async with self.pool() as backend:
                 await backend.delete(key)
             self.keys.remove(key)
+            if self.log_progress:
+                self._done += 1
+                log.info(
+                    'Removed %d/%d objects (%d%%)',
+                    self._done,
+                    self._total,
+                    self._done * 100 // self._total,
+                    extra={
+                        'rate_limit': 1,
+                        'update_console': True,
+                        'is_last': self._done == self._total,
+                    },
+                )

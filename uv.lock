@@ -537,6 +537,15 @@ wheels = [
 ]
 
 [[package]]
+name = "more-itertools"
+version = "11.0.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a2/f7/139d22fef48ac78127d18e01d80cf1be40236ae489769d17f35c3d425293/more_itertools-11.0.2.tar.gz", hash = "sha256:392a9e1e362cbc106a2457d37cabf9b36e5e12efd4ebff1654630e76597df804", size = 144659, upload-time = "2026-04-09T15:01:33.297Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/98/6af411189d9413534c3eb691182bff1f5c6d44ed2f93f2edfe52a1bbceb8/more_itertools-11.0.2-py3-none-any.whl", hash = "sha256:6e35b35f818b01f691643c6c611bc0902f2e92b46c18fffa77ae1e7c46e912e4", size = 71939, upload-time = "2026-04-09T15:01:32.21Z" },
+]
+
+[[package]]
 name = "oauthlib"
 version = "3.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -740,6 +749,7 @@ dependencies = [
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
+    { name = "more-itertools" },
     { name = "pyfuse3" },
     { name = "requests" },
     { name = "trio" },
@@ -769,6 +779,7 @@ requires-dist = [
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
+    { name = "more-itertools", specifier = ">=11.0.2" },
     { name = "pyfuse3", specifier = ">=3.2.0,<4.0" },
     { name = "requests" },
     { name = "trio", specifier = ">=0.15" },
