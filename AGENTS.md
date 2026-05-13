@@ -80,8 +80,8 @@ From `src/s3ql/__init__.py`:
 ## Workflow
 
 
-- Before completing a task, run `ruff check --fix`, `ruff format`, `ty check` and `pytest` (in this
-  order). Fix any reported issues before running the next tool.
+- Before completing a task, run `ruff check --fix`, `ruff format`, `ty check`, `pytest`, and
+  `./build_docs.sh` (in this order). Fix any reported issues before running the next tool.
 
 ## Releases
 
