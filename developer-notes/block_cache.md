@@ -11,7 +11,7 @@ Multiple Trio tasks interact with `BlockCache` concurrently:
 - **Upload worker tasks** (spawned by `BlockCache.create()`) consume from the upload channel and execute `_do_upload()` to write objects to the backend.
 - **Removal worker tasks** consume from the removal channel and execute backend deletions, either individually or in batches.
 
-These tasks share mutable state: the cache dictionary, the in-transit set, the SQLite database, and the backend. Correctness depends on a locking protocol built on `MultiLock`, Trio's cooperative scheduling guarantees, and the atomicity of synchronous code between `await` points. This document describes that protocol in enough detail to reason about correctness when modifying `block_cache.py` or code that interfaces with it.
+These tasks share mutable state: the cache dictionary, per-entry `in_transit` flags, the SQLite database, and the backend. Correctness depends on a locking protocol built on `MultiLock`, Trio's cooperative scheduling guarantees, and the atomicity of synchronous code between `await` points. This document describes that protocol in enough detail to reason about correctness when modifying `block_cache.py` or code that interfaces with it.
 
 
 ## 2. Trio Concurrency Model
@@ -39,7 +39,7 @@ Two operations use `trio.to_thread.run_sync` to offload work to an OS thread:
 1. **SHA-256 hashing** in `upload_if_dirty()`: `await trio.to_thread.run_sync(sha256_fh, el)`
 2. **fsync** in `_get_entry()`: `await trio.to_thread.run_sync(os.fsync, tmpfh.fileno())`
 
-These are checkpoints — the calling task yields and other tasks can run while the thread executes. In the hashing case, the `CacheEntry` is already in `in_transit` with its `block_lock` held, so no other task can access or evict it. The thread only touches the entry's file handle (seeking and reading), not any shared Python data structures. See Section 8 for further thread safety analysis.
+These are checkpoints — the calling task yields and other tasks can run while the thread executes. In the hashing case, the `CacheEntry` already has its `in_transit` flag set and its `block_lock` held, so no other task can access or evict it. The thread only touches the entry's file handle (seeking and reading), not any shared Python data structures. See Section 8 for further thread safety analysis.
 
 
 ## 3. Synchronization Primitives
@@ -130,23 +130,26 @@ A file-backed block with the following concurrency-relevant attributes:
 
 The backing file is named `{inode}-{blockno}` in the cache directory. Its contents represent the current block data, whether or not it has been uploaded to the backend.
 
-**Invariant:** A dirty entry always remains in `cache`. It may additionally be in `in_transit` while being uploaded. An entry must never be dirty without being in `cache` — if it were, the dirty data would be silently lost.
+**Invariant:** A dirty entry always remains in `cache`. Its `in_transit` flag may additionally be set while it is being uploaded. An entry must never be dirty without being in `cache` — if it were, the dirty data would be silently lost.
 
-### 4.3 `in_transit` (set)
+### 4.3 `in_transit` flag and counter
 
-A set of `CacheEntry` objects currently being uploaded. An entry is added in `upload_if_dirty()` before hashing begins and removed either:
+Each `CacheEntry` has a boolean `in_transit` attribute that records whether the entry is currently being uploaded. `BlockCache` keeps a single counter `_in_transit_count` tracking how many entries have the flag set. Two helpers, `_mark_in_transit()` and `_unmark_in_transit()`, keep the flag and counter in lockstep.
+
+The flag is set in `upload_if_dirty()` before hashing begins and cleared either:
 
 - In `upload_if_dirty()` itself, if a dedup match is found (no upload needed).
 - In `_do_upload()`, in the `finally` block, after the upload succeeds or fails.
 
-The entry remains in `cache` throughout — `in_transit` is an additional marker, not an alternative location. This is harmless: the entry's `block_lock` prevents concurrent modification, and `evict()` skips in-transit entries rather than trying to evict them.
+The entry remains in `cache` throughout — the flag is an additional marker, not an alternative location. This is harmless: the entry's `block_lock` prevents concurrent modification, and `evict()` skips in-transit entries rather than trying to evict them.
 
-While an entry is in `in_transit`:
+While `el.in_transit` is `True`:
 
-- Its `block_lock` and (if a new object was created) its `obj_lock` are held — but by the upload pipeline, not by the task that initiated the upload.
+- The entry's `block_lock` and (if a new object was created) its `obj_lock` are held — but by the upload pipeline, not by the task that initiated the upload.
 - `evict()` skips it (cannot evict an entry being uploaded).
 - `upload_if_dirty()` returns `True` immediately if called again for the same entry.
 - `get()` on the same `(inode, blockno)` blocks on `block_lock` until the upload completes and the lock is released.
+
 
 ### 4.4 Database Tables
 
@@ -200,7 +203,7 @@ The upload path spans two tasks and involves a cross-task lock handoff via the u
 upload_if_dirty()                        _do_upload()
 ─────────────────                        ────────────
 block_lock.acquire(inode, blockno)
-add to in_transit
+_mark_in_transit(el)
 hash (yields to thread)
 INSERT INTO objects
 INSERT INTO inode_blocks
@@ -209,7 +212,7 @@ send to upload channel ──────────────►  receive fr
                                          write to backend
                                          UPDATE objects SET phys_size=...
                                          el.dirty = False
-                                         discard from in_transit
+                                         _unmark_in_transit(el)
                                          obj_lock.release(obj_id)
                                          block_lock.release(inode, blockno)
                                          notify transfer_completed
@@ -223,13 +226,13 @@ On **dedup match** (existing object with the same hash), the path is shorter and
 upload_if_dirty()
 ─────────────────
 block_lock.acquire(inode, blockno)
-add to in_transit
+_mark_in_transit(el)
 hash (yields to thread)
 find matching object in DB
 UPDATE objects SET refcount=refcount+1
 INSERT OR REPLACE INTO inode_blocks
 el.dirty = False
-remove from in_transit
+_unmark_in_transit(el)
 block_lock.release(inode, blockno)
 _deref_obj(old_obj_id)            ← no object lock needed here
 ```
@@ -314,10 +317,10 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 
 **Initiating task** (`upload_if_dirty`):
 
-1. Check: entry not in `in_transit` and `el.dirty` is true.
+1. Check: `el.in_transit` is false and `el.dirty` is true.
 2. `await self.block_lock.acquire(inode, blockno)` — acquires block lock.
 3. Re-check after acquiring lock: entry still in cache, not in transit, still dirty.
-4. Add entry to `in_transit`.
+4. `_mark_in_transit(el)`
 5. `await trio.to_thread.run_sync(sha256_fh, el)` — **checkpoint**. Hash computed in OS thread. Other tasks can run, but the block lock prevents them from accessing this block.
 6. Query `inode_blocks` for existing `obj_id` (synchronous).
 7. Query `objects` for hash match — no match found.
@@ -332,12 +335,12 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 13. `await backend.write_fh(...)` — writes object to backend. **Checkpoint.**
 14. `UPDATE objects SET phys_size=...` (synchronous).
 15. `el.dirty = False`.
-16. `self.in_transit.discard(el)`.
+16. `_unmark_in_transit(el)`
 17. `await self.obj_lock.release(obj_id)` — releases object lock.
 18. `await self.block_lock.release(inode, blockno)` — releases block lock.
 19. Signal `transfer_completed`.
 
-Between steps 4 and 16, the entry is in `in_transit`. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, the object lock is held.
+Between steps 4 and 16, the entry's `in_transit` flag is set. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, the object lock is held.
 
 ### 6.4 Deduplication (Hash Matches Existing Object)
 
@@ -348,11 +351,11 @@ Steps 1–6 are identical to 6.3. Then:
 7. Query `objects` for hash match — **match found**, returns `obj_id`.
 8. If `old_obj_id != obj_id`: increment refcount on matched object, `INSERT OR REPLACE INTO inode_blocks` (synchronous).
 9. `el.dirty = False`.
-10. `self.in_transit.remove(el)`.
+10. `_unmark_in_transit(el)`
 11. `await self.block_lock.release(inode, blockno)` — releases block lock.
 12. If there was an `old_obj_id` and it differs from `obj_id`: call `_deref_obj(old_obj_id)` which may decrement refcount and queue the old object for backend deletion.
 
-No object lock is acquired because no upload occurs. The entry spends less time in `in_transit` (steps 4–10 only, no backend I/O).
+No object lock is acquired because no upload occurs. The entry spends less time with `in_transit` set (steps 4–10 only, no backend I/O).
 
 Note that if `old_obj_id == obj_id` (the block was re-dirtied with the same content), no DB changes are made and the method returns `False`.
 
@@ -404,7 +407,7 @@ Note that `_deref_obj` is called **after** releasing the block lock. This is saf
 CommitTask runs in a loop, sleeping for 5 seconds between iterations. On each iteration it:
 
 1. Iterates `list(self.block_cache.cache.values())` — a snapshot, same as `evict()`.
-2. For each entry: if `el.dirty` and `el not in self.block_cache.in_transit` and `el.last_write` is older than the configured delay, calls `upload_if_dirty(el)`.
+2. For each entry: if `el.dirty` and `not el.in_transit` and `el.last_write` is older than the configured delay, calls `upload_if_dirty(el)`.
 
 This is safe because `upload_if_dirty` performs all necessary locking internally. CommitTask merely acts as a trigger — it does not hold any locks across iterations, and it skips entries that are already being uploaded. The `last_write` check avoids uploading blocks that are still being actively written, reducing unnecessary uploads of data that will change again soon.
 
@@ -421,7 +424,7 @@ A key property underpinning crash recovery: **backends guarantee atomic writes**
 
 When `_do_upload()` raises an exception during the backend write:
 
-1. `in_transit.discard(el)` — entry removed from transit set (in `finally` block).
+1. `_unmark_in_transit(el)` — clears the entry's in-transit flag (in `finally` block).
 2. `hash` set to `NULL` in the `objects` table. This prevents future deduplication against an object that may not exist in the backend. The row is not deleted because its `id` is already referenced by `inode_blocks`; deleting it would leave dangling references or allow the id to be reused for a different object.
 3. Both locks released (`obj_lock` and `block_lock`).
 4. `transfer_completed` signaled.
@@ -519,7 +522,7 @@ sha = await trio.to_thread.run_sync(sha256_fh, el)
 This is safe because:
 
 - The block lock `(inode, blockno)` is held, preventing any other Trio task from calling `get()` on this block.
-- The entry is in `in_transit`, so `evict()` skips it.
+- The entry's `in_transit` flag is set, so `evict()` skips it.
 - No other thread accesses the same file descriptor.
 - `sha256_fh` does not read or write any Python-level shared state — it only touches the `CacheEntry`'s file handle and returns a new hash object.
 
@@ -537,12 +540,12 @@ This fsyncs a temporary file (`.tmp`) that was just downloaded from the backend.
 
 ### 8.3 General Rule
 
-The `Connection` object (database) is never accessed from worker threads. All database operations happen in Trio tasks. The same applies to `self.cache`, `self.in_transit`, and all other `BlockCache` attributes — they are only accessed from Trio task context, where cooperative scheduling provides mutual exclusion between checkpoints.
+The `Connection` object (database) is never accessed from worker threads. All database operations happen in Trio tasks. The same applies to `self.cache`, `self._in_transit_count`, the per-entry `in_transit` flag, and all other `BlockCache` attributes — they are only accessed from Trio task context, where cooperative scheduling provides mutual exclusion between checkpoints.
 
 If future changes need to offload additional work to threads, the offloaded code must only access data that is either:
 
 - Immutable or task-local (e.g., a file descriptor, a bytes object).
-- Protected by the block lock with the entry in `in_transit`, ensuring no Trio task will touch it concurrently.
+- Protected by the block lock with the entry's `in_transit` flag set, ensuring no Trio task will touch it concurrently.
 
 
 ## 9. Quick Reference
@@ -596,7 +599,7 @@ If future changes need to offload additional work to threads, the offloaded code
         └──────────────────────┘
 ```
 
-On upload failure, `_do_upload()` removes the entry from `in_transit` but leaves `dirty = True`, returning the entry to the "dirty, in cache" state for a future retry.
+On upload failure, `_do_upload()` clears the entry's `in_transit` flag but leaves `dirty = True`, returning the entry to the "dirty, in cache" state for a future retry.
 
 ### 9.3 Sentinel Values
 
@@ -611,23 +614,11 @@ On upload failure, `_do_upload()` removes the entry from `in_transit` but leaves
 When modifying `block_cache.py`, check for these patterns:
 
 - **Adding an `await` between synchronous operations?** Verify that no invariant depends on those operations being atomic. In particular, sequences of database calls that must see consistent state should not be split by a checkpoint.
-- **Accessing shared state after an `await`?** Re-validate assumptions — another task may have modified `cache`, `in_transit`, or database rows during the checkpoint. The existing code demonstrates this pattern: `upload_if_dirty()` and `evict()` both re-check entry state after acquiring locks.
+- **Accessing shared state after an `await`?** Re-validate assumptions — another task may have modified `cache`, the `in_transit` flag, or database rows during the checkpoint. The existing code demonstrates this pattern: `upload_if_dirty()` and `evict()` both re-check entry state after acquiring locks.
 - **Holding a lock across an `await`?** This is sometimes necessary (e.g., the upload path holds the block lock across the hash computation). Ensure the locked resource cannot be needed by the task you might yield to, or deadlock results.
-- **Offloading to a thread?** The thread must not access `cache`, `in_transit`, the database, or any shared Python object. Only file descriptors and immutable data are safe. See Section 8.
+- **Offloading to a thread?** The thread must not access `cache`, the `in_transit` flag or counter, the database, or any shared Python object. Only file descriptors and immutable data are safe. See Section 8.
 
 ## Improvement Ideas
-
-### Unify or eliminate the in_transit set
-
-Current state: in_transit is a set of CacheEntry objects currently being uploaded. It's checked by
-upload_if_dirty() (skip if already in transit), evict() (skip in-transit entries),
-transfer_in_progress(), and CommitTask. It partially duplicates what the block lock already
-provides.
-
-Idea: Replace in_transit with a boolean flag on CacheEntry (e.g., uploading). This is simpler than a
-separate set and keeps the state co-located with the entry.
-
-Advantage: code simplification.
 
 ### Avoid copying cache dict in CommitTask
 
@@ -698,7 +689,7 @@ Current state: Both _get_entry() and _deref_obj() do acquire(obj_id); release(ob
 expressed as lock gymnastics.
 
 Idea: Introduce a per-object upload completion event (e.g., a dict of obj_id → trio.Event). The upload worker sets the event on completion. Waiters await the event. Clearer
-intent, no lock acquire/release noise. Especially if we make `in_transit` a CacheEntry attribute (see idea above), it's value could be the event that get set
-when upload is complete.
+intent, no lock acquire/release noise. The existing `in_transit` flag on `CacheEntry` could be replaced by such an event, with `None` meaning "not in transit" and a
+`trio.Event` instance meaning "in transit; set when upload completes".
 
 Impact: Makes the code self-documenting. The barrier pattern is currently a "you have to read the comment to understand it" idiom.

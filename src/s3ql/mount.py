@@ -864,7 +864,7 @@ class CommitTask:
                     or stamp - el.last_write < self.dirty_block_upload_delay
                 ):
                     break
-                if el.dirty and el not in self.block_cache.in_transit:
+                if el.dirty and not el.in_transit:
                     await self.block_cache.upload_if_dirty(el)
                     did_sth = True
 

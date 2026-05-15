@@ -53,7 +53,17 @@ class CacheEntry:
     :pos: current position in file
     """
 
-    __slots__ = ['dirty', 'inode', 'blockno', 'last_write', 'size', 'pos', 'fh', 'removed']
+    __slots__ = [
+        'dirty',
+        'inode',
+        'blockno',
+        'last_write',
+        'size',
+        'pos',
+        'fh',
+        'removed',
+        'in_transit',
+    ]
 
     dirty: bool
     inode: InodeT
@@ -62,6 +72,7 @@ class CacheEntry:
     size: int
     pos: int
     fh: BufferedRandom
+    in_transit: bool
 
     def __init__(self, inode: InodeT, blockno: int, filename: str, mode: str = 'w+b') -> None:
         super().__init__()
@@ -75,6 +86,7 @@ class CacheEntry:
         self.last_write = 0
         self.pos = self.fh.tell()
         self.size = os.fstat(self.fh.fileno()).st_size
+        self.in_transit = False
 
     def read(self, size: int | None = None) -> bytes:
         buf = self.fh.read(size)
@@ -176,7 +188,7 @@ class BlockCache:
     :cache: ordered dictionary of cache entries
     :block_lock: MultiLock keyed by (inode, blockno) — synchronizes access to cache entries
     :obj_lock: MultiLock keyed by (obj_id,) — synchronizes upload/deletion of backend objects
-    :in_transit: set of cache entries that are currently being uploaded
+    :_in_transit_count: number of cache entries whose `in_transit` flag is set
     :_upload_send: channel to distribute upload work to worker tasks
     :_remove_send: channel to distribute removal work to worker tasks
     :transfer_completed: signals completion of an object upload
@@ -191,7 +203,7 @@ class BlockCache:
     cache: CacheDict
     block_lock: MultiLock[tuple[InodeT, int]]
     obj_lock: MultiLock[int]
-    in_transit: set[CacheEntry]
+    _in_transit_count: int
     transfer_completed: trio.Condition
     _upload_send: UploadChannelSend
     _remove_send: RemovalChannelSend
@@ -217,7 +229,7 @@ class BlockCache:
         self.cache = CacheDict(max_size, max_entries)
         self.block_lock = MultiLock()
         self.obj_lock = MultiLock()
-        self.in_transit = set()
+        self._in_transit_count = 0
         self.transfer_completed = trio.Condition()
         self._upload_send = upload_send
         self._remove_send = remove_send
@@ -315,7 +327,7 @@ class BlockCache:
         log.debug('Closing removal channel...')
         await self._remove_send.aclose()
 
-        assert len(self.in_transit) == 0
+        assert self._in_transit_count == 0
 
         if not keep_cache:
             os.rmdir(self.path)
@@ -334,6 +346,18 @@ class BlockCache:
                 pass
         log.debug('upload task exiting')
 
+    def _mark_in_transit(self, el: CacheEntry) -> None:
+        if el.in_transit:
+            raise RuntimeError('cache entry already in transit: %s' % el)
+        el.in_transit = True
+        self._in_transit_count += 1
+
+    def _unmark_in_transit(self, el: CacheEntry) -> None:
+        if not el.in_transit:
+            raise RuntimeError('cache entry not in transit: %s' % el)
+        el.in_transit = False
+        self._in_transit_count -= 1
+
     async def _do_upload(self, el: CacheEntry, obj_id: int) -> None:
         '''Upload object using async backend.'''
 
@@ -351,7 +375,7 @@ class BlockCache:
                     obj_size = await backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
             success = True
         finally:
-            self.in_transit.discard(el)
+            self._unmark_in_transit(el)
 
             if success:
                 self.db.execute('UPDATE objects SET phys_size=? WHERE id=?', (obj_size, obj_id))
@@ -398,20 +422,20 @@ class BlockCache:
 
         log.debug('started with %s', el)
 
-        if el in self.in_transit:
+        if el.in_transit:
             return True
         elif not el.dirty:
             return False
 
         # Calculate checksum
         await self.block_lock.acquire(el.key)
-        added_to_transit = False
+        set_in_transit = False
         try:
             if el is not self.cache.get(el.key, None):
                 log.debug('%s got removed while waiting for lock', el)
                 await self.block_lock.release(el.key)
                 return False
-            if el in self.in_transit:
+            if el.in_transit:
                 log.debug('%s already in transit', el)
                 await self.block_lock.release(el.key)
                 return True
@@ -421,14 +445,14 @@ class BlockCache:
                 return False
 
             log.debug('uploading %s..', el)
-            self.in_transit.add(el)
-            added_to_transit = True
+            self._mark_in_transit(el)
+            set_in_transit = True
             el.seek(0)
             sha = await trio.to_thread.run_sync(sha256_fh, el)
             hash_ = sha.digest()
         except:
-            if added_to_transit:
-                self.in_transit.discard(el)
+            if set_in_transit:
+                self._unmark_in_transit(el)
             await self.block_lock.release(el.key)
             raise
 
@@ -453,9 +477,10 @@ class BlockCache:
                 )
                 log.debug('created new object %d, adding to upload queue', obj_id)
 
-                # Note: we must finish all db transactions before adding to
-                # in_transit, otherwise commit() may return before all blocks
-                # are available in db.
+                # Note: we must finish all db transactions before handing off
+                # to the upload task, otherwise the upload may complete and
+                # clear the in-transit flag (allowing commit() to return)
+                # before the inode_blocks row is visible.
                 self.db.execute(
                     'INSERT OR REPLACE INTO inode_blocks (obj_id, inode, blockno) VALUES(?,?,?)',
                     (obj_id, el.inode, el.blockno),
@@ -477,7 +502,8 @@ class BlockCache:
                     )
 
                 el.dirty = False
-                self.in_transit.remove(el)
+                self._unmark_in_transit(el)
+                set_in_transit = False
                 await self.block_lock.release(el.key)
 
                 if old_obj_id == obj_id:
@@ -485,7 +511,8 @@ class BlockCache:
                     return False
 
         except:
-            self.in_transit.discard(el)
+            if set_in_transit:
+                self._unmark_in_transit(el)
             await self.block_lock.release(el.key, noerror=True)
             if obj_lock_taken:
                 await self.obj_lock.release(obj_id)
@@ -535,7 +562,7 @@ class BlockCache:
     def transfer_in_progress(self) -> bool:
         '''Return True if there are any cache entries being uploaded'''
 
-        return len(self.in_transit) > 0
+        return self._in_transit_count > 0
 
     async def _removal_task_multi(self, recv: RemovalChannelRecv) -> None:
         '''Process removal queue using batch deletes, as a Trio task.
