@@ -23,7 +23,8 @@ $ pytest tests/
 
 and build the HTML documentation and manpages with:
 ```sh
-$ ./build_docs.sh
+$ sphinx-build -b html rst/ doc/html
+$ sphinx-build -b man rst/ doc/manpages
 ```
 
 S3QL commands are available in `.venv/bin` even when the venv is not explicitly activated, e.g.:

@@ -30,11 +30,11 @@ Download the release tarball ``s3ql-A.B.C.tar.gz`` and its detached signature
 
   signify -V -m s3ql-A.B.C.tar.gz -p <public-key>
 
-The public key needs to be retrieved from a trustworthy source for the first installation.
-Afterwards, the trust chain is self-sustaining: each release tarball contains the public key for the
-release in its ``signify/`` directory. Bugfix releases (`A.B.C`) will be signed
-by `s3ql-A.B.pub`. New major or minor releases (`A.B.0`) will be signed be
-`s3ql-next.pub`.
+The public key must be obtained from a trustworthy source for the first installation. After that,
+the trust chain is self-sustaining: each release tarball's ``signify/`` directory contains public
+keys for future releases. Bugfix releases (``A.B.C``) are signed with ``s3ql-A.B.pub``; new major
+or minor releases (``A.B.0``) are signed with ``s3ql-next.pub``. After verifying a tarball, extract
+the relevant key from its ``signify/`` directory and keep it for the next verification.
 
 After validating the tarball, unpack it and change into the newly created `s3ql-X.Y.Z` directory. At
 this point, you can use any tool that can work with Python `pyproject.toml` files to install S3QL.
