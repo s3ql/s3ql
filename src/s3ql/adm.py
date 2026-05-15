@@ -19,7 +19,7 @@ import tempfile
 import textwrap
 import time
 from base64 import b64decode
-from collections.abc import AsyncIterable, AsyncIterator, Sequence
+from collections.abc import Sequence
 from datetime import datetime
 from getpass import getpass
 
@@ -43,7 +43,6 @@ from .backends.common import AsyncBackend, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .backends.pool import BackendPool
 from .common import (
-    ParallelPipeline,
     async_get_backend,
     get_backend_factory,
     is_mounted,
@@ -237,42 +236,6 @@ async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
     await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
-@dataclasses.dataclass
-class ClearBackend(ParallelPipeline[str]):
-    '''Parallel pipeline that deletes every visible object from a backend.
-
-    Each worker creates its own backend connection (no `BackendPool`) and deletes
-    objects as their keys arrive on the channel. Keys stream lazily from
-    *listing_backend*'s `list()` so very large buckets do not have to be
-    materialised in memory before deletion starts.
-    '''
-
-    listing_backend: AsyncBackend
-    options: argparse.Namespace
-
-    async def produce(self) -> AsyncIterator[str]:
-        return self._iter_keys()
-
-    async def _iter_keys(self) -> AsyncIterator[str]:
-        i = 0
-        async for key in self.listing_backend.list():
-            log.info(
-                'Deleting objects (%d so far)...',
-                i,
-                extra={'rate_limit': 1, 'update_console': True},
-            )
-            yield key
-            i += 1
-
-    async def consume(self, jobs: AsyncIterable[str]) -> None:
-        async with await async_get_backend(self.options, raw=True) as backend:
-            async for key in jobs:
-                await backend.delete(key)
-
-    def finalize(self) -> None:
-        log.info('All visible objects deleted.')
-
-
 async def clear(options: argparse.Namespace) -> None:
     async with await async_get_backend(options, raw=True) as backend:
         print(
@@ -291,7 +254,7 @@ async def clear(options: argparse.Namespace) -> None:
         if sys.stdin.readline().strip().lower() != 'yes':
             raise QuietError()
 
-        log.info('Deleting...')
+        log.info('Deleting in batches...')
         for suffix in ('.db', '.params'):
             name = options.cachepath + suffix
             if os.path.exists(name):
@@ -301,8 +264,31 @@ async def clear(options: argparse.Namespace) -> None:
         if os.path.exists(name):
             shutil.rmtree(name)
 
-        op = ClearBackend(listing_backend=backend, options=options)
-        await op.run(n_workers=options.max_connections, buffer_size=options.max_connections)
+        # Raw factory: skip the auth probe and comprenc wrapping that
+        # `get_backend_factory` would otherwise apply, since `clear` must
+        # address every object regardless of S3QL ownership. The listing
+        # iterator is held by *backend* outside the pool, so all
+        # `max_connections` pool slots remain available for deletion.
+        async def raw_factory() -> AsyncBackend:
+            return await options.backend_class.create(options)
+
+        raw_factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
+        pool = BackendPool(raw_factory, options.max_connections)  # type: ignore[arg-type]
+        try:
+            batch: list[str] = []
+            total = 0
+            async for key in backend.list():
+                batch.append(key)
+                if len(batch) >= 1000:
+                    await pool.delete_multi(batch, log_progress=True)
+                    total += len(batch)
+                    batch.clear()
+            if batch:
+                await pool.delete_multi(batch, log_progress=True)
+                total += len(batch)
+        finally:
+            await pool.flush()
+        log.info('Deleted %d objects total.', total)
 
 
 def get_old_rev_msg(rev: int, prog: str) -> str:
