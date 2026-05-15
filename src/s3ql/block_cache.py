@@ -187,7 +187,8 @@ class BlockCache:
     :path: where cached data is stored
     :cache: ordered dictionary of cache entries
     :block_lock: MultiLock keyed by (inode, blockno) — synchronizes access to cache entries
-    :obj_lock: MultiLock keyed by (obj_id,) — synchronizes upload/deletion of backend objects
+    :in_flight_uploads: maps obj_id to a `trio.Event` set when the upload of that object
+        completes (successfully or not). An entry exists iff an upload is in flight.
     :_in_transit_count: number of cache entries whose `in_transit` flag is set
     :_upload_send: channel to distribute upload work to worker tasks
     :_remove_send: channel to distribute removal work to worker tasks
@@ -202,7 +203,7 @@ class BlockCache:
     backend_pool: BackendPool
     cache: CacheDict
     block_lock: MultiLock[tuple[InodeT, int]]
-    obj_lock: MultiLock[int]
+    in_flight_uploads: dict[int, trio.Event]
     _in_transit_count: int
     transfer_completed: trio.Condition
     _upload_send: UploadChannelSend
@@ -228,7 +229,7 @@ class BlockCache:
         self.backend_pool = backend_pool
         self.cache = CacheDict(max_size, max_entries)
         self.block_lock = MultiLock()
-        self.obj_lock = MultiLock()
+        self.in_flight_uploads = {}
         self._in_transit_count = 0
         self.transfer_completed = trio.Condition()
         self._upload_send = upload_send
@@ -392,7 +393,7 @@ class BlockCache:
                 # protocol (including why we cannot simply delete the row).
                 self.db.execute('UPDATE objects SET hash=NULL WHERE id=?', (obj_id,))
 
-            await self.obj_lock.release(obj_id)
+            self.in_flight_uploads.pop(obj_id).set()
             await self.block_lock.release(el.key)
             async with self.transfer_completed:
                 self.transfer_completed.notify_all()
@@ -456,7 +457,7 @@ class BlockCache:
             await self.block_lock.release(el.key)
             raise
 
-        obj_lock_taken = False
+        upload_registered = False
         try:
             try:
                 old_obj_id: int | None = self.db.get_int_val(
@@ -486,8 +487,11 @@ class BlockCache:
                     (obj_id, el.inode, el.blockno),
                 )
 
-                await self.obj_lock.acquire(obj_id)
-                obj_lock_taken = True
+                # Register the completion event synchronously, before the
+                # checkpoint below, so that any waiter that observes the
+                # obj_id via the database will also find the event.
+                self.in_flight_uploads[obj_id] = trio.Event()
+                upload_registered = True
                 await self._upload_send.send((el, obj_id))
 
             # There is a block with the same hash
@@ -514,8 +518,10 @@ class BlockCache:
             if set_in_transit:
                 self._unmark_in_transit(el)
             await self.block_lock.release(el.key, noerror=True)
-            if obj_lock_taken:
-                await self.obj_lock.release(obj_id)
+            if upload_registered:
+                # Not clear what we should do here.. someone might be waiting on this,
+                # but setting it would have the wrong semantics.
+                self.in_flight_uploads.pop(obj_id, None)
             raise
 
         if old_obj_id:
@@ -523,7 +529,7 @@ class BlockCache:
         else:
             log.debug('no old object')
 
-        return obj_lock_taken
+        return upload_registered
 
     async def _deref_obj(self, obj_id: int) -> None:
         '''Decrease reference count for *obj_id*
@@ -542,19 +548,20 @@ class BlockCache:
         log.debug('removing object %d', obj_id)
         self.db.execute('DELETE FROM objects WHERE id=?', (obj_id,))
 
-        # Taking the lock ensures that the object is no longer in
-        # transit itself. We can release it immediately after, because
-        # the object is no longer in the database.
         log.debug('adding %d to removal queue', obj_id)
 
-        await self.obj_lock.acquire(obj_id)
-        await self.obj_lock.release(obj_id)
+        # If an upload of this object is still in flight, wait for it to finish
+        # before queuing the removal. After the wait, the upload has either
+        # succeeded (and the backend object exists, ready to be deleted) or
+        # failed (signalled by phys_size remaining -1, handled below).
+        if (event := self.in_flight_uploads.get(obj_id)) is not None:
+            await event.wait()
 
         if size == -1:
             # size == -1 indicates that object has not yet been uploaded.
-            # However, since we just acquired a lock on the object, we know
-            # that the upload must have failed. Therefore, trying to remove
-            # this object would just give us another error.
+            # However, since we just waited for the in-flight upload, we know
+            # that it must have failed. Therefore, trying to remove this
+            # object would just give us another error.
             return
 
         await self._remove_send.send(obj_id)
@@ -711,13 +718,13 @@ class BlockCache:
             log.debug('downloading object %d..', obj_id)
             with open(filename + '.tmp', 'wb') as tmpfh:
                 try:
-                    # Lock object. This ensures that we wait until the object
-                    # is uploaded. We don't have to worry about deletion, because
-                    # as long as the current cache entry exists, there will always be
-                    # a reference to the object (and we already have a lock on the
-                    # cache entry).
-                    await self.obj_lock.acquire(obj_id)
-                    await self.obj_lock.release(obj_id)
+                    # If an upload of this object is still in flight, wait for
+                    # it to finish before downloading. We do not have to worry
+                    # about deletion: while the current cache entry exists, an
+                    # inode_blocks reference to the object exists too, and we
+                    # already hold the block lock for this entry.
+                    if (event := self.in_flight_uploads.get(obj_id)) is not None:
+                        await event.wait()
 
                     async with self.backend_pool() as backend:
                         await backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)

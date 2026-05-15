@@ -46,14 +46,11 @@ These are checkpoints — the calling task yields and other tasks can run while 
 
 ### 3.1 MultiLock
 
-`MultiLock` (`src/s3ql/multi_lock.py`) is an async key-based lock built on `trio.Condition`. It maintains a set of currently-held keys. Any hashable tuple can serve as a key.
+`MultiLock` (`src/s3ql/multi_lock.py`) is an async key-based lock built on `trio.Condition`. It maintains a set of currently-held keys. Any hashable value can serve as a key.
 
-`BlockCache` uses two `MultiLock` instances, one per lock namespace:
+`BlockCache` uses a single `MultiLock` instance as **`block_lock`**. It is keyed by `(inode, blockno)` and protects a cache entry and its associated database rows in `inode_blocks`.
 
-- **`block_lock`** — keyed by `(inode, blockno)`. Protects a cache entry and its associated database rows in `inode_blocks`.
-- **`obj_lock`** — keyed by `(obj_id,)`. Protects a backend storage object during upload or deletion.
-
-API (the same on both instances):
+API:
 
 | Method | Behavior |
 |--------|----------|
@@ -65,11 +62,19 @@ API (the same on both instances):
 Properties to keep in mind:
 
 - **Not reentrant.** Acquiring a key that the same task already holds will deadlock.
-- **Cross-task release is intentional.** `upload_if_dirty()` acquires the block and object locks, then sends work to an upload worker via a channel. The worker's `_do_upload()` releases both locks. This is documented in `multi_lock.py` as a feature, not a bug.
+- **Cross-task release is intentional.** `upload_if_dirty()` acquires the block lock, then sends work to an upload worker via a channel. The worker's `_do_upload()` releases the lock. This is documented in `multi_lock.py` as a feature, not a bug.
 - **`notify_all()` on release.** All waiting tasks on the same `MultiLock` instance wake up and re-check whether their specific key is now free.
 - **`noerror=True`** is used in exception handlers where the lock may or may not have been acquired (e.g., the `block_lock.release(..., noerror=True)` call in `upload_if_dirty`'s exception path).
 
-### 3.2 `transfer_completed` (trio.Condition)
+### 3.2 `in_flight_uploads` (dict[int, trio.Event])
+
+A dictionary mapping `obj_id` to a `trio.Event` that is set when the upload of that object completes (whether successfully or not). An entry exists in the dict if and only if an upload for that `obj_id` is in flight.
+
+The event is created and inserted into the dict in `upload_if_dirty()` immediately after the `objects` row is inserted into the database, before any `await` that could let another task observe the new `obj_id`. The upload worker pops the entry and sets the event in `_do_upload()`'s `finally` block, ensuring that waiters wake on both success and failure.
+
+Used by `_get_entry()` (before downloading) and `_deref_obj()` (before queuing a removal) to wait until the upload of a specific object has finished. Both callers look up the event by `obj_id`; if it is present, they await it. Waiters are only woken when their specific upload completes, not on every upload.
+
+### 3.3 `transfer_completed` (trio.Condition)
 
 A `trio.Condition` signaled by `_do_upload()` whenever an upload finishes (successfully or not). Used by `wait()`, which is called from `evict()` when dirty entries need to be flushed before eviction can proceed.
 
@@ -87,7 +92,7 @@ while True:
 
 The timeout guards against a race: a transfer could complete between the `transfer_in_progress()` check and entering `wait()`. Without the timeout, `wait()` would block forever in that case.
 
-### 3.3 Memory Channels
+### 3.4 Memory Channels
 
 Two Trio memory channels distribute work to worker tasks:
 
@@ -98,7 +103,7 @@ Each worker receives a **clone** of the receive end. When a worker exits (normal
 
 The number of workers equals `backend_pool.max_connections`, matching the available backend connection pool capacity.
 
-### 3.4 BackendPool
+### 3.5 BackendPool
 
 `BackendPool` (`src/s3ql/backends/pool.py`) is a connection pool governed by a `trio.CapacityLimiter`. Acquired via `async with self.backend_pool() as backend:`. The limiter ensures that at most `max_connections` backend operations run concurrently. Since upload and removal workers each acquire a backend connection for their operation, the pool bounds total concurrent backend I/O.
 
@@ -145,7 +150,7 @@ The entry remains in `cache` throughout — the flag is an additional marker, no
 
 While `el.in_transit` is `True`:
 
-- The entry's `block_lock` and (if a new object was created) its `obj_lock` are held — but by the upload pipeline, not by the task that initiated the upload.
+- The entry's `block_lock` is held — by the upload pipeline once the entry has been handed off, not by the task that initiated the upload. If a new object was created, an entry also exists in `in_flight_uploads` for that `obj_id` until the upload completes.
 - `evict()` skips it (cannot evict an entry being uploaded).
 - `upload_if_dirty()` returns `True` immediately if called again for the same entry.
 - `get()` on the same `(inode, blockno)` blocks on `block_lock` until the upload completes and the lock is released.
@@ -186,16 +191,7 @@ Multiple `inode_blocks` rows can reference the same `objects` row — this is ho
 
 ## 5. Locking Protocol
 
-### 5.1 Lock Ordering
-
-Two `MultiLock` instances exist (see Section 3.1). When both are needed, they are always acquired in this order:
-
-1. **`block_lock`** keyed by `(inode, blockno)`
-2. **`obj_lock`** keyed by `(obj_id,)`
-
-No code path acquires them in reverse order. This prevents deadlocks between tasks operating on different blocks that happen to reference the same object.
-
-### 5.2 Lock Lifecycle in the Upload Path
+### 5.1 Lock Lifecycle in the Upload Path
 
 The upload path spans two tasks and involves a cross-task lock handoff via the upload channel:
 
@@ -207,18 +203,18 @@ _mark_in_transit(el)
 hash (yields to thread)
 INSERT INTO objects
 INSERT INTO inode_blocks
-obj_lock.acquire(obj_id)
+in_flight_uploads[obj_id] = Event()
 send to upload channel ──────────────►  receive from channel
                                          write to backend
                                          UPDATE objects SET phys_size=...
                                          el.dirty = False
                                          _unmark_in_transit(el)
-                                         obj_lock.release(obj_id)
+                                         pop in_flight_uploads[obj_id].set()
                                          block_lock.release(inode, blockno)
                                          notify transfer_completed
 ```
 
-The initiating task (FUSE handler, CommitTask, or `evict()`) acquires both locks but does not release them. The upload worker releases both locks after the backend write completes (or fails). This cross-task release is the reason `MultiLock` explicitly supports it.
+The initiating task (FUSE handler, CommitTask, or `evict()`) acquires the block lock and registers the completion event, but does not release the lock or set the event. The upload worker performs both after the backend write completes (or fails). The cross-task release of `block_lock` is the reason `MultiLock` explicitly supports it.
 
 On **dedup match** (existing object with the same hash), the path is shorter and stays within a single task:
 
@@ -234,40 +230,40 @@ INSERT OR REPLACE INTO inode_blocks
 el.dirty = False
 _unmark_in_transit(el)
 block_lock.release(inode, blockno)
-_deref_obj(old_obj_id)            ← no object lock needed here
+_deref_obj(old_obj_id)
 ```
 
-No object lock is acquired because no upload occurs.
+No event is registered because no upload occurs.
 
-### 5.3 Object Lock as Upload Barrier
+### 5.2 Waiting for Upload Completion in `_get_entry()`
 
-In `_get_entry()`, when downloading an object from the backend, the code acquires and immediately releases the object lock:
+In `_get_entry()`, when downloading an object from the backend, the code waits for any in-flight upload of that object to finish:
 
 ```python
-await self.obj_lock.acquire(obj_id)
-await self.obj_lock.release(obj_id)
+if (event := self.in_flight_uploads.get(obj_id)) is not None:
+    await event.wait()
 ```
 
-This is not protecting a critical section — it is a **barrier**. If the object is currently being uploaded, `obj_lock` is held by the upload pipeline. The acquire blocks until the upload completes, ensuring the download reads the fully-written object. The lock can be released immediately after because the block lock `(inode, blockno)` guarantees a reference to the object exists (so it won't be deleted while the download proceeds).
+If no upload is in flight for `obj_id`, the lookup returns `None` and the wait is skipped. If an upload is in flight, the await blocks until the upload finishes and `_do_upload` sets the event. This ensures the download reads the fully-written object. Deletion is not a concern because the block lock `(inode, blockno)` guarantees a reference to the object exists for as long as the cache entry exists.
 
-### 5.4 Object Lock in `_deref_obj`
+### 5.3 Waiting for Upload Completion in `_deref_obj()`
 
-The same barrier pattern appears in `_deref_obj()`:
+`_deref_obj()` uses the same pattern before queuing a removal:
 
 ```python
-await self.obj_lock.acquire(obj_id)
-await self.obj_lock.release(obj_id)
+if (event := self.in_flight_uploads.get(obj_id)) is not None:
+    await event.wait()
 ```
 
-This ensures that the object is no longer being uploaded before it is deleted. By the time the lock is acquired, the upload has either succeeded (object exists in backend, ready for deletion) or failed (object may not exist; `_deref_obj` checks `phys_size == -1` and skips the deletion in that case).
+This ensures that the object is no longer being uploaded before it is deleted. After the wait, the upload has either succeeded (object exists in backend, ready for deletion) or failed (object may not exist; `_deref_obj` checks `phys_size == -1` and skips the deletion in that case).
 
-The object row has already been deleted from the `objects` table before this lock round-trip. This is safe because:
+The object row has already been deleted from the `objects` table before this wait. This is safe because:
 
 1. The object can no longer be found by deduplication (hash lookup will not match a deleted row).
 2. No new upload can target this `obj_id`.
-3. Any concurrent `_get_entry` that already looked up this `obj_id` holds the block lock, which prevents the entry from being removed from `inode_blocks` until the download completes. But note that `_deref_obj` only runs when `refcount` drops to zero, meaning no `inode_blocks` rows reference this object — so no concurrent download for this object is possible.
+3. `_deref_obj` only runs when `refcount` drops to zero, meaning no `inode_blocks` rows reference this object — so no concurrent download for this object is possible.
 
-### 5.5 Block Lock in `get()`
+### 5.4 Block Lock in `get()`
 
 `get()` has two paths, each with different lock behavior:
 
@@ -304,7 +300,7 @@ No expiration check. No backend interaction. No checkpoint while the caller hold
 3. Calls `_get_entry()`:
    - **Cache hit:** `move_to_end()`, return entry.
    - **Cache miss, no DB row:** Create new empty `CacheEntry`, add to cache, return.
-   - **Cache miss, DB row exists:** Download from backend. Acquires then immediately releases `obj_lock` keyed by `obj_id` as an upload barrier (see 5.3). Opens a `.tmp` file, downloads, fsyncs, renames to final name. Creates `CacheEntry`, adds to cache and updates `cache.size`.
+   - **Cache miss, DB row exists:** Download from backend. If an upload of `obj_id` is in flight, waits on the entry's completion event in `in_flight_uploads` (see 5.2). Opens a `.tmp` file, downloads, fsyncs, renames to final name. Creates `CacheEntry`, adds to cache and updates `cache.size`.
 4. `oldsize = el.size` recorded.
 5. Entry yielded to caller. Caller reads or writes.
 6. `finally` block: `cache.size += el.size - oldsize`, then releases block lock.
@@ -326,7 +322,7 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 7. Query `objects` for hash match — no match found.
 8. `INSERT INTO objects` with `phys_size=-1` (synchronous).
 9. `INSERT OR REPLACE INTO inode_blocks` (synchronous).
-10. `await self.obj_lock.acquire(obj_id)` — acquires object lock. **Checkpoint.**
+10. `self.in_flight_uploads[obj_id] = trio.Event()` (synchronous). The event is registered before the next checkpoint so that any waiter that discovers the `obj_id` via the database will also find the event.
 11. `await self._upload_send.send((el, obj_id))` — blocks until a worker is ready. **Checkpoint.** Initiating task is now done; control passes to the worker.
 
 **Upload worker** (`_do_upload`):
@@ -336,11 +332,11 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 14. `UPDATE objects SET phys_size=...` (synchronous).
 15. `el.dirty = False`.
 16. `_unmark_in_transit(el)`
-17. `await self.obj_lock.release(obj_id)` — releases object lock.
+17. `self.in_flight_uploads.pop(obj_id).set()` — wakes any task waiting on this upload.
 18. `await self.block_lock.release(inode, blockno)` — releases block lock.
 19. Signal `transfer_completed`.
 
-Between steps 4 and 16, the entry's `in_transit` flag is set. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, the object lock is held.
+Between steps 4 and 16, the entry's `in_transit` flag is set. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, an entry exists in `in_flight_uploads` for `obj_id`.
 
 ### 6.4 Deduplication (Hash Matches Existing Object)
 
@@ -355,7 +351,7 @@ Steps 1–6 are identical to 6.3. Then:
 11. `await self.block_lock.release(inode, blockno)` — releases block lock.
 12. If there was an `old_obj_id` and it differs from `obj_id`: call `_deref_obj(old_obj_id)` which may decrement refcount and queue the old object for backend deletion.
 
-No object lock is acquired because no upload occurs. The entry spends less time with `in_transit` set (steps 4–10 only, no backend I/O).
+No completion event is registered because no upload occurs. The entry spends less time with `in transit` set (steps 4–10 only, no backend I/O).
 
 Note that if `old_obj_id == obj_id` (the block was re-dirtied with the same content), no DB changes are made and the method returns `False`.
 
@@ -363,15 +359,15 @@ Note that if `old_obj_id == obj_id` (the block was re-dirtied with the same cont
 
 **Tasks:** Task A is uploading object X. Task B wants to read a block backed by object X.
 
-1. Task A holds `obj_lock` keyed by `obj_id_X` (step 10 in 6.3).
+1. Task A has registered `in_flight_uploads[obj_id_X]` (step 10 in 6.3) and is uploading.
 2. Task B enters `get()` slow path, acquires block lock for its block.
 3. Task B enters `_get_entry()`, finds its block is not in cache, queries DB, finds it maps to `obj_id_X`.
-4. Task B calls `await self.obj_lock.acquire(obj_id_X)` — **blocks** because Task A holds it.
-5. Task A's upload worker completes the upload, releases `obj_lock` for `obj_id_X`.
-6. Task B acquires `obj_lock` for `obj_id_X`, immediately releases it.
+4. Task B looks up `in_flight_uploads[obj_id_X]`, finds the event, and `await event.wait()` — **blocks**.
+5. Task A's upload worker completes the upload, pops the entry, and sets the event.
+6. Task B's wait returns.
 7. Task B downloads the object (which now exists in the backend).
 
-Without the barrier, Task B could attempt to download an object that has not yet been written.
+Without this wait, Task B could attempt to download an object that has not yet been written.
 
 ### 6.6 Cache Eviction (`evict()`)
 
@@ -424,9 +420,9 @@ A key property underpinning crash recovery: **backends guarantee atomic writes**
 
 When `_do_upload()` raises an exception during the backend write:
 
-1. `_unmark_in_transit(el)` — clears the entry's in-transit flag (in `finally` block).
+1. The entry's in-transit flag is cleared (in `finally` block).
 2. `hash` set to `NULL` in the `objects` table. This prevents future deduplication against an object that may not exist in the backend. The row is not deleted because its `id` is already referenced by `inode_blocks`; deleting it would leave dangling references or allow the id to be reused for a different object.
-3. Both locks released (`obj_lock` and `block_lock`).
+3. `in_flight_uploads[obj_id]` is popped and the event is set, waking any waiters. `block_lock` is released.
 4. `transfer_completed` signaled.
 5. `el.dirty` remains `True` — the entry stays dirty in the cache for a future upload attempt.
 
@@ -550,13 +546,12 @@ If future changes need to offload additional work to threads, the offloaded code
 
 ## 9. Quick Reference
 
-### 9.1 Lock Reference
+### 9.1 Synchronization Reference
 
-| Lock | Key | Protects | Acquired by | Released by |
-|------|-----|----------|-------------|-------------|
-| `block_lock` | `(inode, blockno)` | Cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `evict()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
-| `obj_lock` | `(obj_id,)` | Backend object during upload or deletion | `upload_if_dirty()` (new object path) | `_do_upload()` worker (cross-task) |
-| `obj_lock` | `(obj_id,)` | Barrier — wait for upload to complete | `_get_entry()`, `_deref_obj()` | Same task (immediately after acquire) |
+| Primitive | Key | Purpose | Set/acquired by | Cleared/released by |
+|-----------|-----|---------|-----------------|---------------------|
+| `block_lock` | `(inode, blockno)` | Exclusive access to a cache entry, its backing file, and its `inode_blocks` row | `get()`, `upload_if_dirty()`, `evict()`, `remove()` | Same task, or `_do_upload()` worker (cross-task) |
+| `in_flight_uploads[obj_id]` | `obj_id` | Wait for upload of a specific object to complete | `upload_if_dirty()` after `INSERT INTO objects` (new-object path) | `_do_upload()` worker on success or failure |
 
 ### 9.2 CacheEntry State Transitions
 
@@ -682,14 +677,3 @@ and not locked). evict() pops from this deque instead of scanning everything. Di
 be added to the deque when they become clean after upload.
 
 Risk: Adds a new data structure to keep in sync.
-
-### Replace the acquire/release barrier pattern with a dedicated primitive
-
-Current state: Both _get_entry() and _deref_obj() do acquire(obj_id); release(obj_id) purely to wait for an in-flight upload. This is semantically a "wait for event" but
-expressed as lock gymnastics.
-
-Idea: Introduce a per-object upload completion event (e.g., a dict of obj_id → trio.Event). The upload worker sets the event on completion. Waiters await the event. Clearer
-intent, no lock acquire/release noise. The existing `in_transit` flag on `CacheEntry` could be replaced by such an event, with `None` meaning "not in transit" and a
-`trio.Event` instance meaning "in transit; set when upload completes".
-
-Impact: Makes the code self-documenting. The barrier pattern is currently a "you have to read the comment to understand it" idiom.
