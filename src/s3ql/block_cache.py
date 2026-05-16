@@ -776,8 +776,8 @@ class BlockCache:
                 if need_size <= 0 and need_entries <= 0:
                     break
 
-                if not el.dirty and el not in self.in_transit:
-                    continue  # clean entries were already handled above
+                if not (el.dirty or el in self.in_transit):
+                    continue  # skip clean entries not in transit; already handled above
 
                 need_entries -= 1
                 need_size -= el.size
@@ -789,8 +789,8 @@ class BlockCache:
                 log.debug('waiting for transfer threads..')
                 await self.wait()
             else:
-                # Nothing can be uploaded and clean eviction made no progress:
-                # avoid an infinite loop.
+                # No uploads could be started (all remaining entries are clean
+                # or already in transit): break to avoid an infinite loop.
                 break
 
         log.debug('finished')
