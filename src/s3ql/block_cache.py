@@ -13,7 +13,6 @@ import os
 import re
 import sys
 import time
-from collections import OrderedDict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from io import BufferedRandom
@@ -25,6 +24,7 @@ from pyfuse3 import InodeT
 from s3ql.common import sha256_fh
 from s3ql.fs import Operations
 
+from ._linked_dict import LinkedDict
 from .backends.common import NoSuchObject
 from .database import NoSuchRowError
 from .multi_lock import MultiLock
@@ -141,9 +141,14 @@ class CacheEntry:
         )
 
 
-class CacheDict(OrderedDict[tuple[InodeT, int], CacheEntry]):
+class CacheDict(LinkedDict[tuple[InodeT, int], CacheEntry]):
     '''
-    An ordered dictionary designed to store CacheEntries.
+    Insertion-ordered dictionary of `CacheEntry`s with cache-eviction metadata.
+
+    The linked-list order is used as an LRU list: `move_to_tail` marks an
+    entry as recently used, eviction iterates from the head. `mutable_values()`
+    (inherited) lets callers iterate the cache while other Trio tasks may
+    mutate it, avoiding O(N) snapshots.
 
     Attributes:
 
@@ -645,9 +650,9 @@ class BlockCache:
                     break
                 if max_write >= el.size:
                     break
-                # Mark as most-recently-used by moving to the right end of the OrderedDict;
-                # evict() iterates from the left so this entry will be evicted last.
-                self.cache.move_to_end(key, last=True)
+                # Mark as most-recently-used by moving to the tail of the LRU list;
+                # evict() iterates from the head so this entry will be evicted last.
+                self.cache.move_to_tail(key)
                 yield el
                 return
 
@@ -749,9 +754,9 @@ class BlockCache:
         # In Cache
         else:
             # log.debug('in cache')
-            # Mark as most-recently-used by moving to the right end of the OrderedDict;
-            # evict() iterates from the left so this entry will be evicted last.
-            self.cache.move_to_end((inode, blockno), last=True)
+            # Mark as most-recently-used by moving to the tail of the LRU list;
+            # evict() iterates from the head so this entry will be evicted last.
+            self.cache.move_to_tail((inode, blockno))
 
         return el
 
@@ -766,15 +771,11 @@ class BlockCache:
         while True:
             need_size = self.cache.size - self.cache.max_size
             need_entries = len(self.cache) - self.cache.max_entries
-
             if need_size <= 0 and need_entries <= 0:
                 break
 
-            # Need to make copy, since we aren't allowed to change dict while
-            # iterating through it. Look at the comments in CommitThread.run()
-            # (mount.py) for an estimate of the resulting performance hit.
             sth_in_transit = False
-            for el in list(self.cache.values()):
+            for el in self.cache.mutable_values():
                 if need_size <= 0 and need_entries <= 0:
                     break
 
@@ -878,15 +879,9 @@ class BlockCache:
         in progress).
         """
 
-        # Need to make copy, since dict() may change while uploading.  Look at
-        # the comments in CommitTask.run() (mount.py) for an estimate of the
-        # performance impact.
-        if inode is None:
-            to_flush = list(self.cache.values())
-        else:
-            to_flush = [x for x in self.cache.values() if x.inode == inode]
-
-        for el in to_flush:
+        for el in self.cache.mutable_values():
+            if inode is not None and el.inode != inode:
+                continue
             await self.upload_if_dirty(el)
 
     async def flush(self) -> None:
@@ -897,10 +892,7 @@ class BlockCache:
         while True:
             sth_in_transit = False
 
-            # Need to make copy, since dict() may change while uploading.  Look
-            # at the comments in CommitTask.run() (mount.py) for an estimate of
-            # the performance impact.
-            for el in list(self.cache.values()):
+            for el in self.cache.mutable_values():
                 if await self.upload_if_dirty(el):
                     sth_in_transit = True
 

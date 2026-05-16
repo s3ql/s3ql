@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=77.0.3", "Cython"]
+requires = ["setuptools>=77.0.3", "Cython>=3.1.2"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -92,6 +92,31 @@ extra-compile-args = [
 language = "c++"
 depends = ["src/s3ql/_sqlite3ext.cpp"]
 
+[[tool.setuptools.ext-modules]]
+name = "s3ql._linked_dict"
+sources = ["src/s3ql/_linked_dict.py"]
+# Narrower warning set than `sqlite3ext` on purpose: Cython's pure-Python
+# mode emits many implicit integer conversions in the generated C, so
+# `-Wconversion` / `-Wsign-compare` would drown the build log without
+# pointing at real bugs.
+extra-compile-args = [
+  "-Wall", "-Wextra",
+  "-Wno-unused-parameter",
+  "-Wno-unused-function",
+]
+
+[tool.uv]
+# uv's default cache key for an editable install only watches `pyproject.toml`
+# and the top-level `src/` directory mtime, so in-place edits to the Cython
+# sources of the ext-modules above would not invalidate the cached build.
+# List the sources explicitly so editing them triggers a rebuild.
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "src/s3ql/_linked_dict.py" },
+  { file = "src/s3ql/sqlite3ext.pyx" },
+  { file = "src/s3ql/_sqlite3ext.cpp" },
+]
+
 [tool.ruff]
 line-length = 100
 exclude = [
@@ -131,7 +156,11 @@ ignore= [
 [tool.ty.src]
 exclude = [ 'tests/',
            'rst/conf.py',
-           "src/s3ql/backends/b2/" ]
+           "src/s3ql/backends/b2/",
+           # Cython source. `_linked_dict.pyi` is the type-checker view; the
+           # `.py` treats extension-type fields as nullable C pointers,
+           # which ty cannot model.
+           "src/s3ql/_linked_dict.py" ]
 
 [tool.ty.rules]
 invalid-method-override = "ignore"

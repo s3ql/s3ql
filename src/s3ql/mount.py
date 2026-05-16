@@ -844,21 +844,8 @@ class CommitTask:
 
         while not self.stop_event.is_set():
             did_sth = False
-
             stamp = time.time()
-            # Need to make copy, since we aren't allowed to change
-            # dict while iterating through it. The performance hit doesn't seem
-            # to be that bad:
-            # >>> from timeit import timeit
-            # >>> timeit("k=0\nfor el in list(d.values()):\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501
-            # ... number=500)/500 * 1e3
-            # 1.3769531380003173
-            # >>> timeit("k=0\nfor el in d.values(n:\n k += el",
-            # ... setup='\nfrom collections import OrderedDict\nd = OrderedDict()\nfor i in range(5000):\n d[i]=i\n',  # noqa: E501
-            # ... number=500)/500 * 1e3
-            # 1.456586996000624
-            for el in list(self.block_cache.cache.values()):
+            for el in self.block_cache.cache.mutable_values():
                 if (
                     self.stop_event.is_set()
                     or stamp - el.last_write < self.dirty_block_upload_delay

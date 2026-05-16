@@ -10,6 +10,7 @@ __pycache__/
 /src/s3ql.egg-info/
 /src/s3ql/*.so
 /src/s3ql/sqlite3ext.cpp
+/src/s3ql/_linked_dict.c
 /tests/.cache/
 /tests/test.log
 /tests/test_crit.log

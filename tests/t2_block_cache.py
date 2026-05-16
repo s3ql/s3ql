@@ -578,7 +578,7 @@ async def start_flush(cache, inode, block=None):
     uploads have been completed.
     """
 
-    for el in cache.cache.values():
+    for el in cache.cache.mutable_values():
         if el.inode != inode:
             continue
         if not el.dirty:

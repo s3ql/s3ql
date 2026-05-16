@@ -112,9 +112,11 @@ The number of workers equals `backend_pool.max_connections`, matching the availa
 
 ### 4.1 `cache` (CacheDict)
 
-An `OrderedDict` mapping `(inode, blockno)` to `CacheEntry`. Ordering serves as an LRU list: the right end holds the most-recently-used entries, the left end the least-recently-used. `move_to_end((inode, blockno), last=True)` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this), and newly inserted entries land on the right by default. Eviction in `evict()` iterates from the left end, so the least-recently-used entries are considered first.
+An insertion-ordered mapping from `(inode, blockno)` to `CacheEntry`. The order serves as an LRU list: the tail holds the most-recently-used entries, the head the least-recently-used. `move_to_tail((inode, blockno))` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this), and newly inserted entries land at the tail by default. Eviction in `evict()` iterates from the head, so the least-recently-used entries are considered first.
 
-`CacheDict` tracks aggregate state:
+`CacheDict.mutable_values()` (inherited from `LinkedDict`, `src/s3ql/_linked_dict.py`) walks the cache from head to tail (LRU order) using a cursor parked in the underlying linked list. Insertions, deletions, and `move_to_tail` calls on other entries between yields are safe, so callers can iterate across `await` checkpoints without taking an O(N) snapshot. The full contract is in the `_linked_dict.py` module docstring.
+
+`CacheDict` also tracks aggregate cache state:
 
 - **`size`**: sum of all entry sizes. Updated when entries are added, removed, or resized. Must stay consistent — `get()` updates it after yielding the entry to the caller (`cache.size += el.size - oldsize`).
 - **`max_size`**, **`max_entries`**: eviction thresholds. `is_full()` returns `True` when either is exceeded.
@@ -285,7 +287,7 @@ This section traces through the most important concurrent interactions step by s
 1. Caller invokes `get(inode, blockno, max_write=N)` where `N < el.size`.
 2. `async with self.block_lock(inode, blockno)` — acquires block lock.
 3. Entry found in `cache`. `max_write < el.size` confirmed.
-4. `move_to_end()` — marks as recently used (synchronous, no checkpoint).
+4. `move_to_tail()` — marks as recently used (synchronous, no checkpoint).
 5. Entry yielded to caller. Caller reads or writes (synchronous file I/O on the cache file).
 6. Context manager exits — releases block lock.
 
@@ -298,7 +300,7 @@ No expiration check. No backend interaction. No checkpoint while the caller hold
 1. `cache.is_full()` may be true — calls `evict()` (see 6.6) before acquiring any lock.
 2. `await self.block_lock.acquire(inode, blockno)` — acquires block lock.
 3. Calls `_get_entry()`:
-   - **Cache hit:** `move_to_end()`, return entry.
+   - **Cache hit:** `move_to_tail()`, return entry.
    - **Cache miss, no DB row:** Create new empty `CacheEntry`, add to cache, return.
    - **Cache miss, DB row exists:** Download from backend. If an upload of `obj_id` is in flight, waits on the entry's completion event in `in_flight_uploads` (see 5.2). Opens a `.tmp` file, downloads, fsyncs, renames to final name. Creates `CacheEntry`, adds to cache and updates `cache.size`.
 4. `oldsize = el.size` recorded.
@@ -373,14 +375,12 @@ Without this wait, Task B could attempt to download an object that has not yet b
 
 **Tasks:** The task calling `evict()` (typically from `get()` slow path), plus any upload workers it triggers.
 
-1. Compute `need_size` and `need_entries` from cache limits.
-2. Iterate a **snapshot** (`list(self.cache.values())`) — a copy is necessary because the dict may change during iteration.
-3. For each entry:
-   - If dirty: call `upload_if_dirty(el)`. If it returns `True` (upload started or already in transit), set `sth_in_transit = True` and skip eviction.
-   - If clean: `await self.block_lock.acquire(inode, blockno)`, then re-validate (entry may have been removed or re-dirtied while waiting for the lock). If still clean and still in cache, call `self.cache.remove(...)` which closes the file handle, decrements `cache.size`, and unlinks the backing file.
-4. If any entries were in transit, call `await self.wait()` (which blocks until an upload completes), then loop back to step 1.
+Each outer iteration walks the cache LRU-first using `self.cache.mutable_values()` — a cursor-based iterator (Section 4.1) that survives concurrent mutation between checkpoints. For each entry the loop calls `upload_if_dirty(el)`. If that returns `True` (the entry is dirty and an upload was kicked off, or it was already in transit), eviction simply notes that something is in transit and moves on. Otherwise the entry is clean: acquire `block_lock`, re-validate, remove from the cache.
 
-The re-validation in step 3 is essential: between iterating the snapshot and acquiring the lock, another task may have evicted the entry, re-dirtied it, or replaced it entirely.
+If anything was scheduled for upload during the walk, `await self.wait()` blocks until any transfer completes, then the outer loop re-checks the size and entry counts and walks again. Newly clean entries are removed on the next walk.
+
+Each removal under `block_lock` re-validates by checking `el is self.cache.get(el.key, None)` and `not el.dirty`. Between yielding an entry from `mutable_values()` and acquiring its lock, another task may have evicted the entry or a writer may have re-dirtied it; the re-check filters both out.
+
 
 ### 6.7 Block Removal (`remove()`)
 
@@ -400,14 +400,11 @@ Note that `_deref_obj` is called **after** releasing the block lock. This is saf
 
 **Tasks:** The CommitTask (background task in `mount.py`), running concurrently with FUSE handlers and upload workers.
 
-CommitTask runs in a loop, sleeping for 5 seconds between iterations. On each iteration it:
-
-1. Iterates `list(self.block_cache.cache.values())` — a snapshot, same as `evict()`.
-2. For each entry: if `el.dirty` and `not el.in_transit` and `el.last_write` is older than the configured delay, calls `upload_if_dirty(el)`.
+CommitTask runs in a loop, sleeping for 5 seconds between iterations. Each iteration walks `self.block_cache.cache.mutable_values()` (Section 4.1). For every entry that is old enough (`stamp - el.last_write >= dirty_block_upload_delay`), dirty, and not already in transit, it calls `upload_if_dirty(el)`. Iteration stops at the first entry younger than the upload delay, since the cache is ordered LRU-first.
 
 This is safe because `upload_if_dirty` performs all necessary locking internally. CommitTask merely acts as a trigger — it does not hold any locks across iterations, and it skips entries that are already being uploaded. The `last_write` check avoids uploading blocks that are still being actively written, reducing unnecessary uploads of data that will change again soon.
 
-CommitTask runs concurrently with FUSE handlers that may be dirtying the same entries. The locking within `upload_if_dirty` handles this: if an entry gets re-dirtied between CommitTask's check and the lock acquisition, `upload_if_dirty` sees the current state after acquiring the lock and proceeds correctly.
+CommitTask runs concurrently with FUSE handlers that may be dirtying the same entries. The locking within `upload_if_dirty` handles this: if an entry gets re-dirtied between CommitTask's check and the lock acquisition, `upload_if_dirty` sees the current state after acquiring the lock and proceeds correctly. `mutable_values()` may re-yield an entry that was `move_to_tail`'d after a write during this walk; the re-yielded entry has a fresh `last_write` and triggers the early break, or is already `in_transit` and is filtered out.
 
 
 ## 7. Failure Modes and Crash Recovery
