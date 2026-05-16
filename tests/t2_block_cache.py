@@ -236,6 +236,50 @@ async def test_evict(ctx):
             assert (inode, i) in ctx.cache.cache
 
 
+@pytest.mark.trio
+async def test_evict_clean_before_dirty(ctx):
+    """Clean entries must be evicted before waiting for dirty uploads.
+
+    When the cache is full, evict() must free clean entries immediately rather
+    than blocking on uploads of dirty entries that happen to sit at the LRU end.
+    This is the fix for the "write slows down with full cache" issue: with a
+    mostly-clean cache, writes should not stall waiting for dirty uploads.
+    """
+    inode = ctx.inode
+
+    # Create dirty entries FIRST so they are the least-recently-used (LRU end).
+    dirty_blocks = [10, 11, 12]
+    for blockno in dirty_blocks:
+        async with ctx.cache.get(inode, blockno) as fh:
+            fh.write(b'dirty')
+    # dirty_blocks are dirty (not uploaded)
+
+    # Create clean entries SECOND so they are the most-recently-used (MRU end).
+    clean_blocks = [1, 2, 3]
+    for blockno in clean_blocks:
+        async with ctx.cache.get(inode, blockno) as fh:
+            fh.write(b'clean')
+    # Upload only the clean blocks so dirty_blocks remain dirty.
+    for blockno in clean_blocks:
+        await start_flush(ctx.cache, inode, blockno)
+
+    # LRU order is now: [10(dirty), 11(dirty), 12(dirty), 1(clean), 2(clean), 3(clean)]
+    # We have 6 entries total; evict 3. The clean entries (MRU end) must be
+    # chosen over the dirty entries (LRU end) so that no uploads are needed.
+    ctx.cache.cache.max_entries = 3
+    # no_write=0: any unexpected write_fh call raises immediately, proving
+    # that evict() did not fall back to uploading dirty entries.
+    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=0)
+    await ctx.cache.evict()
+    ctx.cache.backend_pool.verify()
+
+    assert len(ctx.cache.cache) == 3
+    for blockno in clean_blocks:
+        assert (inode, blockno) not in ctx.cache.cache
+    for blockno in dirty_blocks:
+        assert (inode, blockno) in ctx.cache.cache
+
+
 async def test_upload(ctx):
     inode = ctx.inode
     datalen = int(0.1 * ctx.cache.cache.max_size)

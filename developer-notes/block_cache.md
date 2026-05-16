@@ -375,13 +375,21 @@ Without the barrier, Task B could attempt to download an object that has not yet
 **Tasks:** The task calling `evict()` (typically from `get()` slow path), plus any upload workers it triggers.
 
 1. Compute `need_size` and `need_entries` from cache limits.
-2. Iterate a **snapshot** (`list(self.cache.values())`) — a copy is necessary because the dict may change during iteration.
-3. For each entry:
-   - If dirty: call `upload_if_dirty(el)`. If it returns `True` (upload started or already in transit), set `sth_in_transit = True` and skip eviction.
-   - If clean: `await self.block_lock.acquire(inode, blockno)`, then re-validate (entry may have been removed or re-dirtied while waiting for the lock). If still clean and still in cache, call `self.cache.remove(...)` which closes the file handle, decrements `cache.size`, and unlinks the backing file.
-4. If any entries were in transit, call `await self.wait()` (which blocks until an upload completes), then loop back to step 1.
+2. **First pass** — evict clean entries immediately (no upload wait needed):
+   - Iterate a snapshot of the cache. Skip dirty or in-transit entries entirely.
+   - For each clean entry: `await self.block_lock.acquire(el.key)`, then re-validate (entry may have been removed or re-dirtied while waiting for the lock). If still clean and still in cache, call `self.cache.remove(...)` which closes the file handle, decrements `cache.size`, and unlinks the backing file. Only *then* decrement `need_size` and `need_entries`.
+   - Stop as soon as `need_size <= 0` and `need_entries <= 0`.
+3. If the limits are satisfied after the first pass, return.
+4. **Second pass** — queue dirty entries for upload in LRU order until enough are scheduled:
+   - Iterate a new snapshot. Skip clean entries that are not in transit.
+   - For each dirty/in-transit entry: decrement `need_size`/`need_entries`, call `upload_if_dirty(el)`, and set `sth_in_transit = True` if it returns `True`.
+   - Stop as soon as `need_size <= 0` and `need_entries <= 0`.
+5. If any uploads were started (`sth_in_transit`), call `await self.wait()` (which blocks until an upload completes), then loop back to step 1.
+6. If no uploads could be started and no progress was made, break to avoid an infinite loop.
 
-The re-validation in step 3 is essential: between iterating the snapshot and acquiring the lock, another task may have evicted the entry, re-dirtied it, or replaced it entirely.
+The re-validation in step 2 is essential: between iterating the snapshot and acquiring the lock, another task may have evicted the entry, re-dirtied it, or replaced it entirely.
+
+The two-pass design ensures that clean entries are always freed before the task blocks waiting for dirty-entry uploads. This is critical for performance when the cache is mostly clean: a single-pass algorithm that mixes clean and dirty entries may count dirty entries toward `need_size`/`need_entries` (but cannot actually free them), causing the loop to terminate early and stall behind upload completion even though many clean entries are immediately evictable.
 
 ### 6.7 Block Removal (`remove()`)
 

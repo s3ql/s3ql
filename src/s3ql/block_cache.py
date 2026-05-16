@@ -733,19 +733,20 @@ class BlockCache:
             if need_size <= 0 and need_entries <= 0:
                 break
 
+            # First pass: evict clean entries immediately without waiting for any
+            # uploads. Clean entries must be processed before dirty ones so that
+            # we do not block on upload completion when clean entries are available.
+            # Only count entries toward need_size/need_entries when they are
+            # actually removed, to avoid premature loop termination.
+            #
             # Need to make copy, since we aren't allowed to change dict while
             # iterating through it. Look at the comments in CommitThread.run()
             # (mount.py) for an estimate of the resulting performance hit.
-            sth_in_transit = False
             for el in list(self.cache.values()):
                 if need_size <= 0 and need_entries <= 0:
                     break
 
-                need_entries -= 1
-                need_size -= el.size
-
-                if await self.upload_if_dirty(el):
-                    sth_in_transit = True
+                if el.dirty or el in self.in_transit:
                     continue
 
                 await self.block_lock.acquire(el.key)
@@ -758,13 +759,39 @@ class BlockCache:
                         log.debug('%s got dirty while waiting for lock', el)
                         continue
                     log.debug('removing %s from cache', el)
+                    need_entries -= 1
+                    need_size -= el.size
                     self.cache.remove(el.key)
                 finally:
                     await self.block_lock.release(el.key)
 
+            if need_size <= 0 and need_entries <= 0:
+                break
+
+            # Second pass: queue dirty entries for upload in LRU order until
+            # enough have been scheduled to potentially satisfy the need once
+            # their uploads complete.
+            sth_in_transit = False
+            for el in list(self.cache.values()):
+                if need_size <= 0 and need_entries <= 0:
+                    break
+
+                if not el.dirty and el not in self.in_transit:
+                    continue  # clean entries were already handled above
+
+                need_entries -= 1
+                need_size -= el.size
+
+                if await self.upload_if_dirty(el):
+                    sth_in_transit = True
+
             if sth_in_transit:
                 log.debug('waiting for transfer threads..')
                 await self.wait()
+            else:
+                # Nothing can be uploaded and clean eviction made no progress:
+                # avoid an infinite loop.
+                break
 
         log.debug('finished')
 
