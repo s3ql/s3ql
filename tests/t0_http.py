@@ -821,9 +821,7 @@ async def test_aborted_write1(conn, monkeypatch, random_fh):
     monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
 
     # Send request
-    await conn.send_request(
-        'PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True
-    )
+    await conn.send_request('PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True)
     resp = await conn.read_response()
     assert resp.status == 100
     assert resp.length == 0
@@ -851,9 +849,7 @@ async def test_aborted_write2(conn, monkeypatch, random_fh):
     monkeypatch.setattr(MockRequestHandler, 'do_PUT', do_PUT)
 
     # Send request
-    await conn.send_request(
-        'PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True
-    )
+    await conn.send_request('PUT', '/big_object', body=BodyFollowing(BUFSIZE * 50), expect100=True)
     resp = await conn.read_response()
     assert resp.status == 100
     assert resp.length == 0

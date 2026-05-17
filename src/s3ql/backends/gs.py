@@ -665,9 +665,7 @@ class AsyncBackend(AsyncBackendBase):
         # FIXME: We can't rely on this if e.g. the system hibernated
         # after refreshing the token, but before reaching this line.
         headers['Authorization'] = 'Bearer ' + self.access_token[self.refresh_token]
-        await self.conn.send_request(
-            method, path, body=body, headers=headers, expect100=expect100
-        )
+        await self.conn.send_request(method, path, body=body, headers=headers, expect100=expect100)
         resp = await self.conn.read_response()
         if (expect100 and resp.status == 100) or (not expect100 and 200 <= resp.status <= 299):
             return resp
