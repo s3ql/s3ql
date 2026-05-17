@@ -645,7 +645,9 @@ class BlockCache:
                     break
                 if max_write >= el.size:
                     break
-                self.cache.move_to_end(key, last=True)  # move to head
+                # Mark as most-recently-used by moving to the right end of the OrderedDict;
+                # evict() iterates from the left so this entry will be evicted last.
+                self.cache.move_to_end(key, last=True)
                 yield el
                 return
 
@@ -747,7 +749,9 @@ class BlockCache:
         # In Cache
         else:
             # log.debug('in cache')
-            self.cache.move_to_end((inode, blockno), last=True)  # move to head
+            # Mark as most-recently-used by moving to the right end of the OrderedDict;
+            # evict() iterates from the left so this entry will be evicted last.
+            self.cache.move_to_end((inode, blockno), last=True)
 
         return el
 

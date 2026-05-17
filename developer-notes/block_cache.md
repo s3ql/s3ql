@@ -112,7 +112,7 @@ The number of workers equals `backend_pool.max_connections`, matching the availa
 
 ### 4.1 `cache` (CacheDict)
 
-An `OrderedDict` mapping `(inode, blockno)` to `CacheEntry`. Ordering serves as an LRU list: `move_to_end((inode, blockno), last=True)` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this). Eviction in `evict()` iterates from the oldest end.
+An `OrderedDict` mapping `(inode, blockno)` to `CacheEntry`. Ordering serves as an LRU list: the right end holds the most-recently-used entries, the left end the least-recently-used. `move_to_end((inode, blockno), last=True)` marks an entry as recently used (both `get()` fast path and `_get_entry()` do this), and newly inserted entries land on the right by default. Eviction in `evict()` iterates from the left end, so the least-recently-used entries are considered first.
 
 `CacheDict` tracks aggregate state:
 
