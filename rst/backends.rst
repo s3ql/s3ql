@@ -409,65 +409,61 @@ Backblaze B2
 
 .. program:: b2_backend
 
-Backblaze B2 is a cloud storage with its own API.
-
-.. warning::
-
-   S3QL developers do not have access to a Backblaze instance, so this backend is not
-   being tested before release and may break randomly. This backend depends on Backblaze
-   users to test and maintain it (aka submit pull requests when it doesn't work).
-
-The storage URL for backblaze b2 storage is ::
+The Backblaze B2 backend uses Backblaze's S3-compatible API with AWS
+Signature V4 authentication. The storage URL is ::
 
    b2://<bucket-name>[/<prefix>]
 
-*bucket-name* is an (existing) bucket which has to be accessible with
-the provided account key. The *prefix* will be appended to all names
-used by S3QL and can be used to hold separate S3QL repositories in the
-same bucket.
+*bucket-name* is an existing bucket accessible with the provided
+application key. The bucket's region is discovered automatically at
+startup. *prefix* is prepended to all object names used by S3QL and can
+be used to hold several S3QL file systems in the same bucket.
 
-It is also possible to use an application key. The required key capabilities
-are the following:
+The backend login is a Backblaze application key ID and the password is
+the corresponding application key. The required key capabilities are
+``listBuckets``, ``listFiles``, ``readFiles``, ``writeFiles``, and
+``deleteFiles``.
 
-   - `listBuckets`
-   - `listFiles`
-   - `readFiles`
-   - `writeFiles`
-   - `deleteFiles`
+The Backblaze B2 backend accepts the following backend options:
 
-.. option:: disable-versions
+.. option:: no-ssl
 
-   If versioning of the bucket is not enabled, this option can be set.
-   When deleting objects, the bucket will not be scanned for all file versions
-   because it will be implied that only the one (the most recent) version of a
-   file exists. This will use only one class B transaction instead of
-   (possibly) multiple class C transactions.
+   Disable encrypted (https) connections and use plain HTTP instead.
 
-.. option:: retry-on-cap-exceeded
+.. option:: ssl-ca-path=<path>
 
-   If there are data/transaction caps set for the backblaze account, this option
-   controls if operations should be retried as cap counters are reset every day.
-   Otherwise the exception would abort the program.
-
-.. option:: test_mode=<value>
-
-   This option puts the backblaze B2 server into test mode by adding a special header to the
-   requests. Use this option only to test the failure resiliency of the backend implementation as it
-   causes unnecessary traffic, delays and transactions.
-
-   Valid values are documented in
-   https://www.backblaze.com/docs/en/cloud-storage-integration-checklist and include:
-
-   - `fail_some_uploads` to randomly fail some uploads.
-   - `expire_some_account_authorization_tokens` to let the server fail some authorization tokens.
-   - `force_cap_exceeded` to let the server to behave as if the data/transaction caps were exceeded.
-
+   Instead of using the system's default certificate store, validate
+   the server certificate against the specified CA
+   certificates. :var:`<path>` may be either a file containing
+   multiple certificates, or a directory containing one certificate
+   per file.
 
 .. option:: tcp-timeout
 
    Specifies the timeout used for TCP connections. If no data can be
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established (default: 20 seconds).
+
+
+Fallback: b2old
+---------------
+
+The ``b2old://`` URL scheme selects the legacy backend that talks to
+Backblaze's native B2 API. It exists as a temporary escape hatch in
+case a regression is found in the S3-compatible backend and will be
+removed in a future release. The storage URL is ::
+
+   b2old://<bucket-name>[/<prefix>]
+
+The ``b2old`` backend accepts the same options as in earlier S3QL releases
+(``disable-versions``, ``retry-on-cap-exceeded``, ``test_mode``,
+``tcp-timeout``). Their semantics are unchanged from the previous native-API
+implementation.
+
+A filesystem originally created with ``b2old://`` can be read via ``b2://``;
+the new backend recognises the metadata layout used by the legacy code. New
+writes use the standard S3 metadata layout, so a filesystem migrates
+incrementally as objects are rewritten.
 
 .. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 

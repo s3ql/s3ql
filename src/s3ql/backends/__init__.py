@@ -8,7 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from s3ql.backends.common import AsyncBackend
 
-from . import gs, local, rackspace, s3, s3c, s3c4, swift, swiftks
+from . import b2ng, gs, local, rackspace, s3, s3c, s3c4, swift, swiftks
 from .b2 import b2_backend as b2
 
 async_prefix_map: dict[str, type[AsyncBackend]] = {
@@ -20,5 +20,6 @@ async_prefix_map: dict[str, type[AsyncBackend]] = {
     'swift': swift.AsyncBackend,
     'swiftks': swiftks.AsyncBackend,
     'rackspace': rackspace.AsyncBackend,
-    'b2': b2.AsyncB2Backend,
+    'b2': b2ng.AsyncBackend,
+    'b2old': b2.AsyncB2Backend,
 }

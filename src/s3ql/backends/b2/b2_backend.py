@@ -121,7 +121,7 @@ class AsyncB2Backend(AsyncBackend):
         Return a tuple * (bucket_name, prefix) * .
         '''
 
-        hit = re.match(r'^b2://([^/]+)(?:/(.*))?$', storage_url)
+        hit = re.match(r'^b2(?:old)?://([^/]+)(?:/(.*))?$', storage_url)
 
         if not hit:
             raise QuietError('Invalid storage URL', exitcode=2)
