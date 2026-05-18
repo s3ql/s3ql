@@ -60,7 +60,9 @@ jobs:
         run: uv run pytest -r s tests/
 
       - name: Build documentation
-        run: uv run ./build_docs.sh
+        run: |
+          uv run sphinx-build -W --keep-going -d doc/doctrees -b html rst/ doc/html/
+          uv run sphinx-build -W --keep-going -d doc/doctrees -b man rst/ doc/manpages/
 
   check-style:
     runs-on: ubuntu-latest
