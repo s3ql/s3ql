@@ -31,18 +31,22 @@ class AsyncBackend(s3c4.AsyncBackend):
 
     known_options: set[str] = s3c4.AsyncBackend.known_options - {'sig-region'}
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
-        super().__init__(options=options)
+        super().__init__(options=options, max_connections=max_connections)
         # `s3c4` reads `sig-region` from backend options (defaulting to
         # `us-east-1`). We override unconditionally; the real region is
         # discovered in `_discover_region`.
         self.sig_region = DEFAULT_REGION
 
     @classmethod
-    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+    async def create(
+        cls: type[AsyncBackend],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> AsyncBackend:
         '''Create a new Backblaze B2 (S3-compatible) backend instance.'''
-        self = cls(options=options)
+        self = cls(options=options, max_connections=max_connections)
         await self._discover_region()
         return self
 
@@ -72,24 +76,23 @@ class AsyncBackend(s3c4.AsyncBackend):
         # single HEAD bypassing the redirect-following logic in `_do_request` so we can read the
         # header ourselves.
 
-        resp = await self._do_request_inner('HEAD', '/', headers=CaseInsensitiveDict())
-        region = resp.headers.get('x-amz-bucket-region')
+        async with self._pool.acquire() as conn:
+            resp = await self._do_request_inner(conn, 'HEAD', '/', headers=CaseInsensitiveDict())
+            region = resp.headers.get('x-amz-bucket-region')
 
-        if region is None and not (200 <= resp.status <= 299):
-            # Non-2xx with no region hint: nothing to recover. Surface as a
-            # typed error (auth failure, no-such-bucket, ...).
-            await self._parse_error_response(resp)
-            return  # unreachable; _parse_error_response always raises.
+            if region is None and not (200 <= resp.status <= 299):
+                # Non-2xx with no region hint: nothing to recover. Surface as a
+                # typed error (auth failure, no-such-bucket, ...).
+                await self._parse_error_response(conn, resp)
+                return  # unreachable; _parse_error_response always raises.
 
-        await self.conn.discard()
+            await conn.discard()
 
         if region is not None and region != self.sig_region:
             log.debug('Bucket region is %s, re-targeting connection', region)
             self.sig_region = region
-            self.hostname = 's3.%s.backblazeb2.com' % region
             self.signing_key = None
-            await self.conn.aclose()
-            self.conn = self._get_conn()
+            await self._retarget_pool('s3.%s.backblazeb2.com' % region, self.port)
 
     def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata'''

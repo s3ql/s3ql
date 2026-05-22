@@ -34,16 +34,20 @@ class AsyncBackend(swift.AsyncBackend):
         'identity-url',
     }
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize swiftks backend - use AsyncBackend.create() instead.'''
         self.region = None
-        super().__init__(options=options)
+        super().__init__(options=options, max_connections=max_connections)
 
     @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+    async def create(
+        cls: type['AsyncBackend'],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> 'AsyncBackend':
         '''Create a new Swift Keystone backend instance with eager authentication.'''
-        backend = cls(options=options)
-        backend.conn = await backend._get_conn()
+        backend = cls(options=options, max_connections=max_connections)
+        await backend._refresh_pool()
         await backend._container_exists()
         return backend
 
@@ -79,7 +83,10 @@ class AsyncBackend(swift.AsyncBackend):
 
     @retry
     async def _get_conn(self):
-        '''Obtain connection to server and authentication token'''
+        '''Authenticate and return ``(hostname, port, ssl_context)`` for the storage endpoint.
+
+        Sets `auth_token` and `auth_prefix` as a side effect.
+        '''
 
         log.debug('started')
 
@@ -215,9 +222,7 @@ class AsyncBackend(swift.AsyncBackend):
 
                 await self._detect_features(o.hostname, o.port, ssl_context)
 
-                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
-                conn.timeout = int(self.options.get('tcp-timeout', 20))
-                return conn
+                return (o.hostname, o.port, ssl_context)
 
         if len(avail_regions) < 10:
             raise DanglingStorageURLError(

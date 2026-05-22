@@ -30,18 +30,22 @@ class AsyncBackend(s3c.AsyncBackend):
 
     known_options = s3c.AsyncBackend.known_options | {'sig-region'}
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         sig_region = options.backend_options.get('sig-region', 'us-east-1')
         assert isinstance(sig_region, str)
         self.sig_region = sig_region
         self.signing_key: tuple[bytes, str] | None = None
-        super().__init__(options=options)
+        super().__init__(options=options, max_connections=max_connections)
 
     @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+    async def create(
+        cls: type['AsyncBackend'],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> 'AsyncBackend':
         '''Create a new S3-compatible (v4 signature) backend instance.'''
-        return cls(options=options)
+        return cls(options=options, max_connections=max_connections)
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
