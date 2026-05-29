@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import re
 import ssl
+from urllib.parse import urlsplit
 
 from s3ql.http import CaseInsensitiveDict
 from s3ql.types import BackendOptionsProtocol
@@ -49,7 +50,62 @@ class AsyncBackend(s3c4.AsyncBackend):
     @classmethod
     async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
         '''Create a new Amazon S3 backend instance.'''
-        return cls(options=options)
+        self = cls(options=options)
+        await self._discover_region()
+        return self
+
+    async def _discover_region(self) -> None:
+        '''Probe the configured endpoint; retarget if redirected, error on wrong region.
+
+        Issues a single HEAD request via `_do_request_inner` (bypassing the normal
+        request path) to verify that *self.hostname* is the correct S3 endpoint for
+        the bucket.  Three outcomes are possible:
+
+        - 2xx: already at the right endpoint, return immediately.
+        - 3xx with a `Location` header (302/307, DNS propagation window): follow the
+          redirect — update *self.hostname*, *self.port*, and if `x-amz-bucket-region`
+          is present also *self.region* / *self.sig_region* / *self.signing_key*.
+        - 3xx without a `Location` header (AWS path-style wrong-region 301): raise
+          `QuietError` telling the user to correct the region in the storage URL.
+        - 4xx/5xx: surface as a typed exception via `_parse_error_response`.
+        '''
+        resp = await self._do_request_inner('HEAD', '/', headers=CaseInsensitiveDict())
+        actual_region = resp.headers.get('x-amz-bucket-region')
+        location = resp.headers.get('Location')
+
+        if not (300 <= resp.status <= 399):
+            if 200 <= resp.status <= 299:
+                await self.conn.discard()
+                return
+            # 4xx/5xx: _parse_error_response raises; HEAD has no body so it
+            # raises HTTPError directly without trying to read one.
+            await self._parse_error_response(resp)
+            raise AssertionError('unreachable')
+
+        # 3xx: discard any body before raising or retargeting.
+        await self.conn.discard()
+
+        if not location:
+            # AWS path-style wrong-region 301 deliberately omits Location so
+            # that clients cannot blindly follow it — raise an actionable error.
+            msg = 'S3 bucket %r is not in region %r' % (self.bucket_name, self.region)
+            if actual_region:
+                msg += '; update the region in your storage URL to %r' % actual_region
+            raise QuietError(msg, exitcode=2)
+
+        # 302/307: follow Location to the correct endpoint.
+        o = urlsplit(location)
+        if not o.hostname:
+            raise RuntimeError('Redirect has no hostname: %s' % location)
+        self.hostname = o.hostname
+        self.port = o.port if o.port is not None else self.port
+        if actual_region and actual_region != self.region:
+            self.region = actual_region
+            self.sig_region = actual_region
+            self.signing_key = None
+        await self.conn.aclose()
+        self.conn = self._get_conn()
+        log.info('Redirected to S3 endpoint %s', self.hostname)
 
     def _parse_storage_url(
         self, storage_url: str, ssl_context: ssl.SSLContext | None
