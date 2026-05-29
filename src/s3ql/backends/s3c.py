@@ -25,7 +25,7 @@ from email.utils import mktime_tz, parsedate_tz
 from io import BytesIO
 from itertools import count
 from typing import NoReturn, cast
-from urllib.parse import quote, unquote, urlsplit
+from urllib.parse import quote, unquote
 from xml.etree.ElementTree import Element
 
 from defusedxml import ElementTree
@@ -445,94 +445,25 @@ class AsyncBackend(AsyncBackendBase):
         headers: CaseInsensitiveDict | None = None,
         body: Sequence[bytes | BinaryInput] = (),
     ) -> HTTPResponse:
-        '''Sign and send request, handle redirects, and return response object.'''
+        '''Sign and send request and return response object on success.'''
 
         log.debug('started with %s %s?%s, qs=%s', method, path, subres, query_string)
 
         if headers is None:
             headers = CaseInsensitiveDict()
 
-        redirect_count = 0
-        this_method = method
-        while True:
-            resp = await self._do_request_inner(
-                this_method,
-                path,
-                headers=headers,
-                subres=subres,
-                query_string=query_string,
-                body=body,
-            )
-
-            if resp.status < 300 or resp.status > 399:
-                break
-
-            # Assume redirect
-            redirect_count += 1
-            if redirect_count > 10:
-                raise RuntimeError('Too many chained redirections')
-
-            # First try location header...
-            new_url = resp.headers['Location']
-            if new_url:
-                # Discard body
-                await self.conn.discard()
-
-                # Pylint can't infer SplitResult Types
-                # pylint: disable=E1103
-                o = urlsplit(new_url)
-                if o.scheme:
-                    if self.ssl_context and o.scheme != 'https':
-                        raise RuntimeError('Redirect to non-https URL')
-                    elif not self.ssl_context and o.scheme != 'http':
-                        raise RuntimeError('Redirect to non-http URL')
-                if o.hostname is None:
-                    raise RuntimeError('Redirect URL has no hostname')
-                new_port = o.port if o.port is not None else self.port
-                if o.hostname != self.hostname or new_port != self.port:
-                    self.hostname = o.hostname
-                    self.port = new_port
-                    await self.conn.aclose()
-                    self.conn = self._get_conn()
-                else:
-                    raise RuntimeError('Redirect to different path on same host')
-
-            # ..but endpoint may also be hidden in message body.
-            # If we have done a HEAD request, we have to change to GET
-            # to actually retrieve the body.
-            elif resp.method == 'HEAD':
-                log.debug('Switching from HEAD to GET to read redirect body')
-                this_method = 'GET'
-
-            # Try to read new URL from request body
-            else:
-                tree = await self._parse_xml_response(resp)
-                new_url = tree.findtext('Endpoint')
-
-                if not new_url:
-                    raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
-
-                self.hostname = new_url
-                await self.conn.aclose()
-                self.conn = self._get_conn()
-
-                # Update method
-                this_method = method
-
-            log.info('_do_request(): redirected to %s', self.conn.hostname)
-
-        # At the end, the request should have gone out with the right
-        # method
-        if this_method != method:
-            raise RuntimeError('Dazed and confused - HEAD fails but GET works?')
-
-        # Success
-        if resp.status >= 200 and resp.status <= 299:
+        resp = await self._do_request_inner(
+            method,
+            path,
+            headers=headers,
+            subres=subres,
+            query_string=query_string,
+            body=body,
+        )
+        if 200 <= resp.status <= 299:
             return resp
-
-        # Error
         await self._parse_error_response(resp)
-        raise AssertionError("unreachable")
+        raise AssertionError('unreachable')
 
     async def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
         '''Handle error response from server
