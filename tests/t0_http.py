@@ -31,6 +31,8 @@ from base64 import b64encode
 from http.server import BaseHTTPRequestHandler
 
 import pytest
+import trio
+import trio.testing
 
 import s3ql.http
 from s3ql.http import (
@@ -40,6 +42,7 @@ from s3ql.http import (
     ExcessBodyData,
     HostnameNotResolvable,
     HTTPConnection,
+    HTTPConnectionPool,
     InvalidResponse,
     StateError,
 )
@@ -598,6 +601,165 @@ async def test_empty_response(conn):
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
     assert await conn.readall() == DUMMY_DATA[:512]
+
+
+@pytest.fixture()
+def pool_kwargs(http_server):
+    if http_server.use_ssl:
+        ssl_context = _client_ssl_context()
+        ssl_context.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
+    else:
+        ssl_context = None
+    return dict(
+        hostname=http_server.host,
+        port=http_server.port,
+        ssl_context=ssl_context,
+        timeout=0.5,
+    )
+
+
+async def test_pool_idle_reuse(pool_kwargs):
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+        async with pool.acquire() as conn:
+            first = conn
+            resp = await conn.send_request('GET', '/send_120_bytes')
+            assert resp.status == 200
+            await conn.discard()
+
+        async with pool.acquire() as conn:
+            assert conn is first
+            resp = await conn.send_request('GET', '/send_120_bytes')
+            assert resp.status == 200
+            await conn.discard()
+
+
+async def test_pool_max_connections(pool_kwargs):
+    pool_kwargs['max_connections'] = 3
+
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+        held: list[HTTPConnection] = []
+        release_events = [trio.Event() for _ in range(3)]
+        acquired_events = [trio.Event() for _ in range(3)]
+
+        async def borrow(idx: int) -> None:
+            async with pool.acquire() as conn:
+                held.append(conn)
+                acquired_events[idx].set()
+                await release_events[idx].wait()
+
+        async with trio.open_nursery() as nursery:
+            for i in range(3):
+                nursery.start_soon(borrow, i)
+            for ev in acquired_events:
+                await ev.wait()
+            assert len(held) == 3
+            # All three connections are distinct.
+            assert len({id(c) for c in held}) == 3
+
+            # A fourth acquire must block until one of the three releases.
+            fourth_acquired = trio.Event()
+
+            async def fourth() -> None:
+                async with pool.acquire():
+                    fourth_acquired.set()
+
+            nursery.start_soon(fourth)
+            await trio.testing.wait_all_tasks_blocked()
+            assert not fourth_acquired.is_set()
+
+            release_events[0].set()
+            await fourth_acquired.wait()
+            release_events[1].set()
+            release_events[2].set()
+
+
+async def test_pool_limiter_released_on_exception(pool_kwargs):
+    pool_kwargs['max_connections'] = 1
+
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+
+        class _Boom(Exception):
+            pass
+
+        with pytest.raises(_Boom):
+            async with pool.acquire():
+                raise _Boom()
+
+        # Without the limiter being released, this would hang. Bound it
+        # with a small deadline to make the failure mode obvious.
+        with trio.fail_after(1):
+            async with pool.acquire() as conn:
+                resp = await conn.send_request('GET', '/send_120_bytes')
+                assert resp.status == 200
+                await conn.discard()
+
+
+async def test_pool_drops_on_connection_closed(pool_kwargs):
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+        with pytest.raises(ConnectionClosed):
+            async with pool.acquire() as conn:
+                # `reset()` invalidates the conn and is the in-tree way a
+                # borrow signals the pool that the wire is no longer
+                # trustworthy. Raise ConnectionClosed afterwards to drive
+                # the pool down the drop-on-network-error path.
+                conn.reset()
+                raise ConnectionClosed('synthetic failure')
+
+        assert pool._idle == []
+
+
+async def test_pool_drops_half_consumed_response(pool_kwargs):
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+        async with pool.acquire() as conn:
+            first_id = id(conn)
+            resp = await conn.send_request('GET', '/send_512_bytes')
+            assert resp.status == 200
+            # Deliberately do not read the body.
+
+        assert pool._idle == []
+
+        async with pool.acquire() as conn:
+            # A fresh connection (different identity) must have been built.
+            assert id(conn) != first_id
+            resp = await conn.send_request('GET', '/send_120_bytes')
+            assert resp.status == 200
+            await conn.discard()
+
+
+async def test_pool_aclose(pool_kwargs):
+    pool = HTTPConnectionPool(**pool_kwargs)
+    conns: list[HTTPConnection] = []
+    for _ in range(2):
+        async with pool.acquire() as conn:
+            resp = await conn.send_request('GET', '/send_120_bytes')
+            assert resp.status == 200
+            await conn.discard()
+            conns.append(conn)
+
+    # Both borrows returned the same single connection; verify and then close.
+    assert len(pool._idle) == 1
+    await pool.aclose()
+    for conn in conns:
+        assert conn._stream is None
+
+    with pytest.raises(StateError):
+        async with pool.acquire():
+            pass
+
+
+async def test_pool_context_manager_closes(pool_kwargs):
+    async with HTTPConnectionPool(**pool_kwargs) as pool:
+        async with pool.acquire() as conn:
+            resp = await conn.send_request('GET', '/send_120_bytes')
+            assert resp.status == 200
+            await conn.discard()
+        assert len(pool._idle) == 1
+        idle_conn = pool._idle[0]
+
+    assert idle_conn._stream is None
+    with pytest.raises(StateError):
+        async with pool.acquire():
+            pass
 
 
 DUMMY_DATA = ','.join(str(x) for x in range(10000)).encode()

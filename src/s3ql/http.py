@@ -20,7 +20,8 @@ import logging
 import os
 import socket
 import ssl
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncGenerator, Callable, Mapping, MutableMapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
 from io import BytesIO, UnsupportedOperation
@@ -859,6 +860,94 @@ class HTTPConnection:
             self._stream = None
 
     async def __aenter__(self) -> HTTPConnection:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
+        await self.aclose()
+        return False
+
+
+class HTTPConnectionPool:
+    '''Pool of `HTTPConnection` instances bound to a single (host, port).
+
+    Hand out one connection per concurrent borrow via `acquire`. Up to
+    *max_connections* borrows run in parallel; further `acquire` calls
+    block until a slot is released. Connections are created lazily and
+    re-used across borrows when they remain in a clean keep-alive state.
+    '''
+
+    def __init__(
+        self,
+        hostname: str,
+        port: Optional[int] = None,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        proxy: Optional[tuple[str, int]] = None,
+        max_connections: int = 1,
+        timeout: float | int | None = None,
+    ) -> None:
+        self.hostname = hostname
+        self.port = port
+        self.ssl_context = ssl_context
+        self.proxy = proxy
+        self.max_connections = max_connections
+        self.timeout = timeout
+
+        self._idle: list[HTTPConnection] = []
+        self._limiter = trio.CapacityLimiter(max_connections)
+
+    def _new_connection(self) -> HTTPConnection:
+        conn = HTTPConnection(
+            self.hostname,
+            port=self.port,
+            ssl_context=self.ssl_context,
+            proxy=self.proxy,
+        )
+        if self.timeout is not None:
+            conn.timeout = self.timeout
+        return conn
+
+    def _is_reusable(self, conn: HTTPConnection) -> bool:
+        '''Return True if *conn* is in a clean keep-alive state.
+
+        A connection that has been `reset()`, closed, or that still has an
+        in-flight request/response cycle cannot safely be handed to the
+        next borrower.
+        '''
+        if conn._stream is None:
+            return False
+        return not (conn._response_open or conn._pending_method is not None)
+
+    @asynccontextmanager
+    async def acquire(self) -> AsyncGenerator[HTTPConnection, None]:
+        '''Borrow an `HTTPConnection` for the duration of the `async with` block.
+
+        Blocks until the pool's concurrency limit allows another borrow. On
+        exit, the connection is returned to the pool if it is still in a
+        clean keep-alive state, and otherwise closed and dropped.
+        '''
+
+        await self._limiter.acquire()
+        try:
+            conn = self._idle.pop() if self._idle else self._new_connection()
+            try:
+                yield conn
+            finally:
+                if self._is_reusable(conn):
+                    self._idle.append(conn)
+                else:
+                    log.debug('dropping connection: not in clean keep-alive state')
+                    await conn.aclose()
+        finally:
+            self._limiter.release()
+
+    async def aclose(self) -> None:
+        '''Close all idle connections'''
+
+        idle, self._idle = self._idle, []
+        for conn in idle:
+            await conn.aclose()
+
+    async def __aenter__(self) -> HTTPConnectionPool:
         return self
 
     async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:

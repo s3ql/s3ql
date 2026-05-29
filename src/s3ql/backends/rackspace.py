@@ -21,10 +21,14 @@ class AsyncBackend(swiftks.AsyncBackend):
     """A backend to store data in Rackspace CloudFiles"""
 
     @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+    async def create(
+        cls: type['AsyncBackend'],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> 'AsyncBackend':
         '''Create a new Rackspace backend instance with eager authentication.'''
-        backend = cls(options=options)
-        backend.conn = await backend._get_conn()
+        backend = cls(options=options, max_connections=max_connections)
+        await backend._refresh_pool()
         await backend._container_exists()
         return backend
 
