@@ -131,12 +131,12 @@ class AsyncBackend(s3c4.AsyncBackend):
     def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata'''
 
-        # The native (non-S3) B2 backend stored S3QL metadata in `X-Bz-Info-meta-*` file-info
-        # entries. Backblaze's S3-compatible endpoint surfaces those as `x-amz-meta-meta-*` headers,
-        # so a filesystem originally created via `b2old://` would otherwise look like an unknown
-        # metadata format here. When the standard `x-amz-meta-format` header is absent but
+        # An earlier B2 backend used the native (non-S3) API and stored S3QL metadata in
+        # `X-Bz-Info-meta-*` file-info entries. Backblaze's S3-compatible endpoint surfaces those as
+        # `x-amz-meta-meta-*` headers. When the standard `x-amz-meta-format` header is absent but
         # `x-amz-meta-meta-format` is present, re-run the standard extraction with the header prefix
-        # shifted by one `meta-` segment.
+        # shifted by one `meta-` segment so filesystems created with the legacy backend remain
+        # readable.
 
         if '%smeta-format' % self.hdr_prefix in resp.headers:
             return super()._extractmeta(resp, obj_key)
