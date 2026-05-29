@@ -396,7 +396,7 @@ The S3 compatible backend accepts the following backend options:
 .. option:: sig-region=<region>
 
    For `s3c4://` variant only: Region to use for calculating V4
-   request signatures. Contrary to S3, the region is not a defined 
+   request signatures. Contrary to S3, the region is not a defined
    part of the storage URL and must be specified separately.
    Defaults to `us-east-1`.
 
@@ -444,28 +444,6 @@ The Backblaze B2 backend accepts the following backend options:
    exchanged with the remote server for longer than this period, the
    TCP connection is closed and re-established (default: 20 seconds).
 
-
-Fallback: b2old
----------------
-
-The ``b2old://`` URL scheme selects the legacy backend that talks to
-Backblaze's native B2 API. It exists as a temporary escape hatch in
-case a regression is found in the S3-compatible backend and will be
-removed in a future release. The storage URL is ::
-
-   b2old://<bucket-name>[/<prefix>]
-
-The ``b2old`` backend accepts the same options as in earlier S3QL releases
-(``disable-versions``, ``retry-on-cap-exceeded``, ``test_mode``,
-``tcp-timeout``). Their semantics are unchanged from the previous native-API
-implementation.
-
-A filesystem originally created with ``b2old://`` can be read via ``b2://``;
-the new backend recognises the metadata layout used by the legacy code. New
-writes use the standard S3 metadata layout, so a filesystem migrates
-incrementally as objects are rewritten.
-
-.. _Backblaze B2 API: https://www.backblaze.com/b2/docs/
 
 
 Local
