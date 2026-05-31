@@ -16,3 +16,4 @@ __pycache__/
 /tests/test_crit.log
 /.vscode/launch.json
 /.venv/
+.claude/settings.local.json
