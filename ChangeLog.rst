@@ -1,3 +1,27 @@
+S3QL 6.2.0 (2026-05-31)
+=======================
+
+* The Backblaze B2 backend has been rewritten to use Backblaze's S3-compatible
+  endpoint rather than the native B2 API. The ``b2://`` URL scheme is unchanged;
+  existing filesystems are fully readable by the new backend. The old native
+  backend is temporarily available under the ``b2old://`` scheme for users who
+  encounter regressions. The `b2old` backend will be removed in a future
+  release if no regressions are reported.
+
+* On backends without a native batch-delete API (Google Cloud Storage, and the new B2 backend),
+  object deletion during mount/unmount, fsck, and ``s3qladm shrink-db`` is now parallelized across
+  all available HTTP connections, reducing the time proportionally to the connection pool size.
+
+* ``s3qladm clear`` now uses native batch-delete endpoints on S3 and Swift. On other backends the
+  parallel fan-out described above applies.
+
+* Upload and eviction of cache entries should be faster for large caches
+  (performance is no longer linear in cache size).
+
+* S3QL now now uses on `h11 <https://h11.readthedocs.io/>`_ and `httpcore
+  <https://www.encode.io/httpcore/>`_ instead of S3QL's own HTTP/1.1 implementation. 
+
+
 S3QL 6.1.0 (2026-05-08)
 =======================
 

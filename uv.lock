@@ -762,7 +762,7 @@ wheels = [
 
 [[package]]
 name = "s3ql"
-version = "6.1.0"
+version = "6.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
@@ -771,9 +771,9 @@ dependencies = [
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
-    { name = "more-itertools" },
     { name = "h11" },
     { name = "httpcore" },
+    { name = "more-itertools" },
     { name = "pyfuse3" },
     { name = "requests" },
     { name = "trio" },
@@ -803,9 +803,9 @@ requires-dist = [
     { name = "defusedxml" },
     { name = "google-auth" },
     { name = "google-auth-oauthlib" },
-    { name = "more-itertools", specifier = ">=11.0.2" },
     { name = "h11", specifier = ">=0.14" },
     { name = "httpcore", specifier = ">=1.0" },
+    { name = "more-itertools", specifier = ">=11.0.2" },
     { name = "pyfuse3", specifier = ">=3.2.0,<4.0" },
     { name = "requests" },
     { name = "trio", specifier = ">=0.15" },
