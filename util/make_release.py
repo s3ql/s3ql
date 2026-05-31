@@ -50,6 +50,7 @@ Dear all,
 I am pleased to announce a new release of S3QL, version {new_ver}.
 
 From the changelog:
+
 {changelog}
 
 The following people have contributed code to this release:
@@ -290,7 +291,7 @@ def main() -> None:
 
     run(['jj', 'describe', '-m', f'Released {new_tag}'])
     run(['jj', 'tag', 'set', new_tag, '-r', '@'])
-    run(['jj', 'bookmark', 'move', 'main', '--to=@'])
+    run(['jj', 'bookmark', 'move', 'main', '--to=' + new_tag])
 
     build_and_sign(new_ver, major_rev, keys_dir)
 

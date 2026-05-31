@@ -19,7 +19,7 @@
    * uploads the HTML documentation
    * writes an announcement template
 
-6. Push to GitHub: ``jj git push && git push --tags``.
+6. Push to GitHub: ``git push --tags && jj git push -b main``.
 
 7. Create a release on GitHub at
    https://github.com/s3ql/s3ql/releases/.
