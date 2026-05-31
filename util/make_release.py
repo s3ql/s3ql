@@ -210,7 +210,7 @@ def refresh_authors() -> None:
             '-r',
             'all()',
             '--template',
-            'author.name() ++ " <" ++ author.email() ++ "\\n"',
+            'author.name() ++ " <" ++ author.email() ++ ">\\n"',
         ]
     )
     contributors = sorted(
@@ -231,7 +231,7 @@ def get_release_contributors(prev_tag: str) -> str:
             '-r',
             f'{prev_tag}..@',
             '--template',
-            'author.name() ++ " <" ++ author.email() ++ "\\n"',
+            'author.name() ++ " <" ++ author.email() ++ ">\\n"',
         ]
     )
     seen = sorted(
