@@ -12,6 +12,11 @@ Unreleased Changes
   the server returns ``Content-Type: application/json; charset=utf-8`` (without
   quotes around the charset value). 
 
+* Fixed the Backblaze B2 backend (``b2://`` URL scheme): startup no longer
+  fails with ``HTTPError: 403`` for accounts whose bucket does not live in
+  the ``us-east-005`` region.
+
+
 S3QL 6.2.0 (2026-05-31)
 =======================
 

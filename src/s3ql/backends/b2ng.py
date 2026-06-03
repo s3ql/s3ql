@@ -8,21 +8,30 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 import re
 import ssl
+from urllib.parse import urlparse
 
-from s3ql.http import CaseInsensitiveDict, HTTPResponse
+from s3ql.http import CaseInsensitiveDict, HTTPConnection, HTTPResponse
 from s3ql.types import BackendOptionsProtocol, BasicMappingT
 
 from ..logging import QuietError
 from . import s3c4
+from .common import AuthenticationError, AuthorizationError
+from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
 
-# Backblaze accepts requests for any of its S3 endpoints and replies with a
-# 301 carrying `x-amz-bucket-region` pointing at the correct one. We start
-# requests against this region and re-target on the first response.
+# Backblaze's S3-compatible endpoints are region-isolated: a request for a
+# bucket that does not live in the contacted region returns a plain 403 with
+# no `x-amz-bucket-region` hint, so we cannot probe across regions the way AWS
+# S3 allows. `DEFAULT_REGION` is only the initial value of `sig_region` before
+# `_discover_region` queries the native `b2_authorize_account` endpoint, which
+# returns the account's actual S3 hostname. The default value is never used in
+# an outgoing S3 request.
 DEFAULT_REGION = 'us-east-005'
 
 
@@ -65,31 +74,59 @@ class AsyncBackend(s3c4.AsyncBackend):
         return (hostname, port, bucket_name, prefix)
 
     async def _discover_region(self) -> None:
-        '''Resolve the bucket's region and re-target subsequent requests.'''
+        '''Resolve the bucket's region via Backblaze's native authorize endpoint.
 
-        # Backblaze replies to a request to any S3 endpoint with the bucket's actual region in the
-        # `x-amz-bucket-region` header, accompanied by a 301 if the endpoint was wrong. We issue a
-        # single HEAD bypassing the redirect-following logic in `_do_request` so we can read the
-        # header ourselves.
+        Backblaze's S3-compatible endpoints are region-isolated; an
+        `x-amz-bucket-region` HEAD probe (the pattern that works on AWS S3)
+        returns 403 without a region hint when the bucket is not in the
+        contacted region. Instead, issue one Basic-auth call to the native
+        `b2_authorize_account` endpoint, which returns the account's
+        regional `s3ApiUrl`.
+        '''
 
-        resp = await self._do_request_inner('HEAD', '/', headers=CaseInsensitiveDict())
-        region = resp.headers.get('x-amz-bucket-region')
+        creds = '%s:%s' % (self.login, self.password)
+        auth = 'Basic ' + base64.b64encode(creds.encode('utf-8')).decode('ascii')
+        headers = CaseInsensitiveDict({'Authorization': auth})
 
-        if region is None and not (200 <= resp.status <= 299):
-            # Non-2xx with no region hint: nothing to recover. Surface as a
-            # typed error (auth failure, no-such-bucket, ...).
-            await self._parse_error_response(resp)
-            return  # unreachable; _parse_error_response always raises.
+        async with HTTPConnection('api.backblazeb2.com', 443, ssl_context=self.ssl_context) as conn:
+            resp = await conn.send_request('GET', '/b2api/v3/b2_authorize_account', headers=headers)
+            body = await conn.readall()
 
-        await self.conn.discard()
+        if resp.status == 401:
+            raise AuthenticationError('Invalid Backblaze application key or key ID')
+        if resp.status == 403:
+            raise AuthorizationError(_b2_error_message(body) or resp.reason)
+        if not (200 <= resp.status <= 299):
+            raise HTTPError(resp.status, resp.reason, resp.headers)
 
-        if region is not None and region != self.sig_region:
-            log.debug('Bucket region is %s, re-targeting connection', region)
-            self.sig_region = region
-            self.hostname = 's3.%s.backblazeb2.com' % region
-            self.signing_key = None
-            await self.conn.aclose()
-            self.conn = self._get_conn()
+        try:
+            data = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError('Could not parse b2_authorize_account response: %s' % exc) from exc
+
+        # B2 API v3 nests storage info under apiInfo.storageApi; v2 placed
+        # `s3ApiUrl` at the top level. Accept either.
+        s3_api_url = data.get('apiInfo', {}).get('storageApi', {}).get('s3ApiUrl') or data.get(
+            's3ApiUrl'
+        )
+        if not s3_api_url:
+            raise RuntimeError('Backblaze response did not contain s3ApiUrl')
+
+        host = urlparse(s3_api_url).hostname or ''
+        hit = re.fullmatch(r's3\.([a-z0-9-]+)\.backblazeb2\.com', host)
+        if not hit:
+            raise RuntimeError('Unexpected s3ApiUrl from Backblaze: %r' % s3_api_url)
+        region = hit.group(1)
+
+        if region == self.sig_region:
+            return
+
+        log.debug('Bucket region is %s, re-targeting connection', region)
+        self.sig_region = region
+        self.hostname = host
+        self.signing_key = None
+        await self.conn.aclose()
+        self.conn = self._get_conn()
 
     def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata'''
@@ -116,3 +153,15 @@ class AsyncBackend(s3c4.AsyncBackend):
 
     def __str__(self) -> str:
         return 'Backblaze B2 bucket %s, prefix %s' % (self.bucket_name, self.prefix)
+
+
+def _b2_error_message(body: bytes) -> str | None:
+    '''Extract Backblaze's `message` field from a JSON error body, if present.'''
+    try:
+        data = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    msg = data.get('message')
+    return msg if isinstance(msg, str) else None
