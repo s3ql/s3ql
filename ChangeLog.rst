@@ -1,3 +1,11 @@
+S3QL Unreleased
+===============
+
+* Fixed a crash in the HTTP client when a server emits more than one ``Date``
+  header in a response (observed against some real OpenStack Swift
+  deployments).
+
+
 S3QL 6.2.0 (2026-05-31)
 =======================
 

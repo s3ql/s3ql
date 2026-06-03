@@ -426,6 +426,25 @@ async def test_read_raw(conn, monkeypatch):
     assert b'body data' in raw
 
 
+async def test_duplicate_date_header(conn, monkeypatch):
+    # Some real servers (notably misbehaving Swift proxies) emit two Date
+    # headers in the same response. The client must accept this; previously
+    # the email.policy.HTTP-backed Message rejected it with ValueError.
+    fixed_date = 'Thu, 01 Jan 1970 00:00:00 GMT'
+
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Date', fixed_date)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    monkeypatch.setattr(MockRequestHandler, 'do_GET', do_GET)
+
+    resp = await conn.send_request('GET', '/whatever')
+    assert resp.status == 200
+    assert resp.headers.get('Date') is not None
+
+
 async def test_abort_read(conn, monkeypatch):
     path = '/foo/wurfl'
     chunks = [300, 317, 283]

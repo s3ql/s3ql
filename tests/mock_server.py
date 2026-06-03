@@ -418,6 +418,10 @@ class BasicSwiftRequestHandler(S3CRequestHandler):
                 'http://%s:%d/v1/AUTH_xyz' % (self.server.hostname, self.server.port),
             )
             self.send_header('X-Auth-Token', 'static')
+            # Some real Swift deployments emit a duplicate Date header (typically
+            # via a misbehaving proxy). The client must tolerate this; reproduce
+            # it here so the mock-swift tests exercise the same code path.
+            self.send_header('Date', 'Thu, 01 Jan 1970 00:00:00 GMT')
             self.send_header('Content-Length', '0')
             self.end_headers()
         elif self.path == '/info':

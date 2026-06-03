@@ -617,7 +617,7 @@ class HTTPConnection:
                         path=path,
                         status=100,
                         reason=event.reason.decode('latin1'),
-                        headers=email.message.Message(policy=email.policy.HTTP),
+                        headers=email.message.Message(policy=email.policy.compat32),
                         length=0,
                     )
                 # Other 1xx (incl. 101 Upgrade) - skip per RFC 7231 §6.2.
@@ -642,7 +642,11 @@ class HTTPConnection:
         '''Build an `HTTPResponse` and prime body-reading state.'''
 
         assert self._h11 is not None
-        msg = email.message.Message(policy=email.policy.HTTP)
+        # `compat32` (rather than `email.policy.HTTP`) is used here because the HTTP
+        # policy enforces `header_max_count == 1` for `Date`/`Expires`/`Last-Modified`
+        # and rejects duplicate copies that some real servers (notably misbehaving
+        # Swift proxies) do emit. We only use `Message` as a case-insensitive dict.
+        msg = email.message.Message(policy=email.policy.compat32)
         for k, v in h11_headers:  # type: ignore[attr-defined]
             msg[k.decode('latin1')] = v.decode('latin1')
 
