@@ -145,8 +145,10 @@ def _parse_json_response(resp: HTTPResponse, body: bytes) -> dict[str, object]:
     # body with a detailed error message, we may also get errors from intermediate proxies.
     content_type = resp.headers.get('Content-Type', None)
     if content_type:
+        # Both the real GCS server (no quotes) and various intermediaries
+        # (sometimes quoted) appear in the wild — accept either form.
         hit = re.match(
-            r'application/json(?:; charset="(.+)")?$',
+            r'application/json(?:;\s*charset="?(.+?)"?)?$',
             resp.headers['Content-Type'],
             re.IGNORECASE,
         )

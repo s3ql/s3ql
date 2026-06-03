@@ -8,6 +8,9 @@ Unreleased Changes
 * Fixed a crash when using the Amazon S3 backend and attempting to
   delete multiple objects.
 
+* Fixed the Google Cloud Storage backend hanging indefinitely on startup when
+  the server returns ``Content-Type: application/json; charset=utf-8`` (without
+  quotes around the charset value). 
 
 S3QL 6.2.0 (2026-05-31)
 =======================
