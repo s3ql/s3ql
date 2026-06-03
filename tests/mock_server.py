@@ -14,6 +14,7 @@ import logging
 import re
 import socketserver
 import urllib.parse
+import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler
 from xml.sax.saxutils import escape as xml_escape
 
@@ -35,6 +36,12 @@ COPY_RESPONSE_TEMPLATE = '''\
    <LastModified>2008-02-20T22:13:01</LastModified>
    <ETag>&quot;%(etag)s&quot;</ETag>
 </CopyObjectResult>
+'''
+
+DELETE_RESULT_TEMPLATE = '''\
+<?xml version="1.0" encoding="UTF-8"?>
+<DeleteResult xmlns="%(ns)s">
+%(items)s</DeleteResult>
 '''
 
 
@@ -298,11 +305,54 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 class S3C4RequestHandler(S3CRequestHandler):
     '''Request Handler for s3c4 backend
 
-    Currently identical to S3CRequestHandler since mock request handlers
-    do not check request signatures.
+    Extends S3CRequestHandler with POST /?delete (batch delete), validating
+    Content-MD5 as AWS S3 now requires.
     '''
 
-    pass
+    def do_POST(self):
+        raw = urllib.parse.urlsplit(self.path)
+        if raw.query != 'delete':
+            self.send_error(400, message='Unsupported POST operation', code='InvalidRequest')
+            return
+
+        # AWS S3 requires Content-MD5 for POST /?delete
+        if 'Content-MD5' not in self.headers:
+            self.send_error(
+                400,
+                message='Missing required header for this request: Content-MD5 OR x-amz-checksum-*',
+                code='InvalidRequest',
+            )
+            return
+
+        len_ = self._check_encoding()
+        if len_ is None:
+            return
+        body = self.rfile.read(len_)
+
+        try:
+            root = ET.fromstring(body.decode('utf-8'))
+        except ET.ParseError as e:
+            self.send_error(400, message='XML parse error: %s' % e, code='MalformedXML')
+            return
+
+        items = []
+        for obj in root.findall('Object'):
+            key_el = obj.find('Key')
+            if key_el is None or not key_el.text:
+                continue
+            key = key_el.text
+            self.server.data.pop(key, None)
+            self.server.metadata.pop(key, None)
+            items.append('  <Deleted><Key>%s</Key></Deleted>\n' % xml_escape(key))
+
+        content = (DELETE_RESULT_TEMPLATE % {'ns': self.xml_ns, 'items': ''.join(items)}).encode(
+            'utf-8'
+        )
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/xml; charset=utf-8')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
 
 
 class BasicSwiftRequestHandler(S3CRequestHandler):

@@ -1,9 +1,12 @@
-S3QL Unreleased
-===============
+Unreleased Changes
+==================
 
 * Fixed a crash in the HTTP client when a server emits more than one ``Date``
   header in a response (observed against some real OpenStack Swift
   deployments).
+
+* Fixed a crash when using the Amazon S3 backend and attempting to
+  delete multiple objects.
 
 
 S3QL 6.2.0 (2026-05-31)
@@ -27,7 +30,7 @@ S3QL 6.2.0 (2026-05-31)
   (performance is no longer linear in cache size).
 
 * S3QL now now uses on `h11 <https://h11.readthedocs.io/>`_ and `httpcore
-  <https://www.encode.io/httpcore/>`_ instead of S3QL's own HTTP/1.1 implementation. 
+  <https://www.encode.io/httpcore/>`_ instead of S3QL's own HTTP/1.1 implementation.
 
 
 S3QL 6.1.0 (2026-05-08)

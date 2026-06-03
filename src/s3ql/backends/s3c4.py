@@ -11,15 +11,23 @@ import hmac
 import logging
 import time
 import urllib.parse
+from xml.sax.saxutils import escape as xml_escape
 
+from more_itertools import chunked
+
+from s3ql.http import CaseInsensitiveDict
 from s3ql.types import BackendOptionsProtocol
 
 from . import s3c
+from .common import retry
+from .s3c import get_S3Error, md5sum_b64
 
 log = logging.getLogger(__name__)
 
 # Pylint goes berserk with false positives
 # pylint: disable=E1002,E1101
+
+MAX_KEYS = 1000
 
 
 class AsyncBackend(s3c.AsyncBackend):
@@ -45,6 +53,74 @@ class AsyncBackend(s3c.AsyncBackend):
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
+
+    @property
+    def has_delete_multi(self) -> bool:
+        return True
+
+    async def delete_multi(self, keys: list[str]) -> None:
+        log.debug('started with %s', keys)
+        failures: list[str] = []
+        for batch in chunked(list(keys), MAX_KEYS):
+            await self._delete_multi(batch)
+            failures.extend(batch)
+        keys[:] = failures
+
+    @retry
+    async def _delete_multi(self, keys: list[str]) -> None:
+        body_list = ['<Delete>']
+        esc_prefix = xml_escape(self.prefix)
+        for key in keys:
+            body_list.append('<Object><Key>%s%s</Key></Object>' % (esc_prefix, xml_escape(key)))
+        body_list.append('</Delete>')
+        body = '\n'.join(body_list).encode('utf-8')
+        headers = CaseInsensitiveDict(
+            {
+                'content-type': 'text/xml; charset=utf-8',
+                'content-md5': md5sum_b64(body),
+            }
+        )
+
+        resp = await self._do_request('POST', '/', subres='delete', body=[body], headers=headers)
+        try:
+            root = await self._parse_xml_response(resp)
+            ns_p = self.xml_ns_prefix
+
+            error_tags = root.findall(ns_p + 'Error')
+            if not error_tags:
+                del keys[:]
+                return
+
+            offset = len(self.prefix)
+            for tag in root.findall(ns_p + 'Deleted'):
+                key_elem = tag.find(ns_p + 'Key')
+                assert key_elem is not None
+                fullkey = key_elem.text
+                assert fullkey is not None and fullkey.startswith(self.prefix)
+                keys.remove(fullkey[offset:])
+
+            if log.isEnabledFor(logging.DEBUG):
+                for errtag in error_tags:
+                    errkey_text = errtag.findtext(ns_p + 'Key')
+                    log.debug(
+                        'Delete %s failed with %s',
+                        errkey_text[offset:] if errkey_text else None,
+                        errtag.findtext(ns_p + 'Code'),
+                    )
+
+            errcode = error_tags[0].findtext(ns_p + 'Code')
+            errmsg = error_tags[0].findtext(ns_p + 'Message')
+            errkey_text = error_tags[0].findtext(ns_p + 'Key')
+            errkey = errkey_text[offset:] if errkey_text else '<unknown>'
+
+            if errcode == 'NoSuchKey':
+                pass
+            else:
+                raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
+
+        except:
+            await self.conn.discard()
+            raise
 
     def _authorize_request(self, method, path, headers, subres, query_string):
         '''Add authorization information to *headers*'''
