@@ -97,7 +97,19 @@ class AsyncBackend(s3c4.AsyncBackend):
         if resp.status == 403:
             raise AuthorizationError(_b2_error_message(body) or resp.reason)
         if not (200 <= resp.status <= 299):
-            raise HTTPError(resp.status, resp.reason, resp.headers)
+            body_msg = _b2_error_message(body)
+            if body_msg:
+                log.error(
+                    'Backblaze authorization endpoint returned HTTP %d: %s', resp.status, body_msg
+                )
+            else:
+                log.error(
+                    'Backblaze authorization endpoint returned HTTP %d %s; body: %r',
+                    resp.status,
+                    resp.reason,
+                    body[:2048],
+                )
+            raise HTTPError(resp.status, body_msg or resp.reason, resp.headers)
 
         try:
             data = json.loads(body)

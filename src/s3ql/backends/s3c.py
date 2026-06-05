@@ -552,7 +552,15 @@ class AsyncBackend(AsyncBackendBase):
 
         # If not XML, do the best we can
         if content_type is None or resp.length == 0 or not XML_CONTENT_RE.match(content_type):
-            await self.conn.discard()
+            body = await self.conn.readall()
+            if body:
+                log.debug(
+                    'Non-XML error response (HTTP %d %s, Content-Type=%s): %r',
+                    resp.status,
+                    resp.reason,
+                    content_type,
+                    body[:2048],
+                )
             raise HTTPError(resp.status, resp.reason, resp.headers)
 
         # We don't stream the data into the parser because we want
