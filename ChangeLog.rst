@@ -1,5 +1,5 @@
-Unreleased Changes
-==================
+S3QL 6.2.1 (2026-06-05)
+=======================
 
 * Fixed a crash in the HTTP client when a server emits more than one ``Date``
   header in a response (observed against some real OpenStack Swift
@@ -15,6 +15,12 @@ Unreleased Changes
 * Fixed the Backblaze B2 backend (``b2://`` URL scheme): startup no longer
   fails with ``HTTPError: 403`` for accounts whose bucket does not live in
   the ``us-east-005`` region.
+
+* This release still ships with the ``b2old://`` backend in case some users are
+  unable to use the rewritten ``b2://`` backend. The `b2old` backend will be
+  removed in a future release if no regressions are reported - so please file
+  an issue at https://github.com/s3ql/s3ql/issues if you encounter any
+  problems with ``b2://``.
 
 
 S3QL 6.2.0 (2026-05-31)
