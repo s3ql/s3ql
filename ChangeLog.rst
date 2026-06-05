@@ -1,4 +1,4 @@
-S3QL 6.2.1 (2026-06-05)
+S3QL 6.2.2 (2026-06-05)
 =======================
 
 * Fixed a crash in the HTTP client when a server emits more than one ``Date``
@@ -21,6 +21,12 @@ S3QL 6.2.1 (2026-06-05)
   removed in a future release if no regressions are reported - so please file
   an issue at https://github.com/s3ql/s3ql/issues if you encounter any
   problems with ``b2://``.
+
+
+S3QL 6.2.1 (2026-06-05)
+=======================
+
+(Release was faulty and has been removed)
 
 
 S3QL 6.2.0 (2026-05-31)
