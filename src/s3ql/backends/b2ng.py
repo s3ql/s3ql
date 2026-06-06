@@ -89,7 +89,7 @@ class AsyncBackend(s3c4.AsyncBackend):
         headers = CaseInsensitiveDict({'Authorization': auth})
 
         async with HTTPConnection('api.backblazeb2.com', 443, ssl_context=self.ssl_context) as conn:
-            resp = await conn.send_request('GET', '/b2api/v3/b2_authorize_account', headers=headers)
+            resp = await conn.send_request('GET', '/b2api/v4/b2_authorize_account', headers=headers)
             body = await conn.readall()
 
         if resp.status == 401:
@@ -116,7 +116,7 @@ class AsyncBackend(s3c4.AsyncBackend):
         except json.JSONDecodeError as exc:
             raise RuntimeError('Could not parse b2_authorize_account response: %s' % exc) from exc
 
-        # B2 API v3 nests storage info under apiInfo.storageApi; v2 placed
+        # B2 API v3+ nests storage info under apiInfo.storageApi; v2 placed
         # `s3ApiUrl` at the top level. Accept either.
         s3_api_url = data.get('apiInfo', {}).get('storageApi', {}).get('s3ApiUrl') or data.get(
             's3ApiUrl'
