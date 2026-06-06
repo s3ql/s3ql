@@ -46,6 +46,7 @@ from .common import (
     get_proxy,
     get_ssl_context,
     hash_fh,
+    log_delete_progress,
     retry,
 )
 from .common import (
@@ -728,18 +729,21 @@ class AsyncBackend(AsyncBackendBase):
     def has_delete_multi(self):
         return self.features.has_bulk_delete
 
-    async def delete_multi(self, keys):
+    async def delete_multi(self, keys, *, log_progress=False):
         log.debug('started with %s', keys)
 
         if self.features.has_bulk_delete:
+            total = len(keys)
             while len(keys) > 0:
                 tmp = keys[: self.features.max_deletes]
                 try:
                     await self._delete_multi(tmp)
                 finally:
                     keys[: self.features.max_deletes] = tmp
+                if log_progress:
+                    log_delete_progress(total - len(keys), total)
         else:
-            await super().delete_multi(keys)
+            await super().delete_multi(keys, log_progress=log_progress)
 
     async def list(self, prefix='') -> AsyncIterator[str]:
         prefix = self.prefix + prefix

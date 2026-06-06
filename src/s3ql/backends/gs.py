@@ -283,6 +283,10 @@ class AsyncBackend(AsyncBackendBase):
                 raise mapped_exc
             raise
 
+    @property
+    def max_connections(self) -> int:
+        return self._max_connections
+
     def _make_pool(self) -> Pool:
         '''Return a fresh connection pool for the current host/port.'''
 

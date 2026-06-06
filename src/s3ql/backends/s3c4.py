@@ -19,7 +19,7 @@ from s3ql.http import CaseInsensitiveDict
 from s3ql.types import BackendOptionsProtocol
 
 from . import s3c
-from .common import retry
+from .common import log_delete_progress, retry
 from .s3c import get_S3Error, md5sum_b64
 
 log = logging.getLogger(__name__)
@@ -64,12 +64,17 @@ class AsyncBackend(s3c.AsyncBackend):
     def has_delete_multi(self) -> bool:
         return True
 
-    async def delete_multi(self, keys: list[str]) -> None:
+    async def delete_multi(self, keys: list[str], *, log_progress: bool = False) -> None:
         log.debug('started with %s', keys)
+        total = len(keys)
         failures: list[str] = []
+        processed = 0
         for batch in chunked(list(keys), MAX_KEYS):
             await self._delete_multi(batch)
             failures.extend(batch)
+            processed += len(batch)
+            if log_progress:
+                log_delete_progress(processed - len(failures), total)
         keys[:] = failures
 
     @retry

@@ -118,6 +118,8 @@ class AsyncBackend(AsyncBackendBase):
         self._max_connections = max_connections
         self.password = options.backend_password
         self.login = options.backend_login
+        # Subclasses may populate this during construction; it is treated as immutable
+        # afterwards, so concurrent readers need no synchronisation.
         self._extra_put_headers = CaseInsensitiveDict()
 
     @classmethod
@@ -162,6 +164,10 @@ class AsyncBackend(AsyncBackendBase):
         prefix = hit.group(4) or ''
 
         return (hostname, port, bucketname, prefix)
+
+    @property
+    def max_connections(self) -> int:
+        return self._max_connections
 
     def _make_pool(self) -> Pool:
         '''Return a fresh connection pool for the current host/port.'''

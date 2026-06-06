@@ -9,6 +9,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import builtins
+import dataclasses
 import hashlib
 import hmac
 import inspect
@@ -22,7 +23,7 @@ import textwrap
 import threading
 import time
 from abc import ABCMeta, abstractmethod
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterable, AsyncIterator, Callable
 from functools import wraps
 from io import BytesIO
 from typing import TYPE_CHECKING, Literal, TypeVar
@@ -30,6 +31,7 @@ from typing import TYPE_CHECKING, Literal, TypeVar
 import trio
 
 from s3ql import BUFSIZE
+from s3ql.common import ParallelPipeline
 from s3ql.http import HTTPConnection, HTTPResponse, InvalidResponse
 from s3ql.logging import LOG_ONCE, QuietError
 from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
@@ -263,6 +265,16 @@ class AsyncBackend(metaclass=ABCMeta):
 
         return False
 
+    @property
+    def max_connections(self) -> int:
+        '''Upper bound on simultaneous wire-level requests supported by the backend.
+
+        Defaults to 1 (single in-flight request). Subclasses backed by an HTTP
+        connection pool are expected to override this to report their pool size.
+        '''
+
+        return 1
+
     @abstractmethod
     async def readinto_fh(self, key: str, fh: BinaryOutput) -> BasicMappingT:
         '''Transfer data stored under *key* into *fh*, return metadata.
@@ -370,19 +382,23 @@ class AsyncBackend(metaclass=ABCMeta):
         """
         pass
 
-    async def delete_multi(self, keys: builtins.list[str]) -> None:
-        """Delete objects stored under `keys`
+    async def delete_multi(self, keys: builtins.list[str], *, log_progress: bool = False) -> None:
+        """Delete objects stored under `keys`.
 
-        Deleted objects are removed from the *keys* list, so that the caller can
-        determine which objects have not yet been processed if an exception is
-        occurs.
+        Deletion is fanned out across up to `max_connections` concurrent requests.
+        Deleted objects are removed from the *keys* list, so that on return (whether
+        normal or exceptional) it contains exactly those keys that have not been
+        deleted. Attempts to delete non-existing objects silently succeed.
 
-        Attempts to delete non-existing objects will silently succeed.
+        If *log_progress* is true, emit periodic INFO messages (rate-limited to one
+        per second) reporting how many objects have been removed so far.
         """
 
-        while keys:
-            await self.delete(keys[-1])
-            keys.pop()
+        if not keys:
+            return
+        await _ParallelDelete(backend=self, keys=keys, log_progress=log_progress).run(
+            n_workers=self.max_connections
+        )
 
     @abstractmethod
     def list(self, prefix: str = '') -> AsyncIterator[str]:
@@ -650,6 +666,50 @@ async def dump_response(
         '\n'.join('%s: %s' % x for x in resp.headers.items()),
         body.decode('utf-8', errors='backslashreplace'),
     )
+
+
+def log_delete_progress(done: int, total: int) -> None:
+    '''Emit a rate-limited INFO message reporting *done* of *total* objects removed.'''
+
+    log.info(
+        'Removed %d/%d objects (%d%%)',
+        done,
+        total,
+        done * 100 // total,
+        extra={'rate_limit': 1, 'update_console': True, 'is_last': done == total},
+    )
+
+
+@dataclasses.dataclass
+class _ParallelDelete(ParallelPipeline[str]):
+    '''Delete *keys* from *backend*, spreading single-key deletes across its connections.
+
+    Up to `backend.max_connections` deletes are in flight at any time. Deleted keys are
+    removed from *keys* as they complete, so on return (normal or exceptional) only
+    keys that have not been deleted remain.
+    '''
+
+    backend: AsyncBackend
+    keys: builtins.list[str]
+    log_progress: bool = False
+    _total: int = dataclasses.field(init=False)
+    _done: int = dataclasses.field(init=False, default=0)
+
+    def __post_init__(self) -> None:
+        self._total = len(self.keys)
+
+    async def produce(self) -> builtins.list[str]:
+        # Snapshot so the orchestrator's iteration of the job list does not race
+        # with workers mutating `self.keys`.
+        return list(self.keys)
+
+    async def consume(self, jobs: AsyncIterable[str]) -> None:
+        async for key in jobs:
+            await self.backend.delete(key)
+            self.keys.remove(key)
+            if self.log_progress:
+                self._done += 1
+                log_delete_progress(self._done, self._total)
 
 
 async def assert_empty_response(conn: HTTPConnection, resp: HTTPResponse) -> None:

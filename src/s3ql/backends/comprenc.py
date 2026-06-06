@@ -157,6 +157,10 @@ class AsyncComprencBackend(AsyncBackend):
     def has_delete_multi(self) -> bool:
         return self.backend.has_delete_multi
 
+    @property
+    def max_connections(self) -> int:
+        return self.backend.max_connections
+
     async def lookup(self, key: str) -> BasicMappingT:
         meta_raw = await self.backend.lookup(key)
         meta = self._verify_meta(key, meta_raw)[1]
@@ -478,8 +482,8 @@ class AsyncComprencBackend(AsyncBackend):
     async def delete(self, key: str) -> None:
         return await self.backend.delete(key)
 
-    async def delete_multi(self, keys: builtins.list[str]) -> None:
-        return await self.backend.delete_multi(keys)
+    async def delete_multi(self, keys: builtins.list[str], *, log_progress: bool = False) -> None:
+        return await self.backend.delete_multi(keys, log_progress=log_progress)
 
     async def list(self, prefix: str = '') -> AsyncIterator[str]:
         async for key in self.backend.list(prefix):

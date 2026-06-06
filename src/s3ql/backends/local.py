@@ -26,6 +26,7 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
+    log_delete_progress,
 )
 from .common import (
     AsyncBackend as AsyncBackendBase,
@@ -60,8 +61,16 @@ class AsyncBackend(AsyncBackendBase):
             raise DanglingStorageURLError(self.prefix)
 
     @classmethod
-    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
-        '''Create a new local backend instance.'''
+    async def create(
+        cls: type[AsyncBackend],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> AsyncBackend:
+        '''Create a new local backend instance.
+
+        *max_connections* is accepted for interface uniformity but ignored:
+        the local backend never opens HTTP connections.
+        '''
         return cls(options=options)
 
     @property
@@ -165,13 +174,16 @@ class AsyncBackend(AsyncBackendBase):
             return False
         return True
 
-    async def delete_multi(self, keys: builtins.list[str]) -> None:
+    async def delete_multi(self, keys: builtins.list[str], *, log_progress: bool = False) -> None:
+        total = len(keys)
         for i, key in enumerate(keys):
             try:
                 await self.delete(key)
             except:
                 del keys[:i]
                 raise
+            if log_progress:
+                log_delete_progress(i + 1, total)
 
         del keys[:]
 
