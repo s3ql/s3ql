@@ -22,6 +22,8 @@ from itertools import count
 from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
 
+import trio
+
 from s3ql.http import (
     CaseInsensitiveDict,
     HTTPConnection,
@@ -200,6 +202,9 @@ class AsyncBackend(AsyncBackendBase):
         # Built lazily by `_borrow_conn()` once authentication succeeds.
         self._pool: Pool | None = None
         self._max_connections = max_connections
+        # Serialises reauthentication after an expired token so concurrent tasks
+        # do not redundantly hit the auth endpoint or stomp on each other's pool.
+        self._auth_lock = trio.Lock()
         self.password = options.backend_password
         self.login = options.backend_login
         self.features = Features()
@@ -288,25 +293,35 @@ class AsyncBackend(AsyncBackendBase):
 
         return False
 
+    @property
+    def max_connections(self) -> int:
+        return self._max_connections
+
     @asynccontextmanager
     async def _borrow_conn(self) -> AsyncIterator[HTTPConnection]:
-        '''Borrow a connection from the storage pool, authenticating if needed.'''
+        '''Borrow a connection from the storage pool, authenticating if needed.
+
+        Concurrent callers serialise on `self._auth_lock`; the first one to win
+        the lock authenticates, the rest see the populated pool and proceed.
+        '''
         if self._pool is None:
-            log.debug('no active pool, authenticating')
-            auth = await self._authenticate()
-            self.auth_token = auth.token
-            self.auth_prefix = auth.prefix
-            self.features = await self._detect_features(
-                auth.storage_host, auth.storage_port, auth.ssl_context
-            )
-            self._pool = Pool(
-                auth.storage_host,
-                port=auth.storage_port,
-                ssl_context=auth.ssl_context,
-                proxy=self.proxy,
-                max_connections=self._max_connections,
-                timeout=int(self.options.get('tcp-timeout', 20)),
-            )
+            async with self._auth_lock:
+                if self._pool is None:
+                    log.debug('no active pool, authenticating')
+                    auth = await self._authenticate()
+                    self.auth_token = auth.token
+                    self.auth_prefix = auth.prefix
+                    self.features = await self._detect_features(
+                        auth.storage_host, auth.storage_port, auth.ssl_context
+                    )
+                    self._pool = Pool(
+                        auth.storage_host,
+                        port=auth.storage_port,
+                        ssl_context=auth.ssl_context,
+                        proxy=self.proxy,
+                        max_connections=self._max_connections,
+                        timeout=int(self.options.get('tcp-timeout', 20)),
+                    )
         async with self._pool.get() as conn:
             yield conn
 
@@ -396,8 +411,13 @@ class AsyncBackend(AsyncBackendBase):
         if headers is None:
             headers = CaseInsensitiveDict()
 
+        # Snapshot the auth state this request uses, so a 401 can be attributed to
+        # this token and a concurrent reauthentication is not redone.
+        auth_token = self.auth_token
+        auth_prefix = self.auth_prefix
+
         # Construct full path
-        path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
+        path = urllib.parse.quote('%s/%s%s' % (auth_prefix, self.container_name, path))
         if query_string:
             s = urllib.parse.urlencode(query_string, doseq=True)
             if subres:
@@ -407,7 +427,7 @@ class AsyncBackend(AsyncBackendBase):
         elif subres:
             path += '?%s' % subres
 
-        headers['X-Auth-Token'] = self.auth_token
+        headers['X-Auth-Token'] = auth_token
 
         resp = await conn.send_request(
             method,
@@ -423,7 +443,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # Expired auth token
         if resp.status == 401:
-            self._do_authentication_expired(resp.reason)
+            await self._do_authentication_expired(resp.reason, auth_token)
             # raises AuthenticationExpired
 
         # If method == HEAD, server must not return response body
@@ -635,6 +655,9 @@ class AsyncBackend(AsyncBackendBase):
         )
 
         async with self._borrow_conn() as conn:
+            # Snapshot the token this request uses, so a 401 embedded in the bulk-delete
+            # response body can be attributed to it rather than to a peer's fresh token.
+            auth_token = self.auth_token
             resp = await self._do_request(
                 conn, 'POST', '/', subres='bulk-delete', body=[body], headers=headers
             )
@@ -708,7 +731,7 @@ class AsyncBackend(AsyncBackendBase):
 
         if error_code == 401:
             # Expired auth token
-            self._do_authentication_expired(error_msg)
+            await self._do_authentication_expired(error_msg, auth_token)
             # raises AuthenticationExpired
         if 'Invalid bulk delete.' in error_msg:
             error_code = 400
@@ -899,12 +922,18 @@ class AsyncBackend(AsyncBackendBase):
 
         return detected_features
 
-    def _do_authentication_expired(self, reason):
-        '''Drop the cached storage pool so the next request reauthenticates.'''
+    async def _do_authentication_expired(self, reason: str, auth_token: str | None) -> None:
+        '''Handle an expired auth token observed while using *auth_token*.
+
+        Always raises `AuthenticationExpired`. Reauthentication is serialised on
+        `_auth_lock`: the cached pool is dropped only while *auth_token* is still the
+        current token, so a stale 401 from a concurrent task cannot discard a pool that
+        a peer has already rebuilt with a fresh token.
+        '''
         log.info('OpenStack auth token seems to have expired, requesting new one.')
-        # Dropping the pool forces the next `_borrow_conn()` to reauthenticate,
-        # which refreshes the auth token and storage endpoint and rebuilds the pool.
-        self._pool = None
+        async with self._auth_lock:
+            if self.auth_token == auth_token:
+                self._pool = None
         raise AuthenticationExpired(reason)
 
 

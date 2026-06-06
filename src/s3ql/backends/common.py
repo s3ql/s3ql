@@ -227,7 +227,12 @@ def extend_docstring(fun: Callable[..., object], s: str) -> None:
 
 
 class AsyncBackend(metaclass=ABCMeta):
-    '''Functionality shared between all backends'''
+    '''Functionality shared between all backends.
+
+    A single backend instance may be driven by multiple concurrent Trio tasks (up to
+    `max_connections` simultaneous requests). Subclasses must keep any mutable per-instance
+    state consistent under such concurrent access.
+    '''
 
     needs_login = True
     known_options: set[str] = set()
