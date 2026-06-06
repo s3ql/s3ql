@@ -101,11 +101,11 @@ Two Trio memory channels distribute work to worker tasks:
 
 Each worker receives a **clone** of the receive end. When a worker exits (normally or due to an unhandled exception), its clone closes. Once all clones are closed, subsequent sends raise `trio.BrokenResourceError` instead of blocking — preventing deadlocks when all workers have died.
 
-The number of workers equals `backend_pool.max_connections`, matching the available backend connection pool capacity.
+The number of workers equals `backend.max_connections`, matching the size of the backend's connection pool.
 
-### 3.5 BackendPool
+### 3.5 Shared backend
 
-`BackendPool` (`src/s3ql/backends/pool.py`) is a connection pool governed by a `trio.CapacityLimiter`. Acquired via `async with self.backend_pool() as backend:`. The limiter ensures that at most `max_connections` backend operations run concurrently. Since upload and removal workers each acquire a backend connection for their operation, the pool bounds total concurrent backend I/O.
+The `BlockCache` holds a single `AsyncComprencBackend` (`self.backend`) shared across all workers. Each backend wraps an `HTTPConnectionPool` that caps wire-level concurrency at `max_connections`. Upload and removal workers issue requests concurrently against this one instance; the connection pool serialises wire access while letting work overlap above the HTTP layer.
 
 
 ## 4. Key Data Structures and Invariants
@@ -329,16 +329,15 @@ The `cache.size` update in step 6 requires that no other task modified `el.size`
 
 **Upload worker** (`_do_upload`):
 
-12. `async with self.backend_pool() as backend` — acquires backend connection. **Checkpoint.**
-13. `await backend.write_fh(...)` — writes object to backend. **Checkpoint.**
-14. `UPDATE objects SET phys_size=...` (synchronous).
-15. `el.dirty = False`.
-16. `_unmark_in_transit(el)`
-17. `self.in_flight_uploads.pop(obj_id).set()` — wakes any task waiting on this upload.
-18. `await self.block_lock.release(inode, blockno)` — releases block lock.
-19. Signal `transfer_completed`.
+12. `await self.backend.write_fh(...)` — issues the upload on the shared backend; the inner `HTTPConnectionPool` borrows a connection. **Checkpoint.**
+13. `UPDATE objects SET phys_size=...` (synchronous).
+14. `el.dirty = False`.
+15. `_unmark_in_transit(el)`
+16. `self.in_flight_uploads.pop(obj_id).set()` — wakes any task waiting on this upload.
+17. `await self.block_lock.release(inode, blockno)` — releases block lock.
+18. Signal `transfer_completed`.
 
-Between steps 4 and 16, the entry's `in_transit` flag is set. Between steps 2 and 18, the block lock is held (across a task boundary). Between steps 10 and 17, an entry exists in `in_flight_uploads` for `obj_id`.
+Between steps 4 and 15, the entry's `in_transit` flag is set. Between steps 2 and 17, the block lock is held (across a task boundary). Between steps 10 and 16, an entry exists in `in_flight_uploads` for `obj_id`.
 
 ### 6.4 Deduplication (Hash Matches Existing Object)
 

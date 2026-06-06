@@ -33,8 +33,8 @@ import apsw
 import trio
 from pyfuse3 import InodeT
 
+from s3ql.backends.common import AsyncBackend
 from s3ql.backends.comprenc import AsyncComprencBackend
-from s3ql.backends.pool import BackendPool
 
 from . import CURRENT_FS_REV, sqlite3ext
 from .backends.common import NoSuchObject
@@ -875,7 +875,7 @@ class DatabaseChecksumError(RuntimeError):
         return f'File {self.name} has checksum {self.actual}, expected {self.expected}'
 
 
-async def get_block_objects(backend: AsyncComprencBackend) -> dict[int, list[int]]:
+async def get_block_objects(backend: AsyncBackend) -> dict[int, list[int]]:
     '''Get list of objects holding versions of each block'''
 
     block_list = collections.defaultdict(list)
@@ -910,13 +910,13 @@ class _BlockJob:
 class DownloadMetadata(ParallelPipeline[_BlockJob]):
     '''Parallel pipeline that pulls metadata blocks into a local file.
 
-    Workers borrow a backend connection from *pool* per block and write into
-    per-worker file handles seeking to distinct offsets. After all workers
+    Workers issue concurrent block reads against the shared *backend* and write
+    into per-worker file handles seeking to distinct offsets. After all workers
     complete, `finalize` truncates the file and (unless *failsafe*) verifies
     the checksum.
     '''
 
-    pool: BackendPool
+    backend: AsyncComprencBackend
     db_file: str
     params: FsAttributes
     failsafe: bool = False
@@ -932,8 +932,7 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
         # they run.
         with open(self.db_file, 'w+b', buffering=0):
             pass
-        async with self.pool() as backend:
-            block_list = await get_block_objects(backend)
+        block_list = await get_block_objects(self.backend)
         self.total = len(block_list)
         return block_list
 
@@ -942,7 +941,7 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
         log.debug(
             'download_metadata: %d blocks, %d workers',
             self.total,
-            self.pool.max_connections,
+            self.backend.max_connections,
         )
         blocksize = self.params.metadata_block_size
         file_size = self.params.db_size
@@ -983,9 +982,8 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
             async for job in jobs:
                 log.debug('Worker downloading block %d', job.blockno)
                 obj_name = METADATA_OBJ_NAME % (job.blockno, job.seq_no)
-                async with self.pool() as backend:
-                    fh.seek(job.offset)
-                    await backend.readinto_fh(obj_name, fh, size_hint=blocksize)
+                fh.seek(job.offset)
+                await self.backend.readinto_fh(obj_name, fh, size_hint=blocksize)
                 done = next(self.counter)
                 log.info(
                     'Downloaded %d/%d metadata blocks (%d%%)',
@@ -1015,15 +1013,18 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
 
 
 async def download_metadata(
-    pool: BackendPool,
+    backend: AsyncComprencBackend,
     db_file: str,
     params: FsAttributes,
     failsafe: bool = False,
 ) -> Connection:
     '''Download metadata from backend into *db_file*
 
-    Block downloads are parallelised across up to *pool.max_connections* tasks, each of
-    which transiently borrows a backend connection from *pool*.
+    Block downloads share *backend* across worker tasks. The pool is sized as
+    *backend.max_connections* + *backend.max_threads* so that up to *max_threads*
+    blocks can be decompressing while up to *max_connections* are in flight from
+    the backend; the two limits are enforced independently by the compression
+    thread limiter and the backend's I/O limiter.
 
     If *failsafe* is True, do not truncate file and do not verify
     checksum. In failsafe mode the resulting file may be sparse: workers
@@ -1034,8 +1035,8 @@ async def download_metadata(
     contain holes if blocks are missing.
     '''
 
-    op = DownloadMetadata(pool=pool, db_file=db_file, params=params, failsafe=failsafe)
-    await op.run(n_workers=pool.max_connections)
+    op = DownloadMetadata(backend=backend, db_file=db_file, params=params, failsafe=failsafe)
+    await op.run(n_workers=backend.max_connections + backend.max_threads)
     return Connection(db_file, params.metadata_block_size)
 
 
@@ -1052,7 +1053,7 @@ def first_le_than(seq: list[int], threshold: int) -> int:
     raise ValueError('No element below %d in list of length %d' % (threshold, len(seq)))
 
 
-async def get_available_seq_nos(backend: AsyncComprencBackend) -> list[int]:
+async def get_available_seq_nos(backend: AsyncBackend) -> list[int]:
     nos = []
     async for obj in backend.list('s3ql_params_'):
         hit = re.match('^s3ql_params_([0-9a-f]+)$', obj)
@@ -1064,38 +1065,34 @@ async def get_available_seq_nos(backend: AsyncComprencBackend) -> list[int]:
     return nos
 
 
-async def expire_objects(pool: BackendPool, versions_to_keep: int = 32) -> None:
+async def expire_objects(backend: AsyncBackend, versions_to_keep: int = 32) -> None:
     '''Delete metadata objects that are no longer needed'''
 
     log.info('Expiring old metadata backups...')
 
-    # Discovery and parameter reads only need a single connection, but
-    # `pool.delete_multi` below may want all of them, so release the connection
-    # before kicking off the (potentially parallel) deletion phase.
-    async with pool() as backend:
-        block_list = await get_block_objects(backend)
-        metadata_objs = await get_available_seq_nos(backend)
-        metadata_objs.sort()
-        seq_to_keep = metadata_objs[-versions_to_keep:]
-        to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
+    block_list = await get_block_objects(backend)
+    metadata_objs = await get_available_seq_nos(backend)
+    metadata_objs.sort()
+    seq_to_keep = metadata_objs[-versions_to_keep:]
+    to_remove = ['s3ql_params_%010x' % x for x in metadata_objs[:-versions_to_keep]]
 
-        # Determine which objects we still need
-        to_keep = collections.defaultdict(set)
-        for seq_no in seq_to_keep:
-            # We'll have to figure out what we want to do here when one of the objects
-            # has an older filesystem revision...
-            params = await read_remote_params(backend, seq_no)
-            blocksize = params.metadata_block_size
+    # Determine which objects we still need
+    to_keep = collections.defaultdict(set)
+    for seq_no in seq_to_keep:
+        # We'll have to figure out what we want to do here when one of the objects
+        # has an older filesystem revision...
+        params = await read_remote_params(backend, seq_no)
+        blocksize = params.metadata_block_size
 
-            # math.ceil() calculates the number of blocks we need. To convert to
-            # the index, need to subtract one (with one blocks, the max index is 0).
-            max_blockno = math.ceil(params.db_size / blocksize) - 1
+        # math.ceil() calculates the number of blocks we need. To convert to
+        # the index, need to subtract one (with one blocks, the max index is 0).
+        max_blockno = math.ceil(params.db_size / blocksize) - 1
 
-            for blockno, candidates in block_list.items():
-                log.debug('block %d has candidates %s', blockno, candidates)
-                if blockno > max_blockno:
-                    continue
-                to_keep[blockno].add(first_le_than(candidates, seq_no))
+        for blockno, candidates in block_list.items():
+            log.debug('block %d has candidates %s', blockno, candidates)
+            if blockno > max_blockno:
+                continue
+            to_keep[blockno].add(first_le_than(candidates, seq_no))
 
     # Remove what's no longer needed
     for blockno, candidates in block_list.items():
@@ -1105,7 +1102,7 @@ async def expire_objects(pool: BackendPool, versions_to_keep: int = 32) -> None:
             to_remove.append(METADATA_OBJ_NAME % (blockno, seq_no))
 
     log.info('Removing %d obsolete metadata blocks', len(to_remove))
-    await pool.delete_multi(to_remove, log_progress=True)
+    await backend.delete_multi(to_remove, log_progress=True)
 
     log.info('Expiration complete.')
 
@@ -1123,10 +1120,9 @@ class _BlockUpload:
 class UploadMetadata(ParallelPipeline[_BlockUpload]):
     '''Parallel pipeline that uploads metadata blocks from a local database file.
 
-    Workers borrow a backend connection from *pool* per block and read from
-    per-worker file handles. After all workers complete, `finalize` updates
-    the params object with the new size and checksum (unless *update_params*
-    is False).
+    Workers share *backend* across the upload and read from per-worker file
+    handles. After all workers complete, `finalize` updates the params object
+    with the new size and checksum (unless *update_params* is False).
 
     Assumes that when *update_params* is true, no other task is mutating the
     database file (e.g. the caller holds `Connection.inhibit_writes()` or
@@ -1136,7 +1132,7 @@ class UploadMetadata(ParallelPipeline[_BlockUpload]):
     re-uploaded on a subsequent pass.
     '''
 
-    pool: BackendPool
+    backend: AsyncComprencBackend
     db: Connection
     params: FsAttributes
     incremental: bool = True
@@ -1187,7 +1183,7 @@ class UploadMetadata(ParallelPipeline[_BlockUpload]):
         log.debug(
             'upload_metadata: %d blocks, %d workers',
             self.total,
-            self.pool.max_connections,
+            self.backend.max_connections,
         )
         blocksize = self.db.blocksize
         assert blocksize is not None
@@ -1208,9 +1204,8 @@ class UploadMetadata(ParallelPipeline[_BlockUpload]):
             async for job in jobs:
                 log.debug('Worker uploading block %d', job.blockno)
                 obj_name = METADATA_OBJ_NAME % (job.blockno, self.params.seq_no)
-                async with self.pool() as backend:
-                    fh.seek(job.offset)
-                    await backend.write_fh(obj_name, fh, len_=job.length)
+                fh.seek(job.offset)
+                await self.backend.write_fh(obj_name, fh, len_=job.length)
                 done = next(self.counter)
                 log.info(
                     'Uploaded %d/%d metadata blocks (%d%%)',
@@ -1238,7 +1233,7 @@ class UploadMetadata(ParallelPipeline[_BlockUpload]):
 
 
 async def upload_metadata(
-    pool: BackendPool,
+    backend: AsyncComprencBackend,
     db: Connection,
     params: FsAttributes,
     incremental: bool = True,
@@ -1251,21 +1246,24 @@ async def upload_metadata(
     If *update_params* is false, do not calculate checksum or update *params* with current database
     size and checksum.
 
-    Block uploads are parallelised across up to *pool.max_connections* tasks, each of
-    which transiently borrows a backend connection from *pool*.
+    Block uploads share the *backend* instance across worker tasks. The pool is
+    sized as *backend.max_connections* + *backend.max_threads* so that up to
+    *max_threads* blocks can be compressing while up to *max_connections* are in
+    flight to the backend; the two limits are enforced independently by the
+    compression thread limiter and the backend's I/O limiter.
     '''
 
     op = UploadMetadata(
-        pool=pool,
+        backend=backend,
         db=db,
         params=params,
         incremental=incremental,
         update_params=update_params,
     )
-    await op.run(n_workers=pool.max_connections)
+    await op.run(n_workers=backend.max_connections + backend.max_threads)
 
 
-async def upload_params(backend: AsyncComprencBackend, params: FsAttributes) -> None:
+async def upload_params(backend: AsyncBackend, params: FsAttributes) -> None:
     log.info('Uploading filesystem superblock...')
     buf = params.serialize()
     await backend.store('s3ql_params', buf)
@@ -1314,9 +1312,7 @@ def read_cached_params(cachepath: str, min_seq: int | None = None) -> FsAttribut
     return params
 
 
-async def read_remote_params(
-    backend: AsyncComprencBackend, seq_no: int | None = None
-) -> FsAttributes:
+async def read_remote_params(backend: AsyncBackend, seq_no: int | None = None) -> FsAttributes:
     if seq_no is None:
         try:
             buf = (await backend.fetch('s3ql_params'))[0]

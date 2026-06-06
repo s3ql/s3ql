@@ -20,8 +20,6 @@ import shutil
 import stat
 import tempfile
 from argparse import Namespace
-from collections.abc import AsyncGenerator
-from contextlib import asynccontextmanager
 
 import pytest
 import trio
@@ -29,7 +27,6 @@ from common import safe_sleep
 
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
-from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.common import time_ns
 from s3ql.database import Connection, create_tables
@@ -47,15 +44,14 @@ class DummyRemovalChannel:
 
     async def send(self, obj_id: int) -> None:
         log.debug('DummyRemovalChannel: removing object %d inline', obj_id)
-        async with self.cache.backend_pool() as backend:
-            from s3ql.backends.common import NoSuchObject
+        from s3ql.backends.common import NoSuchObject
 
-            try:
-                await backend.delete('s3ql_data_%d' % obj_id)
-            except NoSuchObject:
-                log.warning('Backend lost object s3ql_data_%d', obj_id)
-                if self.cache.fs is not None:
-                    self.cache.fs.failsafe = True
+        try:
+            await self.cache.backend.delete('s3ql_data_%d' % obj_id)
+        except NoSuchObject:
+            log.warning('Backend lost object s3ql_data_%d', obj_id)
+            if self.cache.fs is not None:
+                self.cache.fs.failsafe = True
 
     async def aclose(self) -> None:
         pass
@@ -84,12 +80,8 @@ async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
-    async def factory():
-        plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
-        return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), plain)
-
-    factory.has_delete_multi = True
-    ctx.backend_pool = BackendPool(factory, max_connections=10)
+    plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
+    ctx.backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), plain)
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024
@@ -130,7 +122,7 @@ async def ctx():
     )
 
     cache = BlockCache(
-        ctx.backend_pool,
+        ctx.backend,
         ctx.db,
         ctx.cachedir + "/cache",
         ctx.max_obj_size * 100,
@@ -146,7 +138,8 @@ async def ctx():
     try:
         yield ctx
     finally:
-        ctx.cache.backend_pool = ctx.backend_pool
+        # Restore the real backend in case a test swapped it for a counting mock.
+        ctx.cache.backend = ctx.backend
         if ctx.cache.destroy is not None:
             await ctx.cache.destroy()
         shutil.rmtree(ctx.cachedir)
@@ -224,9 +217,9 @@ async def test_evict(ctx):
 
     # We want to evict 4 entries, 2 of which are already flushed
     ctx.cache.cache.max_entries = 16
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=2)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=2)
     await ctx.cache.evict()
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
     assert len(ctx.cache.cache) == 16
 
     for i in range(20):
@@ -248,64 +241,64 @@ async def test_upload(ctx):
     data3 = random_data(datalen)
 
     # Case 1: create new object
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
         el1 = fh
     assert await ctx.cache.upload_if_dirty(el1)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     # Case 2: Link new object
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
+    ctx.cache.backend = MockBackend(ctx.backend)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data1)
         el2 = fh
     assert not await ctx.cache.upload_if_dirty(el2)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     # Case 3: Upload old object, still has references
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data2)
     assert await ctx.cache.upload_if_dirty(el1)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     # Case 4: Upload old object, no references left
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_del=1, no_write=1)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data3)
     assert await ctx.cache.upload_if_dirty(el2)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     # Case 5: Link old object, no references left
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_del=1)
     async with ctx.cache.get(inode, blockno2) as fh:
         fh.seek(0)
         fh.write(data2)
     assert not await ctx.cache.upload_if_dirty(el2)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     # Case 6: Link old object, still has references
     # (Need to create another object first)
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     async with ctx.cache.get(inode, blockno3) as fh:
         fh.seek(0)
         fh.write(data1)
         el3 = fh
     assert await ctx.cache.upload_if_dirty(el3)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
+    ctx.cache.backend = MockBackend(ctx.backend)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data1)
     assert not await ctx.cache.upload_if_dirty(el1)
     await ctx.cache.drop()
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
 
 async def test_remove_referenced(ctx):
@@ -315,7 +308,7 @@ async def test_remove_referenced(ctx):
     blockno2 = 24
     data = random_data(datalen)
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     async with ctx.cache.get(inode, blockno1) as fh:
         fh.seek(0)
         fh.write(data)
@@ -323,11 +316,11 @@ async def test_remove_referenced(ctx):
         fh.seek(0)
         fh.write(data)
     await ctx.cache.drop()
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool)
+    ctx.cache.backend = MockBackend(ctx.backend)
     await ctx.cache.remove(inode, blockno1)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
 
 async def test_remove_cache(ctx):
@@ -433,13 +426,13 @@ async def test_remove_cache_db(ctx):
         fh.seek(0)
         fh.write(data1)
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     await start_flush(ctx.cache, inode)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_del=1)
     await ctx.cache.remove(inode, 1)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
@@ -455,27 +448,25 @@ async def test_remove_db(ctx):
         fh.seek(0)
         fh.write(data1)
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_write=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_write=1)
     await ctx.cache.drop()
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
 
-    ctx.cache.backend_pool = MockBackendPool(ctx.backend_pool, no_del=1)
+    ctx.cache.backend = MockBackend(ctx.backend, no_del=1)
     await ctx.cache.remove(inode, 1)
-    ctx.cache.backend_pool.verify()
+    ctx.cache.backend.verify()
     async with ctx.cache.get(inode, 1) as fh:
         fh.seek(0)
         assert fh.read(42) == b''
 
 
-class MockBackendPool:
-    """A mock backend pool that tracks expected call counts.
-
-    Provides the async context manager protocol matching BackendPool.__call__().
-    """
+class MockBackend:
+    """A backend wrapper that delegates to the underlying backend and tracks
+    the expected number of read/write/delete calls."""
 
     def __init__(
         self,
-        backend_pool: BackendPool,
+        backend: AsyncComprencBackend,
         no_read: int = 0,
         no_write: int = 0,
         no_del: int = 0,
@@ -483,12 +474,15 @@ class MockBackendPool:
         self.no_read = no_read
         self.no_write = no_write
         self.no_del = no_del
-        self.backend_pool = backend_pool
-        self._mock = _MockAsyncBackend(self)
+        self.backend = backend
 
     @property
-    def has_delete_multi(self) -> bool:
-        return self.backend_pool.has_delete_multi
+    def max_connections(self) -> int:
+        return self.backend.max_connections
+
+    @property
+    def max_threads(self) -> int:
+        return self.backend.max_threads
 
     def verify(self) -> None:
         if self.no_read != 0:
@@ -498,30 +492,13 @@ class MockBackendPool:
         if self.no_del != 0:
             raise RuntimeError('Got too few delete calls')
 
-    @asynccontextmanager
-    async def __call__(self) -> AsyncGenerator['_MockAsyncBackend', None]:
-        '''Provide mock async connection (async context manager)'''
-        yield self._mock
-
-
-class _MockAsyncBackend:
-    """Wraps a real async backend connection, counting operations.
-
-    Each operation acquires a connection from the pool and returns it when done,
-    matching the scoped connection semantics of BackendPool.__call__().
-    """
-
-    def __init__(self, pool: MockBackendPool) -> None:
-        self._pool = pool
-
     async def readinto_fh(
         self, key: str, fh: BinaryOutput, size_hint: int | None = None
     ) -> BasicMappingT:
-        self._pool.no_read -= 1
-        if self._pool.no_read < 0:
+        self.no_read -= 1
+        if self.no_read < 0:
             raise RuntimeError('Got too many readinto_fh calls')
-        async with self._pool.backend_pool() as conn:
-            return await conn.readinto_fh(key, fh, size_hint=size_hint)
+        return await self.backend.readinto_fh(key, fh, size_hint=size_hint)
 
     async def write_fh(
         self,
@@ -531,41 +508,34 @@ class _MockAsyncBackend:
         metadata: BasicMappingT | None = None,
         dont_compress: bool = False,
     ) -> int:
-        self._pool.no_write -= 1
-        if self._pool.no_write < 0:
+        self.no_write -= 1
+        if self.no_write < 0:
             raise RuntimeError('Got too many write_fh calls')
-        async with self._pool.backend_pool() as conn:
-            return await conn.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
+        return await self.backend.write_fh(key, fh, len_, metadata, dont_compress=dont_compress)
 
     async def delete(self, key: str) -> None:
-        self._pool.no_del -= 1
-        if self._pool.no_del < 0:
+        self.no_del -= 1
+        if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
-        async with self._pool.backend_pool() as conn:
-            return await conn.delete(key)
+        return await self.backend.delete(key)
 
-    async def delete_multi(self, keys: list[str]) -> None:
-        self._pool.no_del -= len(keys)
-        if self._pool.no_del < 0:
+    async def delete_multi(self, keys: list[str], *, log_progress: bool = False) -> None:
+        self.no_del -= len(keys)
+        if self.no_del < 0:
             raise RuntimeError('Got too many delete calls')
-        async with self._pool.backend_pool() as conn:
-            await conn.delete_multi(keys)
+        await self.backend.delete_multi(keys, log_progress=log_progress)
 
     async def lookup(self, key: str) -> object:
-        async with self._pool.backend_pool() as conn:
-            return await conn.lookup(key)
+        return await self.backend.lookup(key)
 
     async def contains(self, key: str) -> bool:
-        async with self._pool.backend_pool() as conn:
-            return await conn.contains(key)
+        return await self.backend.contains(key)
 
-    async def list(self, prefix: str = '') -> object:
-        async with self._pool.backend_pool() as conn:
-            return conn.list(prefix)
+    def list(self, prefix: str = '') -> object:
+        return self.backend.list(prefix)
 
     async def get_size(self, key: str) -> int:
-        async with self._pool.backend_pool() as conn:
-            return await conn.get_size(key)
+        return await self.backend.get_size(key)
 
 
 async def start_flush(cache, inode, block=None):

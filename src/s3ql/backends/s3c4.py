@@ -55,14 +55,11 @@ class AsyncBackend(s3c.AsyncBackend):
         '''Create a new S3-compatible (v4 signature) backend instance.'''
         self = cls(options=options, max_connections=max_connections)
         self._pool = self._make_pool()
+        await self._probe_access()
         return self
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
-
-    @property
-    def has_delete_multi(self) -> bool:
-        return True
 
     async def delete_multi(self, keys: list[str], *, log_progress: bool = False) -> None:
         log.debug('started with %s', keys)

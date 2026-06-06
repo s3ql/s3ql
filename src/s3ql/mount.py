@@ -34,9 +34,9 @@ import trio
 from s3ql.backends.comprenc import AsyncComprencBackend
 
 from . import fs
-from .backends.pool import BackendPool
+from .backends import open_backend
 from .block_cache import BlockCache
-from .common import get_backend_factory, is_mounted
+from .common import is_mounted
 from .daemonize import daemonize
 from .database import (
     Connection,
@@ -217,8 +217,8 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     # Get paths
     cachepath = options.cachepath
 
-    backend_pool = BackendPool(await get_backend_factory(options), options.max_connections)
-    (param, db) = await get_metadata(backend_pool, cachepath)
+    backend = await open_backend(options)
+    (param, db) = await get_metadata(backend, cachepath)
 
     # Handle --cachesize (all values in KiB)
     rec_cachesize = options.max_cache_entries * param.data_block_size / 2 / 1024
@@ -241,12 +241,12 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_task = MetadataUploadTask(param, backend_pool, db, options)
+    metadata_upload_task = MetadataUploadTask(param, backend, db, options)
 
     async with AsyncExitStack() as cm:
         nursery = await cm.enter_async_context(trio.open_nursery())
         block_cache = await BlockCache.create(
-            backend_pool,
+            backend,
             db,
             cachepath + '-cache',
             int(options.cachesize * 1024),
@@ -299,8 +299,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.is_mounted = True
         write_params(cachepath, param)
 
-        async with backend_pool() as backend:
-            await upload_params(backend, param)
+        await upload_params(backend, param)
 
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
@@ -367,13 +366,12 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         param.needs_fsck = True
 
     param.last_modified = time.time()
-    await upload_metadata(backend_pool, db, param)
+    await upload_metadata(backend, db, param)
     write_params(cachepath, param)
-    async with backend_pool() as backend:
-        await upload_params(backend, param)
-    await expire_objects(backend_pool)
+    await upload_params(backend, param)
+    await expire_objects(backend)
 
-    await backend_pool.flush()
+    await backend.close()
 
     log.info('All done.')
 
@@ -473,12 +471,13 @@ def determine_threads(compress: tuple[str, int] | None) -> int:
         return threads
 
 
-async def get_metadata(pool: BackendPool, cachepath: str) -> tuple[FsAttributes, Connection]:
-    '''Retrieve metadata, downloading blocks in parallel using *pool*.'''
+async def get_metadata(
+    backend: AsyncComprencBackend, cachepath: str
+) -> tuple[FsAttributes, Connection]:
+    '''Retrieve metadata, downloading blocks in parallel via *backend*.'''
 
     db = None
-    async with pool() as backend:
-        param = await read_remote_params(backend)
+    param = await read_remote_params(backend)
     local_param = read_cached_params(cachepath, min_seq=param.seq_no)
     if local_param is not None:
         if local_param.seq_no > param.seq_no:
@@ -502,7 +501,7 @@ async def get_metadata(pool: BackendPool, cachepath: str) -> tuple[FsAttributes,
     # Download metadata
     if not db:
         log.info('Downloading metadata...')
-        db = await download_metadata(pool, cachepath + '.db', param)
+        db = await download_metadata(backend, cachepath + '.db', param)
 
         # Drop cache
         if os.path.exists(cachepath + '-cache'):
@@ -703,7 +702,7 @@ class MetadataUploadTask:
     set `quit` attribute as well as `event` event.
     '''
 
-    backend_pool: BackendPool
+    backend: AsyncComprencBackend
     db: Connection
     event: trio.Event
     quit: bool
@@ -712,10 +711,14 @@ class MetadataUploadTask:
     fs: Operations | None
 
     def __init__(
-        self, params: FsAttributes, backend_pool: BackendPool, db: Connection, options: Namespace
+        self,
+        params: FsAttributes,
+        backend: AsyncComprencBackend,
+        db: Connection,
+        options: Namespace,
     ) -> None:
         super().__init__()
-        self.backend_pool = backend_pool
+        self.backend = backend
         self.db = db
         self.event = trio.Event()
         self.quit = False
@@ -743,7 +746,7 @@ class MetadataUploadTask:
             self.db.sync_checkpoint()
             for _ in range(2):
                 await upload_metadata(
-                    self.backend_pool,
+                    self.backend,
                     self.db,
                     self.params,
                     update_params=False,
@@ -757,25 +760,24 @@ class MetadataUploadTask:
             # consistent while we read it.
             async with self.db.inhibit_writes():
                 await upload_metadata(
-                    self.backend_pool,
+                    self.backend,
                     self.db,
                     self.params,
                     update_params=True,
                     incremental=True,
                 )
                 write_params(self.options.cachepath, self.params)
-                async with self.backend_pool() as backend:
-                    await upload_params(backend, self.params)
+                await upload_params(self.backend, self.params)
 
-                    # Write a new params file immediately, so that we're in the same state as right
-                    # after mounting and there is no window where we could have metadata_* objects
-                    # with a sequence number for which there is no corresponding s3ql_params_*
-                    # object.
-                    self.params.seq_no += 1
-                    write_params(self.options.cachepath, self.params)
-                    await upload_params(backend, self.params)
+                # Write a new params file immediately, so that we're in the same state as right
+                # after mounting and there is no window where we could have metadata_* objects
+                # with a sequence number for which there is no corresponding s3ql_params_*
+                # object.
+                self.params.seq_no += 1
+                write_params(self.options.cachepath, self.params)
+                await upload_params(self.backend, self.params)
 
-                await expire_objects(self.backend_pool)
+                await expire_objects(self.backend)
 
         log.debug('finished')
 

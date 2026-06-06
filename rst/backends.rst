@@ -470,4 +470,11 @@ storage url `local:///home/john/s3ql`.
 
 The local backend does not accept any backend options.
 
+For the local backend, :cmdopt:`--max-connections` bounds the number of
+concurrent disk I/O operations rather than network connections. Set it to ``1``
+when storing data on a spinning disk (where concurrent access only causes seek
+thrashing), and to a higher value on an SSD or NVMe drive that benefits from
+parallel I/O. This is independent of :cmdopt:`--max-threads`, which controls how
+many CPUs are used for compression and encryption.
+
 .. _sshfs: http://fuse.sourceforge.net/sshfs.html

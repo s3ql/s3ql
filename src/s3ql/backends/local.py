@@ -51,11 +51,15 @@ class AsyncBackend(AsyncBackendBase):
     # against the worst-case serial duration.
     request_delay: float = 0.0
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize local backend - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
         self.prefix = options.storage_url[len('local://') :].rstrip('/')
+        self._max_connections = max_connections
+        # Bound concurrent filesystem operations, mirroring the connection limit
+        # that networked backends enforce at the HTTP layer.
+        self._io_limiter = trio.CapacityLimiter(max_connections)
 
         if not os.path.exists(self.prefix):
             raise DanglingStorageURLError(self.prefix)
@@ -68,14 +72,16 @@ class AsyncBackend(AsyncBackendBase):
     ) -> AsyncBackend:
         '''Create a new local backend instance.
 
-        *max_connections* is accepted for interface uniformity but ignored:
-        the local backend never opens HTTP connections.
+        *max_connections* bounds how many filesystem operations may be in flight
+        at once. The local backend opens no network connections, but honouring
+        this limit lets callers throttle concurrent disk I/O - for example to a
+        single operation at a time on a spinning disk.
         '''
-        return cls(options=options)
+        return cls(options=options, max_connections=max_connections)
 
     @property
-    def has_delete_multi(self) -> bool:
-        return True
+    def max_connections(self) -> int:
+        return self._max_connections
 
     def __str__(self) -> str:
         return 'local directory %s' % self.prefix
@@ -100,23 +106,24 @@ class AsyncBackend(AsyncBackendBase):
         The data will be inserted at the current offset.
         '''
 
-        if self.request_delay > 0:
-            await trio.sleep(self.request_delay)
+        async with self._io_limiter:
+            if self.request_delay > 0:
+                await trio.sleep(self.request_delay)
 
-        path = self._key_to_path(key)
-        with ExitStack() as es:
-            try:
-                ifh = es.enter_context(open(path, 'rb', buffering=0))
-            except FileNotFoundError:
-                raise NoSuchObject(key)
+            path = self._key_to_path(key)
+            with ExitStack() as es:
+                try:
+                    ifh = es.enter_context(open(path, 'rb', buffering=0))
+                except FileNotFoundError:
+                    raise NoSuchObject(key)
 
-            try:
-                metadata = _read_meta(ifh)
-            except ThawError:
-                raise CorruptedObjectError('Invalid metadata')
+                try:
+                    metadata = _read_meta(ifh)
+                except ThawError:
+                    raise CorruptedObjectError('Invalid metadata')
 
-            await trio.to_thread.run_sync(copyfh, ifh, ofh)
-        return metadata
+                await trio.to_thread.run_sync(copyfh, ifh, ofh)
+            return metadata
 
     async def write_fh(
         self,
@@ -130,9 +137,6 @@ class AsyncBackend(AsyncBackendBase):
         retried. Returns the size of the resulting storage object.
         '''
 
-        if self.request_delay > 0:
-            await trio.sleep(self.request_delay)
-
         if metadata is None:
             metadata = dict()
 
@@ -141,28 +145,32 @@ class AsyncBackend(AsyncBackendBase):
         if len(buf).bit_length() > 16:
             raise ValueError('Metadata too large')
 
-        # By renaming, we make sure that there are no
-        # conflicts between parallel reads, the last one wins
-        tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
+        async with self._io_limiter:
+            if self.request_delay > 0:
+                await trio.sleep(self.request_delay)
 
-        fh.seek(0)
-        with ExitStack() as es:
-            try:
-                dest = es.enter_context(open(tmpname, 'wb', buffering=0))
-            except FileNotFoundError:
-                try:  # noqa: SIM105 # auto-added, needs manual check!
-                    os.makedirs(os.path.dirname(path))
-                except FileExistsError:
-                    # Another thread may have created the directory already
-                    pass
-                dest = es.enter_context(open(tmpname, 'wb', buffering=0))
+            # By renaming, we make sure that there are no
+            # conflicts between parallel reads, the last one wins
+            tmpname = '%s#%d-%d.tmp' % (path, os.getpid(), _thread.get_ident())
 
-            dest.write(b's3ql_1\n')
-            dest.write(struct.pack('<H', len(buf)))
-            dest.write(buf)
-            await trio.to_thread.run_sync(copyfh, fh, dest)
-            size = dest.tell()
-        os.rename(tmpname, path)
+            fh.seek(0)
+            with ExitStack() as es:
+                try:
+                    dest = es.enter_context(open(tmpname, 'wb', buffering=0))
+                except FileNotFoundError:
+                    try:  # noqa: SIM105 # auto-added, needs manual check!
+                        os.makedirs(os.path.dirname(path))
+                    except FileExistsError:
+                        # Another thread may have created the directory already
+                        pass
+                    dest = es.enter_context(open(tmpname, 'wb', buffering=0))
+
+                dest.write(b's3ql_1\n')
+                dest.write(struct.pack('<H', len(buf)))
+                dest.write(buf)
+                await trio.to_thread.run_sync(copyfh, fh, dest)
+                size = dest.tell()
+            os.rename(tmpname, path)
 
         return size
 
@@ -189,8 +197,9 @@ class AsyncBackend(AsyncBackendBase):
 
     async def delete(self, key: str) -> None:
         path = self._key_to_path(key)
-        with suppress(FileNotFoundError):
-            os.unlink(path)
+        async with self._io_limiter:
+            with suppress(FileNotFoundError):
+                os.unlink(path)
 
     async def list(self, prefix: str = '') -> AsyncIterator[str]:
         if prefix:

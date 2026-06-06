@@ -23,12 +23,10 @@ from typing import IO
 
 import trio
 
-from s3ql.types import BackendFactory
-
+from .backends import open_backend
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
-from .backends.pool import BackendPool
-from .common import ParallelPipeline, get_backend_factory, pretty_print_size, sha256_fh
+from .common import ParallelPipeline, pretty_print_size, sha256_fh
 from .database import Connection
 from .logging import delay_eval, setup_logging, setup_warnings
 from .mount import determine_threads, get_metadata
@@ -138,25 +136,24 @@ def main(args: Sequence[str] | None = None) -> None:
 
 
 async def main_async(options: argparse.Namespace) -> None:
-    backend_factory = await get_backend_factory(options)
-    backend_pool = BackendPool(backend_factory, options.max_connections)
+    backend = await open_backend(options)
     try:
         # Retrieve metadata
-        (_, db) = await get_metadata(backend_pool, options.cachepath)
+        (_, db) = await get_metadata(backend, options.cachepath)
 
         await retrieve_objects(
             db,
-            backend_factory,
+            backend,
             options.corrupted_file,
             options.missing_file,
-            worker_count=options.max_connections,
+            worker_count=options.max_connections + options.max_threads,
             full=options.data,
             offset=options.start_with,
         )
 
         db.close()
     finally:
-        await backend_pool.flush()
+        await backend.close()
 
     if options.corrupted_file.tell() or options.missing_file.tell():
         sys.exit(46)
@@ -170,16 +167,14 @@ async def main_async(options: argparse.Namespace) -> None:
 class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
     '''Parallel pipeline that fetches every object from the backend.
 
-    Each worker holds a backend connection for its full lifetime via
-    *backend_factory* (the verify path does not use a `BackendPool`). If
-    *full* is False, only object metadata is looked up; if True, the full
-    object is read and its hash is compared to the database. Corrupted
-    object keys are written into *corrupted_fh*, missing ones into
-    *missing_fh*.
+    Workers share a single *backend* instance whose connection pool caps wire concurrency. If *full*
+    is False, only object metadata is looked up; if True, the full object is read and its hash is
+    compared to the database. Corrupted object keys are written into *corrupted_fh*, missing ones
+    into *missing_fh*.
     '''
 
     db: Connection
-    backend_factory: BackendFactory
+    backend: AsyncComprencBackend
     corrupted_fh: IO[str]
     missing_fh: IO[str]
     full: bool = False
@@ -245,53 +240,52 @@ class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
             yield ObjectToVerify(obj_id=obj_id, exp_hash=hash_, exp_size=block_size)
 
     async def consume(self, jobs: AsyncIterable[ObjectToVerify]) -> None:
-        async with await self.backend_factory() as backend:
-            buf = io.BytesIO()
-            async for obj in jobs:
-                log.debug('reading object %s', obj.obj_id)
-                key = 's3ql_data_%d' % obj.obj_id
-                try:
-                    if self.full:
-                        buf.seek(0)
-                        await backend.readinto_fh(key, buf, size_hint=obj.exp_size)
-                        buf.truncate()
-                    else:
-                        await backend.lookup(key)
-                except NoSuchObject:
-                    log.warning('Backend seems to have lost object %d', obj.obj_id)
-                    print(key, file=self.missing_fh)
-                    continue
-                except CorruptedObjectError:
-                    log.warning('Object %d is corrupted', obj.obj_id)
-                    print(key, file=self.corrupted_fh)
-                    continue
+        buf = io.BytesIO()
+        async for obj in jobs:
+            log.debug('reading object %s', obj.obj_id)
+            key = 's3ql_data_%d' % obj.obj_id
+            try:
+                if self.full:
+                    buf.seek(0)
+                    await self.backend.readinto_fh(key, buf, size_hint=obj.exp_size)
+                    buf.truncate()
+                else:
+                    await self.backend.lookup(key)
+            except NoSuchObject:
+                log.warning('Backend seems to have lost object %d', obj.obj_id)
+                print(key, file=self.missing_fh)
+                continue
+            except CorruptedObjectError:
+                log.warning('Object %d is corrupted', obj.obj_id)
+                print(key, file=self.corrupted_fh)
+                continue
 
-                if not self.full:
-                    continue
+            if not self.full:
+                continue
 
-                size = buf.tell()
-                buf.seek(0)
-                hash_ = sha256_fh(buf).digest()
+            size = buf.tell()
+            buf.seek(0)
+            hash_ = sha256_fh(buf).digest()
 
-                if obj.exp_size != size:
-                    log.warning(
-                        'Object %d is corrupted (expected size %d, actual size %d)',
-                        obj.obj_id,
-                        obj.exp_size,
-                        size,
-                    )
-                    print(key, file=self.corrupted_fh)
-                    continue
+            if obj.exp_size != size:
+                log.warning(
+                    'Object %d is corrupted (expected size %d, actual size %d)',
+                    obj.obj_id,
+                    obj.exp_size,
+                    size,
+                )
+                print(key, file=self.corrupted_fh)
+                continue
 
-                if obj.exp_hash != hash_:
-                    log.warning(
-                        'Object %d is corrupted (expected hash %s, got %s)',
-                        obj.obj_id,
-                        obj.exp_hash,
-                        hash_,
-                    )
-                    print(key, file=self.corrupted_fh)
-                    continue
+            if obj.exp_hash != hash_:
+                log.warning(
+                    'Object %d is corrupted (expected hash %s, got %s)',
+                    obj.obj_id,
+                    obj.exp_hash,
+                    hash_,
+                )
+                print(key, file=self.corrupted_fh)
+                continue
 
     def finalize(self) -> None:
         log.info('Verified all %d storage objects.', self.total_count)
@@ -299,7 +293,7 @@ class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
 
 async def retrieve_objects(
     db: Connection,
-    backend_factory: BackendFactory,
+    backend: AsyncComprencBackend,
     corrupted_fh: IO[str],
     missing_fh: IO[str],
     worker_count: int = 1,
@@ -310,7 +304,7 @@ async def retrieve_objects(
 
     op = RetrieveObjects(
         db=db,
-        backend_factory=backend_factory,
+        backend=backend,
         corrupted_fh=corrupted_fh,
         missing_fh=missing_fh,
         full=full,

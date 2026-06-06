@@ -37,7 +37,6 @@ py.install_sources([
   's3ql/backends/gs.py',
   's3ql/backends/common.py',
   's3ql/backends/s3.py',
-  's3ql/backends/pool.py',
   's3ql/backends/__init__.py',
   's3ql/backends/s3c4.py',
   's3ql/backends/swiftks.py',

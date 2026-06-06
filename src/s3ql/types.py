@@ -1,10 +1,17 @@
+'''
+types.py - this file is part of S3QL.
+
+Copyright © 2026 Nikolaus Rath <Nikolaus@rath.org>
+
+This work can be distributed under the terms of the GNU GPLv3.
+'''
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from s3ql.backends.common import AsyncBackend
-    from s3ql.backends.comprenc import AsyncComprencBackend
 
 
 class HashFunction(Protocol):
@@ -36,14 +43,6 @@ class CompressorProtocol(Protocol):
 # Type aliases
 ElementaryT = int | float | str | bytes | complex | bool | None
 BasicMappingT = dict[str, ElementaryT]
-
-
-class BackendFactory(Protocol):
-    """Protocol for backend factory functions."""
-
-    async def __call__(self) -> AsyncComprencBackend: ...
-
-    has_delete_multi: bool
 
 
 class BackendOptionsProtocol(Protocol):

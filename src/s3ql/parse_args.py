@@ -262,7 +262,10 @@ class ArgumentParser(argparse.ArgumentParser):
             type=int,
             default=default,
             metavar='<no>',
-            help='Number of parallel backend connections to use (default: %(default)d).',
+            help='Maximum number of concurrent backend I/O operations (default: %(default)d). '
+            'This is independent of --max-threads, which governs compression. For the local '
+            'backend it bounds concurrent disk I/O: use 1 on a spinning disk and a higher value '
+            'on an SSD/NVMe drive.',
         )
 
     def add_max_threads(self) -> None:
@@ -271,7 +274,8 @@ class ArgumentParser(argparse.ArgumentParser):
             type=int,
             default=None,
             metavar='<no>',
-            help='Number of parallel compression/encryption threads to use (default: auto).',
+            help='Number of parallel compression/encryption threads to use (default: auto). '
+            'This bounds CPU parallelism only and is independent of --max-connections.',
         )
 
     def add_subparsers(self, **kw) -> argparse._SubParsersAction[argparse.ArgumentParser]:

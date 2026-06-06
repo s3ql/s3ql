@@ -265,12 +265,6 @@ class AsyncBackend(metaclass=ABCMeta):
         return False
 
     @property
-    def has_delete_multi(self) -> bool:
-        '''True if the backend supports `delete_multi`.'''
-
-        return False
-
-    @property
     def max_connections(self) -> int:
         '''Upper bound on simultaneous wire-level requests supported by the backend.
 

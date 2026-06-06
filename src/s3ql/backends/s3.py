@@ -54,9 +54,16 @@ class AsyncBackend(s3c4.AsyncBackend):
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new Amazon S3 backend instance.'''
+
         self = cls(options=options, max_connections=max_connections)
         await self._discover_region()
         self._pool = self._make_pool()
+
+        # `_probe_access` runs against the endpoint resolved by `_discover_region`. The latter
+        # already verifies the endpoint, but its HEAD request cannot yield the typed
+        # authentication errors that the listing in `_probe_access` produces.
+        await self._probe_access()
+
         return self
 
     async def _discover_region(self) -> None:

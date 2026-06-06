@@ -39,12 +39,10 @@ from s3ql.database import (
 from s3ql.mount import determine_threads, get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
+from .backends import open_backend, open_raw_backend
 from .backends.common import AsyncBackend, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
-from .backends.pool import BackendPool
 from .common import (
-    async_get_backend,
-    get_backend_factory,
     is_mounted,
     pretty_print_size,
     thaw_basic_mapping,
@@ -146,33 +144,33 @@ def main(args: Sequence[str] | None = None) -> None:
 
 async def main_async(options: argparse.Namespace) -> None:
     if options.action == 'clear':
-        await clear(options)
+        async with await open_raw_backend(options) as backend:
+            await clear(backend, options)
         return
 
     if options.action == 'recover-key':
-        async with await async_get_backend(options, raw=True) as backend:
+        async with await open_raw_backend(options) as backend:
             await recover(backend, options)
         return
 
-    pool = BackendPool(await get_backend_factory(options), options.max_connections)
+    backend = await open_backend(options)
     try:
         if options.action == 'passphrase':
-            async with pool() as backend:
-                await change_passphrase(backend)
+            await change_passphrase(backend)
 
         elif options.action == 'restore-metadata':
-            await restore_metadata_cmd(pool, options)
+            await restore_metadata_cmd(backend, options)
 
         elif options.action == 'upgrade':
-            await upgrade(pool, options)
+            await upgrade(backend, options)
 
         elif options.action == 'shrink-db':
-            await shrink_db(pool, options)
+            await shrink_db(backend, options)
 
         else:
             raise QuietError('Unknown action: %s' % options.action)
     finally:
-        await pool.flush()
+        await backend.close()
 
 
 async def change_passphrase(backend: AsyncComprencBackend) -> None:
@@ -236,59 +234,51 @@ async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
     await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
-async def clear(options: argparse.Namespace) -> None:
-    async with await async_get_backend(options, raw=True) as backend:
-        print(
-            'I am about to DELETE ALL DATA in %s.' % backend,
-            'This includes not just S3QL file systems but *all* stored objects.',
-            'Depending on the storage service, it may be necessary to run this command',
-            'several times to delete all data, and it may take a while until the ',
-            'removal becomes effective.',
-            'Please enter "yes" to continue.',
-            '> ',
-            sep='\n',
-            end='',
-        )
-        sys.stdout.flush()
+async def clear(backend: AsyncBackend, options: argparse.Namespace) -> None:
+    print(
+        'I am about to DELETE ALL DATA in %s.' % backend,
+        'This includes not just S3QL file systems but *all* stored objects.',
+        'Depending on the storage service, it may be necessary to run this command',
+        'several times to delete all data, and it may take a while until the ',
+        'removal becomes effective.',
+        'Please enter "yes" to continue.',
+        '> ',
+        sep='\n',
+        end='',
+    )
+    sys.stdout.flush()
 
-        if sys.stdin.readline().strip().lower() != 'yes':
-            raise QuietError()
+    if sys.stdin.readline().strip().lower() != 'yes':
+        raise QuietError()
 
-        log.info('Deleting in batches...')
-        for suffix in ('.db', '.params'):
-            name = options.cachepath + suffix
-            if os.path.exists(name):
-                os.unlink(name)
-
-        name = options.cachepath + '-cache'
+    log.info('Deleting in batches...')
+    for suffix in ('.db', '.params'):
+        name = options.cachepath + suffix
         if os.path.exists(name):
-            shutil.rmtree(name)
+            os.unlink(name)
 
-        # Raw factory: skip the auth probe and comprenc wrapping that
-        # `get_backend_factory` would otherwise apply, since `clear` must
-        # address every object regardless of S3QL ownership. The listing
-        # iterator is held by *backend* outside the pool, so all
-        # `max_connections` pool slots remain available for deletion.
-        async def raw_factory() -> AsyncBackend:
-            return await options.backend_class.create(options)
+    name = options.cachepath + '-cache'
+    if os.path.exists(name):
+        shutil.rmtree(name)
 
-        raw_factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
-        pool = BackendPool(raw_factory, options.max_connections)  # type: ignore[arg-type]
-        try:
-            batch: list[str] = []
-            total = 0
-            async for key in backend.list():
-                batch.append(key)
-                if len(batch) >= 1000:
-                    await pool.delete_multi(batch, log_progress=True)
-                    total += len(batch)
-                    batch.clear()
+    batch: list[str] = []
+    total = 0
+    async for key in backend.list():
+        batch.append(key)
+        if len(batch) >= 1000:
+            count = len(batch)
+            await backend.delete_multi(batch, log_progress=True)
             if batch:
-                await pool.delete_multi(batch, log_progress=True)
-                total += len(batch)
-        finally:
-            await pool.flush()
-        log.info('Deleted %d objects total.', total)
+                raise RuntimeError(f'Failed to delete {len(batch)} objects')
+            total += count
+            batch.clear()
+    if batch:
+        count = len(batch)
+        await backend.delete_multi(batch, log_progress=True)
+        if batch:
+            raise RuntimeError(f'Failed to delete {len(batch)} objects')
+        total += count
+    log.info('Deleted %d objects total.', total)
 
 
 def get_old_rev_msg(rev: int, prog: str) -> str:
@@ -306,16 +296,15 @@ def get_old_rev_msg(rev: int, prog: str) -> str:
     )
 
 
-async def shrink_db(pool: BackendPool, options) -> None:
+async def shrink_db(backend: AsyncComprencBackend, options) -> None:
     '''Run VACUUM on SQLite database file'''
 
     cachepath = options.cachepath
-    (param, db) = await get_metadata(pool, cachepath)
+    (param, db) = await get_metadata(backend, cachepath)
     param.seq_no += 1
     param.is_mounted = True
     write_params(cachepath, param)
-    async with pool() as backend:
-        await upload_params(backend, param)
+    await upload_params(backend, param)
 
     old_size = os.path.getsize(db.file)
     db.execute('VACUUM')
@@ -330,14 +319,13 @@ async def shrink_db(pool: BackendPool, options) -> None:
 
     param.is_mounted = False
     param.last_modified = time.time()
-    await upload_metadata(pool, db, param)
+    await upload_metadata(backend, db, param)
     write_params(cachepath, param)
-    async with pool() as backend:
-        await upload_params(backend, param)
-    await expire_objects(pool)
+    await upload_params(backend, param)
+    await expire_objects(backend)
 
 
-async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:
+async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
     '''Upgrade file system to newest revision'''
 
     params_path = options.cachepath + '.params'
@@ -351,17 +339,16 @@ async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:
 
     with open(params_path, 'rb') as fh:
         local_params: BasicMappingT = thaw_basic_mapping(fh.read())
-    async with pool() as backend:
-        try:
-            remote_params = await backend.lookup('s3ql_metadata')
+    try:
+        remote_params = await backend.lookup('s3ql_metadata')
 
-        # Filesystem may have been updated already
-        except NoSuchObject:
-            remote_params_typed = await read_remote_params(backend)
-            remote_params = {
-                'seq_no': remote_params_typed.seq_no,
-                'revision': remote_params_typed.revision,
-            }
+    # Filesystem may have been updated already
+    except NoSuchObject:
+        remote_params_typed = await read_remote_params(backend)
+        remote_params = {
+            'seq_no': remote_params_typed.seq_no,
+            'revision': remote_params_typed.revision,
+        }
 
     local_seq_no = local_params['seq_no']
     remote_seq_no = remote_params['seq_no']
@@ -446,67 +433,65 @@ async def upgrade(pool: BackendPool, options: argparse.Namespace) -> None:
     params.last_modified = time.time()
     params.seq_no += 1
 
-    await upload_metadata(pool, db, params, incremental=False)
+    await upload_metadata(backend, db, params, incremental=False)
     write_params(options.cachepath, params)
-    async with pool() as backend:
-        await upload_params(backend, params)
+    await upload_params(backend, params)
 
-        # Re-upload the old metadata object to make sure that we don't accidentally
-        # re-mount the filesystem with an older S3QL version.
-        log.info('Backing up old metadata...')
-        local_params['revision'] = CURRENT_FS_REV
-        local_params['seq_no'] = local_seq_no + 1
-        with tempfile.TemporaryFile() as tmpfh:
-            await backend.readinto_fh('s3ql_metadata', tmpfh)
-            len_ = tmpfh.tell()
-            tmpfh.seek(0)
-            await backend.write_fh(
-                "s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True
-            )
+    # Re-upload the old metadata object to make sure that we don't accidentally
+    # re-mount the filesystem with an older S3QL version.
+    log.info('Backing up old metadata...')
+    local_params['revision'] = CURRENT_FS_REV
+    local_params['seq_no'] = local_seq_no + 1
+    with tempfile.TemporaryFile() as tmpfh:
+        await backend.readinto_fh('s3ql_metadata', tmpfh)
+        len_ = tmpfh.tell()
+        tmpfh.seek(0)
+        await backend.write_fh(
+            "s3ql_metadata", tmpfh, len_, metadata=local_params, dont_compress=True
+        )
 
     print('File system upgrade complete.')
 
 
-async def restore_metadata_cmd(pool: BackendPool, options: argparse.Namespace) -> None:
-    async with pool() as backend:
-        backups = sorted(await get_available_seq_nos(backend))
+async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
+    backups = sorted(await get_available_seq_nos(backend))
 
-        if not backups:
-            raise QuietError('No metadata backups found.')
+    if not backups:
+        raise QuietError('No metadata backups found.')
 
-        print('The following backups are available:')
-        print('Idx    Seq No: Last Modified:')
-        for i, backup_seq_no in enumerate(backups):
-            # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
-            # filesystem revisions.
-            d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % backup_seq_no))[0])
-            if d['revision'] != CURRENT_FS_REV:
-                print(f'{i:3d} {backup_seq_no:010x} (unsupported revision)')
-                continue
-            params = FsAttributes(**d)  # type: ignore[arg-type]
-            assert params.seq_no == backup_seq_no
-            date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
-            print(f'{i:3d} {backup_seq_no:010x} {date}')
+    print('The following backups are available:')
+    print('Idx    Seq No: Last Modified:')
+    for i, backup_seq_no in enumerate(backups):
+        # De-serialize directly instead of using read_remote_params() to avoid exceptions on old
+        # filesystem revisions.
+        d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % backup_seq_no))[0])
+        if d['revision'] != CURRENT_FS_REV:
+            print(f'{i:3d} {backup_seq_no:010x} (unsupported revision)')
+            continue
+        params = FsAttributes(**d)  # type: ignore[arg-type]
+        assert params.seq_no == backup_seq_no
+        date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
+        print(f'{i:3d} {backup_seq_no:010x} {date}')
 
-        print(
-            'Restoring a metadata backup will almost always result in partial data loss and',
-            'should only be done if the filesystem metadata has been corruped beyond repair.',
-            sep='\n',
-        )
+    print(
+        'Restoring a metadata backup will almost always result in partial data loss and',
+        'should only be done if the filesystem metadata has been corruped beyond repair.',
+        sep='\n',
+    )
 
-        seq_no: int | None = None
-        while seq_no is None:
-            buf = input('Enter index to revert to: ')
-            try:
-                seq_no = backups[int(buf.strip())]
-            except (ValueError, IndexError):
-                print('Invalid selection.')
+    seq_no: int | None = None
+    while seq_no is None:
+        buf = input('Enter index to revert to: ')
+        try:
+            seq_no = backups[int(buf.strip())]
+        except (ValueError, IndexError):
+            print('Invalid selection.')
 
-        params = await read_remote_params(backend, seq_no=seq_no)
+    params = await read_remote_params(backend, seq_no=seq_no)
 
     log.info('Downloading metadata...')
     conn = await download_metadata(
-        pool,
+        backend,
         options.cachepath + ".db",
         params,
     )

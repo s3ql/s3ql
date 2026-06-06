@@ -36,15 +36,6 @@ async def backend():
     storage_url = 'local://' + backend_dir
     plain_backend = local.AsyncBackend(options=Namespace(storage_url=storage_url))
     backend = await AsyncComprencBackend.create(b'schnorz', ('zlib', 6), plain_backend)
-
-    # Factory creates independent AsyncComprencBackend instances sharing the same
-    # storage directory — each can be closed independently by _retrieve_loop.
-    async def factory():
-        raw = local.AsyncBackend(options=Namespace(storage_url=storage_url))
-        return await AsyncComprencBackend.create(b'schnorz', ('zlib', 6), raw)
-
-    factory.has_delete_multi = True  # type: ignore[attr-defined]
-    backend.test_factory = factory  # type: ignore[attr-defined]
     try:
         yield backend
     finally:
@@ -84,7 +75,7 @@ async def test_missing(backend, db, full):
     corrupted_fh = io.StringIO()
     with assert_logs('^Backend seems to have lost', count=1, level=logging.WARNING):
         await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+            db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
         )
     assert missing_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[missing_idx]
     assert corrupted_fh.getvalue() == ''
@@ -126,7 +117,7 @@ async def test_corrupted_head(backend, db, full):
     corrupted_fh = io.StringIO()
     with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
         await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+            db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
         )
     assert missing_fh.getvalue() == ''
     assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[1]
@@ -158,14 +149,14 @@ async def test_corrupted_body(backend, db, full):
     if full:
         with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
             await verify.retrieve_objects(
-                db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+                db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
             )
             assert missing_fh.getvalue() == ''
             assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[corrupted_idx]
     else:
         # Should not show up when looking just at HEAD
         await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+            db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == ''
@@ -188,14 +179,14 @@ async def test_truncated_body(backend, db, full):
     if full:
         with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
             await verify.retrieve_objects(
-                db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+                db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
             )
             assert missing_fh.getvalue() == ''
             assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % id_
     else:
         # Should not show up when looking just at HEAD
         await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=full
+            db, backend, corrupted_fh, missing_fh, worker_count=1, full=full
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == ''
@@ -220,7 +211,7 @@ async def test_corrupted_hash(backend, db):
 
     with assert_logs('^Object %d is corrupted', count=1, level=logging.WARNING):
         await verify.retrieve_objects(
-            db, backend.test_factory, corrupted_fh, missing_fh, worker_count=1, full=True
+            db, backend, corrupted_fh, missing_fh, worker_count=1, full=True
         )
         assert missing_fh.getvalue() == ''
         assert corrupted_fh.getvalue() == 's3ql_data_%d\n' % obj_ids[corrupted_idx]

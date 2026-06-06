@@ -26,9 +26,9 @@ from typing import Any, BinaryIO
 import trio
 
 from s3ql import BUFSIZE
+from s3ql.backends import open_raw_backend
 from s3ql.backends.common import DanglingStorageURLError
 from s3ql.backends.comprenc import AsyncComprencBackend
-from s3ql.common import async_get_backend
 from s3ql.logging import QuietError, setup_logging, setup_warnings
 from s3ql.parse_args import ArgumentParser
 
@@ -180,7 +180,7 @@ async def main_async(options: argparse.Namespace) -> None:
     # on the network layer
     log.info('Measuring raw backend throughput..')
     try:
-        backend = await async_get_backend(options, raw=True)
+        backend = await open_raw_backend(options)
     except DanglingStorageURLError as exc:
         raise QuietError(str(exc)) from None
 

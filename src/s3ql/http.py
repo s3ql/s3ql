@@ -987,9 +987,12 @@ class Pool:
     *max_connections*; sequential borrows reuse the same connection whenever
     the server's keep-alive state allows.
 
-    Acquire a connection with `get`, which is an async context manager. The
-    connection is returned to the pool on normal exit and dropped on
-    exception or if its protocol state is no longer keep-alive-clean.
+    Acquire a connection with `get`, which is an async context manager. On
+    exit the connection is returned to the pool if its h11 state is still
+    IDLE on both sides (response body fully drained, server has not signalled
+    close); otherwise it is closed. This check applies regardless of whether
+    an exception was raised — draining the response body before raising is
+    therefore sufficient to keep a connection alive on the error path.
     '''
 
     def __init__(

@@ -29,7 +29,6 @@ from t2_block_cache import random_data
 from s3ql import sqlite3ext
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
-from s3ql.backends.pool import BackendPool
 from s3ql.database import (
     METADATA_OBJ_NAME,
     Connection,
@@ -116,16 +115,6 @@ async def backend():
         yield await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
 
-def _pool_for(backend: AsyncComprencBackend, max_connections: int = 4) -> BackendPool:
-    '''Wrap a single backend instance in a BackendPool for use with download_metadata.'''
-
-    async def factory() -> AsyncComprencBackend:
-        return backend
-
-    factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
-    return BackendPool(factory, max_connections=max_connections)  # type: ignore[arg-type]
-
-
 @pytest.mark.parametrize("incremental", (True, False))
 async def test_upload_download(backend, incremental):
     sqlite3ext.reset()
@@ -135,7 +124,6 @@ async def test_upload_download(backend, incremental):
         data_block_size=BLOCKSIZE,
         seq_no=1,
     )
-    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -143,18 +131,18 @@ async def test_upload_download(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        await upload_metadata(pool, db, params, incremental)
+        await upload_metadata(backend, db, params, incremental)
 
         # Shrink database
         db.execute('DELETE FROM foo WHERE id >= ?', (rows // 2,))
         db.execute('VACUUM')
         db.sync_checkpoint()
-        await upload_metadata(pool, db, params, incremental)
+        await upload_metadata(backend, db, params, incremental)
 
         db.close()
 
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(pool, tmpfh2.name, params)
+            await download_metadata(backend, tmpfh2.name, params)
 
             tmpfh.seek(0)
             tmpfh2.seek(0)
@@ -196,7 +184,6 @@ async def test_versioning(backend):
     )
 
     versions = []
-    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -205,7 +192,7 @@ async def test_versioning(backend):
 
         async def upload():
             db.sync_checkpoint()
-            await upload_metadata(pool, db, params)
+            await upload_metadata(backend, db, params)
             tmpfh.seek(0)
             versions.append((params.copy(), tmpfh.read()))
             params.seq_no += 1
@@ -232,7 +219,7 @@ async def test_versioning(backend):
 
     for params, ref_db in versions:
         with tempfile.NamedTemporaryFile() as tmpfh2:
-            await download_metadata(pool, tmpfh2.name, params)
+            await download_metadata(backend, tmpfh2.name, params)
             assert tmpfh2.read() == ref_db
 
     # Make sure that we did not store a full copy of every version
@@ -272,7 +259,7 @@ async def _test_expiration(
         )
         await upload_params(backend, params)
 
-    await expire_objects(_pool_for(backend), versions_to_keep=versions_to_keep)
+    await expire_objects(backend, versions_to_keep=versions_to_keep)
 
     expected_objects = set()
     for blockno, versions in enumerate(contents_post):
@@ -418,7 +405,6 @@ async def test_download_shorter(backend, incremental):
         data_block_size=BLOCKSIZE,
         seq_no=1,
     )
-    pool = _pool_for(backend)
     with tempfile.NamedTemporaryFile() as tmpfh:
         db = Connection(tmpfh.name, BLOCKSIZE)
         db.execute("CREATE TABLE foo (id INT, data BLOB);")
@@ -426,7 +412,7 @@ async def test_download_shorter(backend, incremental):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
         db.sync_checkpoint()
-        await upload_metadata(pool, db, params, incremental)
+        await upload_metadata(backend, db, params, incremental)
         old_params = params.copy()
         params.seq_no += 1
 
@@ -434,24 +420,23 @@ async def test_download_shorter(backend, incremental):
         for i in range(2, 6):
             db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
         db.sync_checkpoint()
-        await upload_metadata(pool, db, params)
+        await upload_metadata(backend, db, params)
         db.close()
 
     with tempfile.NamedTemporaryFile() as tmpfh:
-        await download_metadata(pool, tmpfh.name, old_params)
+        await download_metadata(backend, tmpfh.name, old_params)
 
 
 async def test_download_metadata_parallel_correctness():
     '''Download metadata with multiple workers and verify byte-identical output.
 
     This test exercises the parallel download path that the regular tests
-    leave uncovered: a real BackendPool with several connections, multiple
-    workers writing to the same destination file at distinct offsets. The
-    backend is configured with an artificial per-request delay, so a
-    serial implementation would take at least `nblocks * delay` to finish,
-    while a parallel one finishes in roughly `delay * nblocks / nworkers`.
-    The test asserts the wall-clock duration is well below the serial
-    bound.
+    leave uncovered: workers writing to the same destination file at distinct
+    offsets via a backend whose `max_connections` is greater than one. The
+    backend is configured with an artificial per-request delay, so a serial
+    implementation would take at least `nblocks * delay` to finish, while a
+    parallel one finishes in roughly `delay * nblocks / nworkers`. The test
+    asserts the wall-clock duration is well below the serial bound.
     '''
 
     sqlite3ext.reset()
@@ -465,13 +450,10 @@ async def test_download_metadata_parallel_correctness():
     workers = 4
 
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
-
-        async def factory() -> AsyncComprencBackend:
-            raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
-            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
-
-        factory.has_delete_multi = True  # type: ignore[attr-defined]
-        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
+        raw = local.AsyncBackend(
+            options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
+        )
+        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
         with tempfile.NamedTemporaryFile() as src_fh:
             db = Connection(src_fh.name, BLOCKSIZE)
@@ -480,7 +462,7 @@ async def test_download_metadata_parallel_correctness():
                 db.execute("INSERT INTO foo VALUES(?, ?)", (i, DUMMY_DATA))
 
             db.sync_checkpoint()
-            await upload_metadata(pool, db, params, incremental=False)
+            await upload_metadata(backend, db, params, incremental=False)
             db.close()
 
             nblocks = math.ceil(params.db_size / BLOCKSIZE)
@@ -490,7 +472,7 @@ async def test_download_metadata_parallel_correctness():
             try:
                 with tempfile.NamedTemporaryFile() as dst_fh:
                     start = time.monotonic()
-                    await download_metadata(pool, dst_fh.name, params)
+                    await download_metadata(backend, dst_fh.name, params)
                     elapsed = time.monotonic() - start
                     src_fh.seek(0)
                     dst_fh.seek(0)
@@ -526,13 +508,10 @@ async def test_upload_metadata_parallel_correctness(incremental):
     workers = 4
 
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
-
-        async def factory() -> AsyncComprencBackend:
-            raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
-            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
-
-        factory.has_delete_multi = True  # type: ignore[attr-defined]
-        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
+        raw = local.AsyncBackend(
+            options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
+        )
+        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
         with tempfile.NamedTemporaryFile() as src_fh:
             db = Connection(src_fh.name, BLOCKSIZE)
@@ -548,7 +527,7 @@ async def test_upload_metadata_parallel_correctness(incremental):
             local.AsyncBackend.request_delay = delay
             try:
                 start = time.monotonic()
-                await upload_metadata(pool, db, params, incremental=incremental)
+                await upload_metadata(backend, db, params, incremental=incremental)
                 elapsed = time.monotonic() - start
             finally:
                 local.AsyncBackend.request_delay = 0.0
@@ -556,7 +535,7 @@ async def test_upload_metadata_parallel_correctness(incremental):
             db.close()
 
             with tempfile.NamedTemporaryFile() as dst_fh:
-                await download_metadata(pool, dst_fh.name, params)
+                await download_metadata(backend, dst_fh.name, params)
                 src_fh.seek(0)
                 dst_fh.seek(0)
                 assert src_fh.read() == dst_fh.read()
@@ -567,14 +546,21 @@ async def test_upload_metadata_parallel_correctness(incremental):
             assert elapsed < nblocks * delay * 0.6
 
 
-async def test_pool_delete_multi_parallel_fallback():
-    '''When the backend has no native delete_multi, the pool fans single
-    deletes out across its connections.
+async def test_delete_multi_parallel_fallback():
+    '''When the backend lacks native delete_multi, `delete_multi` fans single
+    deletes out across `backend.max_connections` concurrent tasks.
 
-    Verifies the contract documented on `BackendPool.delete_multi` and the
-    base `delete_multi`: deleted keys are removed from the input list, and
-    on a worker exception the failed key is left in the list.
+    Verifies the contract documented on the base `delete_multi`: deleted keys
+    are removed from the input list, and on a worker exception the failed key
+    is left in the list.
     '''
+
+    class _NoDeleteMulti(local.AsyncBackend):
+        '''Override delete_multi to bypass the local backend's implementation and exercise
+        the base-class parallel fallback.'''
+
+        async def delete_multi(self, keys: list[str], *, log_progress: bool = False) -> None:
+            await super(local.AsyncBackend, self).delete_multi(keys, log_progress=log_progress)
 
     n_keys = 32
     workers = 4
@@ -582,32 +568,23 @@ async def test_pool_delete_multi_parallel_fallback():
     failing_key = keys[7]
 
     with tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir:
+        raw = _NoDeleteMulti(
+            options=Namespace(storage_url='local://' + backend_dir), max_connections=workers
+        )
+        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
 
-        async def factory() -> AsyncComprencBackend:
-            raw = local.AsyncBackend(options=Namespace(storage_url='local://' + backend_dir))
-            return await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
-
-        # Lie about has_delete_multi so the pool exercises the parallel
-        # ParallelPipeline-based fallback rather than the local backend's
-        # native (sequential) implementation.
-        factory.has_delete_multi = False  # type: ignore[attr-defined]
-        pool = BackendPool(factory, max_connections=workers)  # type: ignore[arg-type]
-
-        async with pool() as backend:
-            for key in keys:
-                await backend.store(key, b'data')
+        for key in keys:
+            await backend.store(key, b'data')
 
         # Happy path: all keys deleted, input list emptied.
         keys_arg = list(keys)
-        await pool.delete_multi(keys_arg)
+        await backend.delete_multi(keys_arg)
         assert keys_arg == []
-        async with pool() as backend:
-            assert [obj async for obj in backend.list('s3ql_data_')] == []
+        assert [obj async for obj in backend.list('s3ql_data_')] == []
 
         # Re-populate the backend so we can exercise the failure path.
-        async with pool() as backend:
-            for key in keys:
-                await backend.store(key, b'data')
+        for key in keys:
+            await backend.store(key, b'data')
 
         # Partial-failure path: one delete raises. Stash the original method
         # back after the test so subsequent tests are not affected.
@@ -622,7 +599,7 @@ async def test_pool_delete_multi_parallel_fallback():
         keys_arg = list(keys)
         raised: BaseException | None = None
         try:
-            await pool.delete_multi(keys_arg)
+            await backend.delete_multi(keys_arg)
         except BaseException as exc:
             raised = exc
         finally:

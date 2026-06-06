@@ -24,7 +24,6 @@ import trio
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .backends import s3
 from .backends.comprenc import AsyncComprencBackend
-from .backends.pool import BackendPool
 from .common import split_by_n, time_ns
 from .database import (
     Connection,
@@ -160,7 +159,9 @@ def main(args: Sequence[str] | None = None) -> None:
 
 
 async def main_async(options: argparse.Namespace) -> None:
-    async with await options.backend_class.create(options) as plain_backend:
+    async with await options.backend_class.create(
+        options, max_connections=options.max_connections
+    ) as plain_backend:
         await main_inner(options, plain_backend)
 
 
@@ -232,20 +233,13 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     init_tables(db)
     db.close()
 
-    async def factory() -> AsyncComprencBackend:
-        async_plain = await options.backend_class.create(options)
-        return await AsyncComprencBackend.create(data_pw, ('lzma', 2), async_plain)
-
-    factory.has_delete_multi = plain_backend.has_delete_multi  # type: ignore[attr-defined]
-    pool = BackendPool(factory, options.max_connections)  # type: ignore[arg-type]
-    try:
-        log.info('Uploading metadata...')
-        await upload_metadata(pool, db, param)
-        write_params(cachepath, param)
-        async with pool() as backend:
-            await upload_params(backend, param)
-    finally:
-        await pool.flush()
+    backend = await AsyncComprencBackend.create(data_pw, ('lzma', 2), plain_backend)
+    log.info('Uploading metadata...')
+    await upload_metadata(backend, db, param)
+    write_params(cachepath, param)
+    await upload_params(backend, param)
+    # *backend* wraps *plain_backend*; its close() would also close
+    # *plain_backend*. The outer `async with` does that, so leave it alone.
 
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')

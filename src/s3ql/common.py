@@ -20,22 +20,18 @@ import time
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from collections.abc import AsyncIterable, Callable, Iterable, Iterator, Sequence, Sized
-from getpass import getpass
-from typing import TYPE_CHECKING, Generic, Literal, NewType, TypeVar, overload
+from typing import TYPE_CHECKING, Generic, NewType, TypeVar, overload
 
 import pyfuse3
 import trio
 from pyfuse3 import InodeT
 
-from s3ql.http import HostnameNotResolvable
-from s3ql.types import BackendFactory, BasicMappingT, BinaryInput, BinaryOutput, HashFunction
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput, HashFunction
 
 from . import BUFSIZE, CTRL_NAME, ROOT_INODE
 from .logging import QuietError
 
 if TYPE_CHECKING:
-    from .backends.common import AsyncBackend
-    from .backends.comprenc import AsyncComprencBackend
     from .database import Connection
 
 log = logging.getLogger(__name__)
@@ -225,125 +221,6 @@ def assert_s3ql_mountpoint(mountpoint: str) -> str:
         raise QuietError('%s is not a mount point' % mountpoint)
 
     return ctrlfile
-
-
-@overload
-async def async_get_backend(options, raw: Literal[True]) -> AsyncBackend: ...
-
-
-@overload
-async def async_get_backend(options, raw: Literal[False] = ...) -> AsyncComprencBackend: ...
-
-
-async def async_get_backend(options, raw: bool = False) -> AsyncComprencBackend | AsyncBackend:
-    '''Return async backend for given storage-url
-
-    If *raw* is true, don't attempt to unlock and don't wrap into
-    AsyncComprencBackend.
-    '''
-
-    if raw:
-        return await options.backend_class.create(options)
-
-    factory = await get_backend_factory(options)
-    return await factory()
-
-
-async def get_backend_factory(options) -> BackendFactory:
-    '''Return factory producing backend objects'''
-
-    from .backends.common import (
-        AuthenticationError,
-        AuthorizationError,
-        CorruptedObjectError,
-        DanglingStorageURLError,
-        NoSuchObject,
-    )
-    from .backends.comprenc import AsyncComprencBackend as AsyncComprencBackendCls
-
-    backend: AsyncBackend | None = None
-    try:
-        try:
-            backend = await options.backend_class.create(options)
-
-            # Do not use backend.lookup(), this would use a HEAD request and
-            # not provide any useful error messages if something goes wrong
-            # (e.g. wrong credentials)
-            await backend.fetch('s3ql_passphrase')
-
-        except AuthenticationError:
-            raise QuietError('Invalid credentials (or skewed system clock?).', exitcode=14)
-
-        except AuthorizationError:
-            raise QuietError('No permission to access backend.', exitcode=15)
-
-        except HostnameNotResolvable:
-            raise QuietError("Can't connect to backend: unable to resolve hostname", exitcode=19)
-
-        except DanglingStorageURLError as exc:
-            raise QuietError(str(exc), exitcode=16)
-
-        except CorruptedObjectError:
-            raise QuietError(
-                'File system revision needs upgrade (or backend data is corrupted)', exitcode=32
-            )
-
-        except NoSuchObject:
-            encrypted = False
-        else:
-            encrypted = True
-    except:
-        if backend is not None:
-            await backend.close()
-        raise
-
-    if encrypted and not hasattr(options, 'fs_passphrase'):
-        if sys.stdin.isatty():
-            fs_passphrase: str | None = getpass("Enter file system encryption passphrase: ")
-        else:
-            fs_passphrase = sys.stdin.readline().rstrip()
-    elif not encrypted:
-        fs_passphrase = None
-    else:
-        fs_passphrase = options.fs_passphrase
-
-    fs_passphrase_bytes: bytes | None
-    if fs_passphrase is not None:
-        fs_passphrase_bytes = fs_passphrase.encode('utf-8')
-    else:
-        fs_passphrase_bytes = None
-    options.fs_passphrase = fs_passphrase_bytes
-
-    compress = getattr(options, 'compress', ('lzma', 2))
-
-    assert backend is not None
-    async with await AsyncComprencBackendCls.create(
-        fs_passphrase_bytes, compress, backend
-    ) as tmp_backend:
-        if encrypted:
-            try:
-                data_pw = (await tmp_backend.fetch('s3ql_passphrase'))[0]
-            except CorruptedObjectError:
-                raise QuietError(
-                    'Wrong file system passphrase (or file system '
-                    'revision needs upgrade, or backend data is corrupted).',
-                    exitcode=17,
-                )
-        else:
-            data_pw = None
-            # Allow for old versions, since this function is also used during upgrades
-            if not (
-                await backend.contains('s3ql_params') or await backend.contains('s3ql_metadata')
-            ):
-                raise QuietError('No S3QL file system found at given storage URL.', exitcode=18)
-
-    async def factory() -> AsyncComprencBackend:
-        async_plain = await options.backend_class.create(options)
-        return await AsyncComprencBackendCls.create(data_pw, compress, async_plain)
-
-    factory.has_delete_multi = backend.has_delete_multi  # type: ignore[attr-defined]
-
-    return factory  # type: ignore[return-value]
 
 
 def pretty_print_size(bytes_: int) -> str:

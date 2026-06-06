@@ -131,7 +131,16 @@ class AsyncBackend(AsyncBackendBase):
         '''Create a new S3-compatible backend instance.'''
         self = cls(options=options, max_connections=max_connections)
         self._pool = self._make_pool()
+        await self._probe_access()
         return self
+
+    async def _probe_access(self) -> None:
+        '''Issue a minimal request to validate credentials and bucket access.'''
+
+        # A listing is the lightest operation that exercises these without assuming that an S3QL
+        # file system is present.
+
+        await self._list_page(self.prefix, batch_size=1)
 
     @staticmethod
     def _parse_storage_url(

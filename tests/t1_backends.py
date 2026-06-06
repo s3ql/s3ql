@@ -473,9 +473,6 @@ async def test_delete_b2_versions(backend):
 @pytest.mark.trio
 @pytest.mark.with_backend('*/aes')
 async def test_delete_multi(backend):
-    if not backend.has_delete_multi:
-        pytest.skip('backend does not support delete_multi')
-
     keys = [newname() for _ in range(10)]
     value = newvalue()
 

@@ -748,10 +748,6 @@ class AsyncBackend(AsyncBackendBase):
 
         raise HTTPError(error_code, error_msg)
 
-    @property
-    def has_delete_multi(self):
-        return self.features.has_bulk_delete
-
     async def delete_multi(self, keys, *, log_progress=False):
         log.debug('started with %s', keys)
 

@@ -154,12 +154,20 @@ class AsyncComprencBackend(AsyncBackend):
             raise ValueError(f'Unsupported compression: {compression}')
 
     @property
-    def has_delete_multi(self) -> bool:
-        return self.backend.has_delete_multi
-
-    @property
     def max_connections(self) -> int:
         return self.backend.max_connections
+
+    @property
+    def max_threads(self) -> int:
+        '''Upper bound on concurrent compression/encryption threads.
+
+        This is independent of `max_connections` (which bounds backend I/O):
+        compression parallelism scales with the configured CPU budget. Callers
+        that drive both compression and I/O size their worker pool from the sum
+        of the two.
+        '''
+
+        return self._max_threads
 
     async def lookup(self, key: str) -> BasicMappingT:
         meta_raw = await self.backend.lookup(key)

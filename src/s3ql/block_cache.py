@@ -35,7 +35,7 @@ RemovalChannelSend = trio.MemorySendChannel[int]
 RemovalChannelRecv = trio.MemoryReceiveChannel[int]
 
 if TYPE_CHECKING:
-    from .backends.pool import BackendPool
+    from .backends.comprenc import AsyncComprencBackend
     from .database import Connection
 
 # standard logger for this module
@@ -199,13 +199,13 @@ class BlockCache:
     :_remove_send: channel to distribute removal work to worker tasks
     :transfer_completed: signals completion of an object upload
     :db: Handle to SQL DB
-    :backend_pool: BackendPool instance
+    :backend: Shared backend instance
     :nursery: Trio nursery that owns the worker tasks
     """
 
     path: str
     db: Connection
-    backend_pool: BackendPool
+    backend: AsyncComprencBackend
     cache: CacheDict
     block_lock: MultiLock[tuple[InodeT, int]]
     in_flight_uploads: dict[int, trio.Event]
@@ -219,7 +219,7 @@ class BlockCache:
 
     def __init__(
         self,
-        backend_pool: BackendPool,
+        backend: AsyncComprencBackend,
         db: Connection,
         cachedir: str,
         max_size: int,
@@ -231,7 +231,7 @@ class BlockCache:
 
         self.path = cachedir
         self.db = db
-        self.backend_pool = backend_pool
+        self.backend = backend
         self.cache = CacheDict(max_size, max_entries)
         self.block_lock = MultiLock()
         self.in_flight_uploads = {}
@@ -249,7 +249,7 @@ class BlockCache:
     @classmethod
     async def create(
         cls,
-        backend_pool: BackendPool,
+        backend: AsyncComprencBackend,
         db: Connection,
         cachedir: str,
         max_size: int,
@@ -266,7 +266,7 @@ class BlockCache:
         remove_send, remove_recv = trio.open_memory_channel[int](1000)
 
         instance = cls(
-            backend_pool,
+            backend,
             db,
             cachedir,
             max_size,
@@ -275,22 +275,20 @@ class BlockCache:
             remove_send=remove_send,
         )
 
-        task_count = backend_pool.max_connections
+        # Uploads compress before writing, so size their pool to keep both the
+        # compression threads (max_threads) and the backend I/O (max_connections)
+        # busy. A single removal task suffices because delete_multi() handles its
+        # own internal concurrency (up to max_connections workers).
+        upload_task_count = backend.max_connections + backend.max_threads
 
         # Each worker receives its own clone of the receive channel. When a worker exits (normally
         # or due to a bug), its clone is closed. Once all clones are closed, subsequent sends raise
         # `trio.BrokenResourceError` instead of blocking forever — preventing deadlocks when all
         # workers have died.
-        removal_task = (
-            instance._removal_task_multi
-            if backend_pool.has_delete_multi
-            else instance._removal_task_simple
-        )
-        for _ in range(task_count):
-            nursery.start_soon(removal_task, remove_recv.clone())
+        nursery.start_soon(instance._removal_task, remove_recv.clone())
         await remove_recv.aclose()
 
-        for _ in range(task_count):
+        for _ in range(upload_task_count):
             nursery.start_soon(instance._upload_task, upload_recv.clone())
         await upload_recv.aclose()
 
@@ -369,16 +367,15 @@ class BlockCache:
 
         success = False
         try:
-            async with self.backend_pool() as backend:
-                el.seek(0)
-                if log.isEnabledFor(logging.DEBUG):
-                    time_ = time.time()
-                    obj_size = await backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
-                    time_ = time.time() - time_
-                    rate = el.size / (1024**2 * time_) if time_ != 0 else 0
-                    log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
-                else:
-                    obj_size = await backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
+            el.seek(0)
+            if log.isEnabledFor(logging.DEBUG):
+                time_ = time.time()
+                obj_size = await self.backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
+                time_ = time.time() - time_
+                rate = el.size / (1024**2 * time_) if time_ != 0 else 0
+                log.debug('uploaded %d bytes in %.3f seconds, %.2f MiB/s', el.size, time_, rate)
+            else:
+                obj_size = await self.backend.write_fh('s3ql_data_%d' % obj_id, el, el.size)
             success = True
         finally:
             self._unmark_in_transit(el)
@@ -576,7 +573,7 @@ class BlockCache:
 
         return self._in_transit_count > 0
 
-    async def _removal_task_multi(self, recv: RemovalChannelRecv) -> None:
+    async def _removal_task(self, recv: RemovalChannelRecv) -> None:
         '''Process removal queue using batch deletes, as a Trio task.
 
         Reads as many IDs as possible without blocking after the first
@@ -598,32 +595,15 @@ class BlockCache:
 
                     log.debug('removing: %s', ids)
                     try:
-                        await self.backend_pool.delete_multi(['s3ql_data_%d' % i for i in ids])
+                        await self.backend.delete_multi(['s3ql_data_%d' % i for i in ids])
                     except NoSuchObject:
-                        log.warning('Backend lost object s3ql_data_%d', ids[0])
+                        log.warning('Backend lost object(s), ids %d..%d', ids[0], ids[-1])
                         self.fs.failsafe = True
                     ids = []
             except trio.EndOfChannel:
                 pass
 
-        log.debug('removal task (multi) exiting')
-
-    async def _removal_task_simple(self, recv: RemovalChannelRecv) -> None:
-        '''Process removal queue one object at a time, as a Trio task.'''
-
-        async with recv:
-            try:
-                async for obj_id in recv:
-                    log.debug('removing object %d', obj_id)
-                    async with self.backend_pool() as backend:
-                        try:
-                            await backend.delete('s3ql_data_%d' % obj_id)
-                        except NoSuchObject:
-                            log.warning('Backend lost object s3ql_data_%d', obj_id)
-                            self.fs.failsafe = True
-            except trio.EndOfChannel:
-                pass
-        log.debug('removal task (simple) exiting')
+        log.debug('removal task exiting')
 
     @asynccontextmanager
     async def get(
@@ -733,8 +713,7 @@ class BlockCache:
                     if (event := self.in_flight_uploads.get(obj_id)) is not None:
                         await event.wait()
 
-                    async with self.backend_pool() as backend:
-                        await backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
+                    await self.backend.readinto_fh('s3ql_data_%d' % obj_id, tmpfh, size_hint=size)
 
                     # Flushing here is not sufficient, we also need fsync before we can rename.
                     # Otherwise, if the computer crashes at the wrong time, we end up with corrupted

@@ -32,7 +32,6 @@ from t2_block_cache import DummyRemovalChannel, DummyUploadChannel
 from s3ql import ROOT_INODE, fs
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
-from s3ql.backends.pool import BackendPool
 from s3ql.block_cache import BlockCache
 from s3ql.database import Connection, FsAttributes, create_tables
 from s3ql.fsck import Fsck
@@ -74,14 +73,10 @@ async def ctx(tmp_path):
     ctx.backend_dir = tmp_path / 'backend'
     ctx.backend_dir.mkdir()
 
-    async def factory():
-        plain = await local.AsyncBackend.create(
-            Namespace(storage_url='local://' + str(ctx.backend_dir))
-        )
-        return await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
-
-    factory.has_delete_multi = True
-    ctx.backend_pool = BackendPool(factory, max_connections=10)
+    plain = await local.AsyncBackend.create(
+        Namespace(storage_url='local://' + str(ctx.backend_dir))
+    )
+    ctx.backend = await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
 
     ctx.cachedir = tmp_path / 'cache'
     ctx.cachedir.mkdir()
@@ -94,7 +89,7 @@ async def ctx(tmp_path):
     init_tables(ctx.db)
 
     cache = BlockCache(
-        ctx.backend_pool,
+        ctx.backend,
         ctx.db,
         str(ctx.cachedir),
         ctx.max_obj_size * 5,
@@ -127,18 +122,17 @@ def random_data(len_):
 async def fsck(ctx):
     await ctx.cache.drop()
     ctx.server.inodes.flush()
-    async with ctx.backend_pool() as backend:
-        fsck = Fsck(
-            str(ctx.cachedir),
-            backend,
-            FsAttributes(
-                data_block_size=ctx.max_obj_size,
-                metadata_block_size=ctx.max_obj_size,
-            ),
-            ctx.db,
-        )
-        await fsck.check()
-        assert not fsck.found_errors
+    fsck = Fsck(
+        str(ctx.cachedir),
+        ctx.backend,
+        FsAttributes(
+            data_block_size=ctx.max_obj_size,
+            metadata_block_size=ctx.max_obj_size,
+        ),
+        ctx.db,
+    )
+    await fsck.check()
+    assert not fsck.found_errors
 
 
 def newname(ctx):
