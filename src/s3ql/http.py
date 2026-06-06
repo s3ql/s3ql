@@ -20,7 +20,8 @@ import logging
 import os
 import socket
 import ssl
-from collections.abc import Callable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterator, Callable, Mapping, MutableMapping, Sequence
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from http.client import HTTP_PORT, HTTPS_PORT
 from io import BytesIO, UnsupportedOperation
@@ -862,6 +863,16 @@ class HTTPConnection:
             trio.lowlevel.spawn_system_task(_aclose_stream, self._stream)
             self._stream = None
 
+    @property
+    def is_idle(self) -> bool:
+        '''True if the connection is connected and in a keep-alive-clean state.'''
+        return (
+            self._stream is not None
+            and self._h11 is not None
+            and self._h11.our_state is h11.IDLE
+            and self._h11.their_state is h11.IDLE
+        )
+
     async def __aenter__(self) -> HTTPConnection:
         return self
 
@@ -966,3 +977,89 @@ class CaseInsensitiveDict(MutableMapping):
 
     def __repr__(self):
         return str(dict(self.items()))
+
+
+class Pool:
+    '''Pool of `HTTPConnection` instances bound to one origin.
+
+    All connections share the same hostname, port, TLS configuration, proxy,
+    and per-operation timeout. Concurrent borrows are capped by
+    *max_connections*; sequential borrows reuse the same connection whenever
+    the server's keep-alive state allows.
+
+    Acquire a connection with `get`, which is an async context manager. The
+    connection is returned to the pool on normal exit and dropped on
+    exception or if its protocol state is no longer keep-alive-clean.
+    '''
+
+    def __init__(
+        self,
+        hostname: str,
+        port: Optional[int] = None,
+        *,
+        ssl_context: Optional[ssl.SSLContext] = None,
+        proxy: Optional[tuple[str, int]] = None,
+        max_connections: int = 1,
+        timeout: float | int | None = None,
+    ) -> None:
+        self.hostname = hostname
+        self.port = port if port is not None else (HTTPS_PORT if ssl_context else HTTP_PORT)
+        self.ssl_context = ssl_context
+        self.proxy = proxy
+        self.max_connections = max_connections
+        self.timeout = _DEFAULT_TIMEOUT_S if timeout is None else float(timeout)
+        self._idle: list[HTTPConnection] = []
+        self._limiter = trio.CapacityLimiter(max_connections)
+        self._closed = False
+
+    async def _pop_conn(self) -> HTTPConnection:
+        '''Return an idle conn that is keep-alive-clean, or a fresh one.'''
+        while self._idle:
+            conn = self._idle.pop()
+            if conn.is_idle:
+                return conn
+            await conn.aclose()
+
+        conn = HTTPConnection(
+            self.hostname, self.port, ssl_context=self.ssl_context, proxy=self.proxy
+        )
+        conn.timeout = self.timeout
+        return conn
+
+    @asynccontextmanager
+    async def get(self) -> AsyncIterator[HTTPConnection]:
+        '''Yield a borrowed `HTTPConnection` for the duration of the block.
+
+        On exit (normal or exception) the connection is returned to the pool
+        if its h11 state is still IDLE on both sides — i.e. the response body
+        has been fully drained and the server has not signalled close.
+        Otherwise it is reset. Draining the body before raising is therefore
+        sufficient to keep the connection alive even on the error path; a
+        request that raises mid-cycle naturally fails the IDLE check.
+        '''
+        if self._closed:
+            raise StateError('Pool is closed')
+        async with self._limiter:
+            conn = await self._pop_conn()
+            try:
+                yield conn
+            finally:
+                if not self._closed and conn.is_idle:
+                    self._idle.append(conn)
+                else:
+                    await conn.aclose()
+
+    async def aclose(self) -> None:
+        '''Close all idle connections and refuse further `get` calls.'''
+        self._closed = True
+        idle = self._idle
+        self._idle = []
+        for conn in idle:
+            await conn.aclose()
+
+    async def __aenter__(self) -> Pool:
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_value: object, traceback: object) -> bool:
+        await self.aclose()
+        return False

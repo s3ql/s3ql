@@ -38,18 +38,24 @@ class AsyncBackend(s3c.AsyncBackend):
 
     known_options = s3c.AsyncBackend.known_options | {'sig-region'}
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         sig_region = options.backend_options.get('sig-region', 'us-east-1')
         assert isinstance(sig_region, str)
         self.sig_region = sig_region
         self.signing_key: tuple[bytes, str] | None = None
-        super().__init__(options=options)
+        super().__init__(options=options, max_connections=max_connections)
 
     @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
+    async def create(
+        cls: type['AsyncBackend'],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> 'AsyncBackend':
         '''Create a new S3-compatible (v4 signature) backend instance.'''
-        return cls(options=options)
+        self = cls(options=options, max_connections=max_connections)
+        self._pool = self._make_pool()
+        return self
 
     def __str__(self):
         return 's3c4://%s/%s/%s' % (self.hostname, self.bucket_name, self.prefix)
@@ -81,46 +87,49 @@ class AsyncBackend(s3c.AsyncBackend):
             }
         )
 
-        resp = await self._do_request('POST', '/', subres='delete', body=[body], headers=headers)
-        try:
-            root = await self._parse_xml_response(resp)
-            ns_p = self.xml_ns_prefix
+        async with self._pool.get() as conn:
+            resp = await self._do_request(
+                conn, 'POST', '/', subres='delete', body=[body], headers=headers
+            )
+            try:
+                root = await self._parse_xml_response(conn, resp)
+                ns_p = self.xml_ns_prefix
 
-            error_tags = root.findall(ns_p + 'Error')
-            if not error_tags:
-                del keys[:]
-                return
+                error_tags = root.findall(ns_p + 'Error')
+                if not error_tags:
+                    del keys[:]
+                    return
 
-            offset = len(self.prefix)
-            for tag in root.findall(ns_p + 'Deleted'):
-                key_elem = tag.find(ns_p + 'Key')
-                assert key_elem is not None
-                fullkey = key_elem.text
-                assert fullkey is not None and fullkey.startswith(self.prefix)
-                keys.remove(fullkey[offset:])
+                offset = len(self.prefix)
+                for tag in root.findall(ns_p + 'Deleted'):
+                    key_elem = tag.find(ns_p + 'Key')
+                    assert key_elem is not None
+                    fullkey = key_elem.text
+                    assert fullkey is not None and fullkey.startswith(self.prefix)
+                    keys.remove(fullkey[offset:])
 
-            if log.isEnabledFor(logging.DEBUG):
-                for errtag in error_tags:
-                    errkey_text = errtag.findtext(ns_p + 'Key')
-                    log.debug(
-                        'Delete %s failed with %s',
-                        errkey_text[offset:] if errkey_text else None,
-                        errtag.findtext(ns_p + 'Code'),
-                    )
+                if log.isEnabledFor(logging.DEBUG):
+                    for errtag in error_tags:
+                        errkey_text = errtag.findtext(ns_p + 'Key')
+                        log.debug(
+                            'Delete %s failed with %s',
+                            errkey_text[offset:] if errkey_text else None,
+                            errtag.findtext(ns_p + 'Code'),
+                        )
 
-            errcode = error_tags[0].findtext(ns_p + 'Code')
-            errmsg = error_tags[0].findtext(ns_p + 'Message')
-            errkey_text = error_tags[0].findtext(ns_p + 'Key')
-            errkey = errkey_text[offset:] if errkey_text else '<unknown>'
+                errcode = error_tags[0].findtext(ns_p + 'Code')
+                errmsg = error_tags[0].findtext(ns_p + 'Message')
+                errkey_text = error_tags[0].findtext(ns_p + 'Key')
+                errkey = errkey_text[offset:] if errkey_text else '<unknown>'
 
-            if errcode == 'NoSuchKey':
-                pass
-            else:
-                raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
+                if errcode == 'NoSuchKey':
+                    pass
+                else:
+                    raise get_S3Error(errcode, 'Error deleting %s: %s' % (errkey, errmsg))
 
-        except:
-            await self.conn.discard()
-            raise
+            except:
+                await conn.discard()
+                raise
 
     def _authorize_request(self, method, path, headers, subres, query_string):
         '''Add authorization information to *headers*'''

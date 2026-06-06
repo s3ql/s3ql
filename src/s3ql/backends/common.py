@@ -478,6 +478,23 @@ class CorruptedObjectError(Exception):
         return self.str
 
 
+class ServerResponseError(Exception):
+    '''Raised if the server response cannot be parsed or is otherwise unexpected.
+
+    For HTTP errors (i.e., non 2xx response codes), backends raise more
+    specific exceptions instead (such as `HTTPError` or `RequestError`),
+    since in that case the response body cannot be expected to have any
+    specific format.
+    '''
+
+    def __init__(self, resp: HTTPResponse, error: str) -> None:
+        self.resp = resp
+        self.error = error
+
+    def __str__(self) -> str:
+        return '<ServerResponseError: %s>' % self.error
+
+
 def get_ssl_context(path: str | None) -> ssl.SSLContext:
     '''Construct SSLContext object'''
 
@@ -636,7 +653,7 @@ async def dump_response(
 
 
 async def assert_empty_response(conn: HTTPConnection, resp: HTTPResponse) -> None:
-    '''Read *conn* and raise `RuntimeError` if the response body is not empty.
+    '''Read *conn* and raise `ServerResponseError` if the response body is not empty.
 
     Used by backends after operations (DELETE, PUT, HEAD) where the
     server should not return any payload. The body, if any, is consumed
@@ -655,4 +672,4 @@ async def assert_empty_response(conn: HTTPConnection, resp: HTTPResponse) -> Non
         '\n'.join('%s: %s' % x for x in resp.headers.items()),
         buf,
     )
-    raise RuntimeError('Unexpected server response')
+    raise ServerResponseError(resp, error='expected empty response')

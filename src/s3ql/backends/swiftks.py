@@ -19,6 +19,7 @@ from ..logging import QuietError
 from . import swift
 from .common import AuthorizationError, DanglingStorageURLError, retry
 from .s3c import HTTPError
+from .swift import _AuthResult
 
 log = logging.getLogger(__name__)
 
@@ -34,18 +35,10 @@ class AsyncBackend(swift.AsyncBackend):
         'identity-url',
     }
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize swiftks backend - use AsyncBackend.create() instead.'''
         self.region = None
-        super().__init__(options=options)
-
-    @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
-        '''Create a new Swift Keystone backend instance with eager authentication.'''
-        backend = cls(options=options)
-        backend.conn = await backend._get_conn()
-        await backend._container_exists()
-        return backend
+        super().__init__(options=options, max_connections=max_connections)
 
     def _parse_storage_url(self, storage_url, ssl_context):
         hit = re.match(
@@ -78,8 +71,12 @@ class AsyncBackend(swift.AsyncBackend):
         self.region = region
 
     @retry
-    async def _get_conn(self):
-        '''Obtain connection to server and authentication token'''
+    async def _authenticate(self) -> _AuthResult:
+        '''Authenticate against Keystone and return the storage endpoint.
+
+        Returns an `_AuthResult` describing the storage endpoint and the auth
+        token to use for subsequent requests.
+        '''
 
         log.debug('started')
 
@@ -177,10 +174,10 @@ class AsyncBackend(swift.AsyncBackend):
             cat = json.loads((await conn.readall()).decode('utf-8'))
 
             if domain:
-                self.auth_token = resp.headers['X-Subject-Token']
+                token = resp.headers['X-Subject-Token']
                 service_catalog = cat['token']['catalog']
             else:
-                self.auth_token = cat['access']['token']['id']
+                token = cat['access']['token']['id']
                 service_catalog = cat['access']['serviceCatalog']
 
         avail_regions = []
@@ -204,7 +201,6 @@ class AsyncBackend(swift.AsyncBackend):
 
                     o = urlsplit(endpoint['url'])
 
-                self.auth_prefix = urllib.parse.unquote(o.path)
                 if o.scheme == 'https':
                     ssl_context = self.ssl_context
                 elif o.scheme == 'http':
@@ -213,11 +209,14 @@ class AsyncBackend(swift.AsyncBackend):
                     # fall through to scheme used for authentication
                     pass
 
-                await self._detect_features(o.hostname, o.port, ssl_context)
-
-                conn = HTTPConnection(o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context)
-                conn.timeout = int(self.options.get('tcp-timeout', 20))
-                return conn
+                assert o.hostname is not None
+                return _AuthResult(
+                    storage_host=o.hostname,
+                    storage_port=o.port,
+                    ssl_context=ssl_context,
+                    token=token,
+                    prefix=urllib.parse.unquote(o.path),
+                )
 
         if len(avail_regions) < 10:
             raise DanglingStorageURLError(

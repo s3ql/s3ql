@@ -1101,10 +1101,6 @@ async def test_conn_abort(backend, monkeypatch):
     with pytest.raises(ConnectionClosed):
         await backend.fetch(key)
 
-    # Since we have disabled retry on failure, the connection is not automatically
-    # reset after the error.
-    backend.backend.conn.reset()
-
     enable_temp_fail(backend)
     assert (await backend.fetch(key))[0] == data
 

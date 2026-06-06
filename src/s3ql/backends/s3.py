@@ -13,7 +13,7 @@ import re
 import ssl
 from urllib.parse import urlsplit
 
-from s3ql.http import CaseInsensitiveDict
+from s3ql.http import CaseInsensitiveDict, HTTPConnection
 from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
@@ -40,26 +40,31 @@ class AsyncBackend(s3c4.AsyncBackend):
     }
     region: str
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         self.region = ''
-        super().__init__(options=options)
+        super().__init__(options=options, max_connections=max_connections)
         self._set_storage_options(self._extra_put_headers)
         self.sig_region = self.region
 
     @classmethod
-    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+    async def create(
+        cls: type[AsyncBackend],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> AsyncBackend:
         '''Create a new Amazon S3 backend instance.'''
-        self = cls(options=options)
+        self = cls(options=options, max_connections=max_connections)
         await self._discover_region()
+        self._pool = self._make_pool()
         return self
 
     async def _discover_region(self) -> None:
         '''Probe the configured endpoint; retarget if redirected, error on wrong region.
 
-        Issues a single HEAD request via `_do_request_inner` (bypassing the normal
-        request path) to verify that *self.hostname* is the correct S3 endpoint for
-        the bucket.  Three outcomes are possible:
+        Issues a single HEAD request on a one-off `HTTPConnection` to verify
+        that *self.hostname* is the correct S3 endpoint for the bucket. Four
+        outcomes are possible:
 
         - 2xx: already at the right endpoint, return immediately.
         - 3xx with a `Location` header (302/307, DNS propagation window): follow the
@@ -69,21 +74,21 @@ class AsyncBackend(s3c4.AsyncBackend):
           `QuietError` telling the user to correct the region in the storage URL.
         - 4xx/5xx: surface as a typed exception via `_parse_error_response`.
         '''
-        resp = await self._do_request_inner('HEAD', '/', headers=CaseInsensitiveDict())
-        actual_region = resp.headers.get('x-amz-bucket-region')
-        location = resp.headers.get('Location')
+        async with HTTPConnection(
+            self.hostname, self.port, proxy=self.proxy, ssl_context=self.ssl_context
+        ) as conn:
+            conn.timeout = int(self.options.get('tcp-timeout', 20))
+            resp = await self._do_request_inner(conn, 'HEAD', '/', headers=CaseInsensitiveDict())
+            actual_region = resp.headers.get('x-amz-bucket-region')
+            location = resp.headers.get('Location')
 
-        if not (300 <= resp.status <= 399):
-            if 200 <= resp.status <= 299:
-                await self.conn.discard()
-                return
-            # 4xx/5xx: _parse_error_response raises; HEAD has no body so it
-            # raises HTTPError directly without trying to read one.
-            await self._parse_error_response(resp)
-            raise AssertionError('unreachable')
-
-        # 3xx: discard any body before raising or retargeting.
-        await self.conn.discard()
+            if not (300 <= resp.status <= 399):
+                if 200 <= resp.status <= 299:
+                    return
+                # 4xx/5xx: _parse_error_response raises; HEAD has no body so it
+                # raises HTTPError directly without trying to read one.
+                await self._parse_error_response(conn, resp)
+                raise AssertionError('unreachable')
 
         if not location:
             # AWS path-style wrong-region 301 deliberately omits Location so
@@ -103,8 +108,6 @@ class AsyncBackend(s3c4.AsyncBackend):
             self.region = actual_region
             self.sig_region = actual_region
             self.signing_key = None
-        await self.conn.aclose()
-        self.conn = self._get_conn()
         log.info('Redirected to S3 endpoint %s', self.hostname)
 
     def _parse_storage_url(

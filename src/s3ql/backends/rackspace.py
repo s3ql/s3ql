@@ -9,8 +9,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 import logging
 import re
 
-from s3ql.types import BackendOptionsProtocol
-
 from ..logging import QuietError
 from . import swiftks
 
@@ -19,14 +17,6 @@ log = logging.getLogger(__name__)
 
 class AsyncBackend(swiftks.AsyncBackend):
     """A backend to store data in Rackspace CloudFiles"""
-
-    @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
-        '''Create a new Rackspace backend instance with eager authentication.'''
-        backend = cls(options=options)
-        backend.conn = await backend._get_conn()
-        await backend._container_exists()
-        return backend
 
     def _parse_storage_url(self, storage_url, ssl_context):
         hit = re.match(

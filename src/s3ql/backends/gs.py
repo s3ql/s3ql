@@ -30,6 +30,7 @@ from s3ql.http import (
     CaseInsensitiveDict,
     HTTPConnection,
     HTTPResponse,
+    Pool,
     fh_size,
     is_temp_network_error,
 )
@@ -44,6 +45,8 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
+    ServerResponseError,
+    assert_empty_response,
     get_proxy,
     get_ssl_context,
     retry,
@@ -53,22 +56,6 @@ from .common import (
 )
 
 log = logging.getLogger(__name__)
-
-
-class ServerResponseError(Exception):
-    '''Raised if the server response cannot be parsed.
-
-    For HTTP errors (i.e., non 2xx response codes), RequestError should
-    always be used instead (since in that case the response body can
-    not be expected to have any specific format).
-    '''
-
-    def __init__(self, resp: HTTPResponse, error: str) -> None:
-        self.resp = resp
-        self.error = error
-
-    def __str__(self) -> str:
-        return '<ServerResponseError: %s>' % self.error
 
 
 class RequestError(Exception):
@@ -204,15 +191,22 @@ class AsyncBackend(AsyncBackendBase):
     port: int
     bucket_name: str
     prefix: str
-    conn: HTTPConnection
+    _pool: Pool
 
     @classmethod
-    async def create(cls, options: BackendOptionsProtocol) -> AsyncBackend:
-        backend = cls(_FACTORY_SENTINEL, options)
+    async def create(
+        cls, options: BackendOptionsProtocol, max_connections: int = 1
+    ) -> AsyncBackend:
+        backend = cls(_FACTORY_SENTINEL, options, max_connections)
         await backend._check_bucket()
         return backend
 
-    def __init__(self, _sentinel: object, options: BackendOptionsProtocol) -> None:
+    def __init__(
+        self,
+        _sentinel: object,
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> None:
         if _sentinel is not _FACTORY_SENTINEL:
             raise TypeError("Use 'await AsyncBackend.create(...)' instead of direct instantiation")
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
@@ -269,7 +263,8 @@ class AsyncBackend(AsyncBackendBase):
             self.prefix = hit.group(2) or ''
             self.port = 443
 
-        self.conn = self._get_conn()
+        self._max_connections = max_connections
+        self._pool = self._make_pool()
 
     @retry
     async def _check_bucket(self) -> None:
@@ -277,7 +272,9 @@ class AsyncBackend(AsyncBackendBase):
 
         path = '/storage/v1/b/' + urllib.parse.quote(self.bucket_name, safe='')
         try:
-            resp = await self._do_request('GET', path)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'GET', path)
+                _parse_json_response(resp, await conn.readall())
         except RequestError as exc:
             if exc.code == 404:
                 raise DanglingStorageURLError("Bucket '%s' does not exist" % self.bucket_name)
@@ -285,21 +282,22 @@ class AsyncBackend(AsyncBackendBase):
             if mapped_exc:
                 raise mapped_exc
             raise
-        _parse_json_response(resp, await self.conn.readall())
 
-    def _get_conn(self) -> HTTPConnection:
-        '''Return connection to server'''
+    def _make_pool(self) -> Pool:
+        '''Return a fresh connection pool for the current host/port.'''
 
-        conn = HTTPConnection(
-            self.hostname, self.port, proxy=self.proxy, ssl_context=self.ssl_context
+        return Pool(
+            self.hostname,
+            self.port,
+            proxy=self.proxy,
+            ssl_context=self.ssl_context,
+            max_connections=self._max_connections,
+            timeout=int(self.options.get('tcp-timeout', 20)),
         )
-        conn.timeout = int(self.options.get('tcp-timeout', 20))
-        return conn
 
     def is_temp_failure(self, exc: BaseException) -> bool:
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We probably can't use the connection anymore
-            self.conn.reset()
+            # The pool drops the affected connection automatically.
             return True
 
         elif isinstance(exc, RequestError) and (500 <= exc.code <= 599 or exc.code == 408):
@@ -316,16 +314,6 @@ class AsyncBackend(AsyncBackendBase):
 
         return isinstance(exc, g_auth.exceptions.TransportError)
 
-    async def _assert_empty_response(self, resp: HTTPResponse) -> None:
-        '''Assert that current response body is empty'''
-
-        buf = await self.conn.read()
-        if not buf:
-            return  # expected
-
-        log.warning('Expected empty response body, but got data - this is odd.')
-        raise ServerResponseError(resp, error='expected empty response')
-
     @retry
     async def delete(self, key: str) -> None:
         log.debug('started with %s', key)
@@ -334,8 +322,9 @@ class AsyncBackend(AsyncBackendBase):
             urllib.parse.quote(self.prefix + key, safe=''),
         )
         try:
-            resp = await self._do_request('DELETE', path)
-            await self._assert_empty_response(resp)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'DELETE', path)
+                await assert_empty_response(conn, resp)
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
             if isinstance(mapped_exc, NoSuchObject):
@@ -371,13 +360,14 @@ class AsyncBackend(AsyncBackendBase):
         path = '/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
 
         try:
-            resp = await self._do_request('GET', path, query_string=query_string)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'GET', path, query_string=query_string)
+                json_resp = _parse_json_response(resp, await conn.readall())
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, None)
             if mapped_exc:
                 raise mapped_exc
             raise
-        json_resp = _parse_json_response(resp, await self.conn.readall())
         next_token_obj = json_resp.get('nextPageToken', None)
         next_token: str | None = str(next_token_obj) if next_token_obj is not None else None
 
@@ -400,13 +390,14 @@ class AsyncBackend(AsyncBackendBase):
             urllib.parse.quote(self.prefix + key, safe=''),
         )
         try:
-            resp = await self._do_request('GET', path)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'GET', path)
+                return _parse_json_response(resp, await conn.readall())
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
             if mapped_exc:
                 raise mapped_exc
             raise
-        return _parse_json_response(resp, await self.conn.readall())
 
     @retry
     async def get_size(self, key: str) -> int:
@@ -432,14 +423,14 @@ class AsyncBackend(AsyncBackendBase):
             urllib.parse.quote(self.prefix + key, safe=''),
         )
         try:
-            await self._do_request('GET', path, query_string={'alt': 'media'})
+            async with self._pool.get() as conn:
+                await self._do_request(conn, 'GET', path, query_string={'alt': 'media'})
+                await conn.readinto_fh(fh)
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
             if mapped_exc:
                 raise mapped_exc
             raise
-
-        await self.conn.readinto_fh(fh)
 
         return metadata
 
@@ -487,26 +478,26 @@ class AsyncBackend(AsyncBackendBase):
         path = '/upload/storage/v1/b/%s/o' % (urllib.parse.quote(self.bucket_name, safe=''),)
         query_string = {'uploadType': 'multipart'}
         try:
-            resp = await self._do_request(
-                'POST',
-                path,
-                query_string=query_string,
-                headers=headers,
-                body=[body_prefix, fh, body_suffix],
-            )
+            async with self._pool.get() as conn:
+                resp = await self._do_request(
+                    conn,
+                    'POST',
+                    path,
+                    query_string=query_string,
+                    headers=headers,
+                    body=[body_prefix, fh, body_suffix],
+                )
+                _parse_json_response(resp, await conn.readall())
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
             if mapped_exc:
                 raise mapped_exc
             raise
 
-        _parse_json_response(resp, await self.conn.readall())
-
         return size
 
     async def close(self) -> None:
-        if self.conn is not None:
-            await self.conn.aclose()
+        await self._pool.aclose()
 
     def __str__(self) -> str:
         return '<gs.Backend, name=%s, prefix=%s>' % (self.bucket_name, self.prefix)
@@ -612,13 +603,14 @@ class AsyncBackend(AsyncBackendBase):
 
     async def _do_request(
         self,
+        conn: HTTPConnection,
         method: str,
         path: str,
         query_string: dict[str, str] | None = None,
         headers: CaseInsensitiveDict | None = None,
         body: BodyT = (),
     ) -> HTTPResponse:
-        '''Send a single authorized request and return the response.
+        '''Send a single authorized request on *conn* and return the response.
 
         Acquires a bearer token (refreshing proactively when close to
         expiry) and sends exactly one request. On 2xx the response body
@@ -637,14 +629,14 @@ class AsyncBackend(AsyncBackendBase):
             path += '?%s' % s
 
         headers['Authorization'] = 'Bearer ' + await self._ensure_token()
-        resp = await self.conn.send_request(method, path, headers=headers, body=body)
+        resp = await conn.send_request(method, path, headers=headers, body=body)
 
         if 200 <= resp.status <= 299:
             return resp
         if resp.status == 401:
-            await self.conn.discard()
+            await conn.discard()
             raise AccessTokenExpired()
-        raise _parse_error_response(resp, await self.conn.readall())
+        raise _parse_error_response(resp, await conn.readall())
 
 
 def _map_request_error(exc: RequestError, key: str | None) -> Exception | None:

@@ -16,6 +16,8 @@ import urllib.parse
 from ast import literal_eval
 from base64 import b64decode, b64encode
 from collections.abc import AsyncIterator, Sequence
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from itertools import count
 from typing import Any, Optional
 from urllib.parse import quote, unquote, urlsplit
@@ -24,6 +26,7 @@ from s3ql.http import (
     CaseInsensitiveDict,
     HTTPConnection,
     HTTPResponse,
+    Pool,
     fh_size,
     is_temp_network_error,
 )
@@ -36,6 +39,7 @@ from .common import (
     CorruptedObjectError,
     DanglingStorageURLError,
     NoSuchObject,
+    ServerResponseError,
     assert_empty_response,
     checksum_basic_mapping,
     dump_response,
@@ -55,6 +59,22 @@ log = logging.getLogger(__name__)
 TEMP_SUFFIX = '_tmp$oentuhuo23986konteuh1062$'
 
 
+@dataclass
+class _AuthResult:
+    '''Everything an `_authenticate()` call discovers about the storage endpoint.
+
+    *storage_host*, *storage_port* and *ssl_context* identify the server that
+    subsequent storage requests target, while *token* and *prefix* are the auth
+    token and URL path prefix to use for those requests.
+    '''
+
+    storage_host: str
+    storage_port: int | None
+    ssl_context: ssl.SSLContext | None
+    token: str
+    prefix: str
+
+
 class AsyncBackend(AsyncBackendBase):
     """A backend to store data in OpenStack Swift"""
 
@@ -68,10 +88,17 @@ class AsyncBackend(AsyncBackendBase):
     }
 
     @classmethod
-    async def create(cls: type['AsyncBackend'], options: BackendOptionsProtocol) -> 'AsyncBackend':
-        '''Create a new Swift backend instance with eager authentication.'''
-        backend = cls(options=options)
-        backend.conn = await backend._get_conn()
+    async def create(
+        cls: type['AsyncBackend'],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> 'AsyncBackend':
+        '''Create a new Swift backend instance.
+
+        Authentication happens lazily on the first request; the
+        `_container_exists()` check below triggers it.
+        '''
+        backend = cls(options=options, max_connections=max_connections)
         await backend._container_exists()
         return backend
 
@@ -162,15 +189,16 @@ class AsyncBackend(AsyncBackendBase):
 
         return meta
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize swift backend - use AsyncBackend.create() instead.'''
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
         self.options = options.backend_options
-        self.auth_token = None
-        self.auth_prefix = None
+        self.auth_token: str | None = None
+        self.auth_prefix: str | None = None
 
-        # Overwrite type, this will be initialized in create() right away
-        self.conn: HTTPConnection = None
+        # Built lazily by `_borrow_conn()` once authentication succeeds.
+        self._pool: Pool | None = None
+        self._max_connections = max_connections
         self.password = options.backend_password
         self.login = options.backend_login
         self.features = Features()
@@ -216,8 +244,9 @@ class AsyncBackend(AsyncBackendBase):
         '''Make sure that the container exists'''
 
         try:
-            await self._do_request('GET', '/', query_string={'limit': '1'})
-            await self.conn.discard()
+            async with self._borrow_conn() as conn:
+                await self._do_request(conn, 'GET', '/', query_string={'limit': '1'})
+                await conn.discard()
         except HTTPError as exc:
             if exc.status == 404:
                 raise DanglingStorageURLError(self.container_name)
@@ -240,24 +269,52 @@ class AsyncBackend(AsyncBackendBase):
             return True
 
         elif is_temp_network_error(exc):
-            # We probably can't use the connection anymore
-            self.conn.reset()
+            # The pool drops the affected connection automatically.
             return True
 
         # Temporary workaround for
         # https://bitbucket.org/nikratio/s3ql/issues/87 and
         # https://bitbucket.org/nikratio/s3ql/issues/252
-        elif isinstance(exc, ssl.SSLError) and (
-            str(exc).startswith('[SSL: BAD_WRITE_RETRY]')
-            or str(exc).startswith('[SSL: BAD_LENGTH]')
+        elif (
+            isinstance(exc, ssl.SSLError)
+            and (
+                str(exc).startswith('[SSL: BAD_WRITE_RETRY]')
+                or str(exc).startswith('[SSL: BAD_LENGTH]')
+            )
+            or isinstance(exc, ServerResponseError)
         ):
-            self.conn.reset()
             return True
 
         return False
 
-    async def _get_conn(self):
-        '''Obtain connection to server and authentication token'''
+    @asynccontextmanager
+    async def _borrow_conn(self) -> AsyncIterator[HTTPConnection]:
+        '''Borrow a connection from the storage pool, authenticating if needed.'''
+        if self._pool is None:
+            log.debug('no active pool, authenticating')
+            auth = await self._authenticate()
+            self.auth_token = auth.token
+            self.auth_prefix = auth.prefix
+            self.features = await self._detect_features(
+                auth.storage_host, auth.storage_port, auth.ssl_context
+            )
+            self._pool = Pool(
+                auth.storage_host,
+                port=auth.storage_port,
+                ssl_context=auth.ssl_context,
+                proxy=self.proxy,
+                max_connections=self._max_connections,
+                timeout=int(self.options.get('tcp-timeout', 20)),
+            )
+        async with self._pool.get() as conn:
+            yield conn
+
+    async def _authenticate(self) -> _AuthResult:
+        '''Authenticate to the Swift v1 auth endpoint.
+
+        Returns an `_AuthResult` describing the storage endpoint and the auth
+        token to use for subsequent requests.
+        '''
 
         log.debug('started')
 
@@ -292,9 +349,8 @@ class AsyncBackend(AsyncBackendBase):
 
                 # Pylint can't infer SplitResult Types
                 # pylint: disable=E1103
-                self.auth_token = resp.headers['X-Auth-Token']
+                token = resp.headers['X-Auth-Token']
                 o = urlsplit(resp.headers['X-Storage-Url'])
-                self.auth_prefix = urllib.parse.unquote(o.path)
                 if o.scheme == 'https':
                     ssl_context = self.ssl_context
                 elif o.scheme == 'http':
@@ -303,25 +359,20 @@ class AsyncBackend(AsyncBackendBase):
                     # fall through to scheme used for authentication
                     pass
 
-                # mock server can only handle one connection at a time
-                # so we explicitly close this connection before opening
-                # the feature detection connection (mock server handles
-                # both - storage and authentication)
-                await conn.aclose()
-
                 assert o.hostname is not None
-                await self._detect_features(o.hostname, o.port, ssl_context)
-
-                new_conn = HTTPConnection(
-                    o.hostname, o.port, proxy=self.proxy, ssl_context=ssl_context
+                return _AuthResult(
+                    storage_host=o.hostname,
+                    storage_port=o.port,
+                    ssl_context=ssl_context,
+                    token=token,
+                    prefix=urllib.parse.unquote(o.path),
                 )
-                new_conn.timeout = int(self.options.get('tcp-timeout', 20))
-                return new_conn
 
             raise RuntimeError('No valid authentication path found')
 
     async def _do_request(
         self,
+        conn: HTTPConnection,
         method: str,
         path: str,
         subres: Optional[str] = None,
@@ -330,7 +381,7 @@ class AsyncBackend(AsyncBackendBase):
         body: Sequence[bytes | BinaryInput] = (),
         md5_hex: Optional[str] = None,
     ) -> HTTPResponse:
-        '''Send request, read and return response object.
+        '''Send request on *conn*, return the response object.
 
         Modifies *headers* by adding the auth token. If *md5_hex* is
         supplied, the server's ETag is verified against it after a
@@ -343,10 +394,6 @@ class AsyncBackend(AsyncBackendBase):
 
         if headers is None:
             headers = CaseInsensitiveDict()
-
-        if self.conn is None:
-            log.debug('no active connection, calling _get_conn()')
-            self.conn = await self._get_conn()
 
         # Construct full path
         path = urllib.parse.quote('%s/%s%s' % (self.auth_prefix, self.container_name, path))
@@ -361,7 +408,7 @@ class AsyncBackend(AsyncBackendBase):
 
         headers['X-Auth-Token'] = self.auth_token
 
-        resp = await self.conn.send_request(
+        resp = await conn.send_request(
             method,
             path,
             headers=headers,
@@ -380,7 +427,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # If method == HEAD, server must not return response body
         # even in case of errors
-        await self.conn.discard()
+        await conn.discard()
         raise HTTPError(resp.status, resp.reason, resp.headers)
 
     @retry
@@ -390,14 +437,13 @@ class AsyncBackend(AsyncBackendBase):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
 
         try:
-            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._borrow_conn() as conn:
+                resp = await self._do_request(conn, 'HEAD', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
-            else:
-                raise
-
+            raise
         return self._extractmeta(resp, key)
 
     @retry
@@ -407,13 +453,13 @@ class AsyncBackend(AsyncBackendBase):
         log.debug('started with %s', key)
 
         try:
-            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._borrow_conn() as conn:
+                resp = await self._do_request(conn, 'HEAD', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
-            else:
-                raise
+            raise
 
         try:
             return int(resp.headers['Content-Length'])
@@ -433,28 +479,29 @@ class AsyncBackend(AsyncBackendBase):
     async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int):
         if key.endswith(TEMP_SUFFIX):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
-        try:
-            resp = await self._do_request('GET', '/%s%s' % (self.prefix, key))
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise NoSuchObject(key)
-            raise
-        etag = resp.headers['ETag'].strip('"')
+        async with self._borrow_conn() as conn:
+            try:
+                resp = await self._do_request(conn, 'GET', '/%s%s' % (self.prefix, key))
+            except HTTPError as exc:
+                if exc.status == 404:
+                    raise NoSuchObject(key)
+                raise
 
-        try:
-            meta = self._extractmeta(resp, key)
-        except BadDigestError:
-            # If there's less than 64 kb of data, read and throw
-            # away. Otherwise re-establish connection.
-            if resp.length is not None and resp.length < 64 * 1024:
-                await self.conn.discard()
-            else:
-                await self.conn.aclose()
-            raise
+            etag = resp.headers['ETag'].strip('"')
 
-        md5 = hashlib.md5()
-        fh.seek(off)
-        await self.conn.readinto_fh(fh, update=md5.update)
+            try:
+                meta = self._extractmeta(resp, key)
+            except BadDigestError:
+                # Small bodies are cheap to drain so we can keep the keep-alive connection.
+                # Larger ones aren't worth the bandwidth — leave the conn mid-cycle so the pool
+                # drops it on exit.
+                if resp.length is not None and resp.length < 64 * 1024:
+                    await conn.discard()
+                raise
+
+            md5 = hashlib.md5()
+            fh.seek(off)
+            await conn.readinto_fh(fh, update=md5.update)
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -491,19 +538,21 @@ class AsyncBackend(AsyncBackendBase):
             headers['Content-MD5'] = b64encode(bytes.fromhex(md5_hex)).decode('ascii')
 
         try:
-            resp = await self._do_request(
-                'PUT',
-                '/%s%s' % (self.prefix, key),
-                headers=headers,
-                body=[fh],
-                md5_hex=md5_hex,
-            )
+            async with self._borrow_conn() as conn:
+                resp = await self._do_request(
+                    conn,
+                    'PUT',
+                    '/%s%s' % (self.prefix, key),
+                    headers=headers,
+                    body=[fh],
+                    md5_hex=md5_hex,
+                )
+                await assert_empty_response(conn, resp)
         except BadDigestError:
             # Object was corrupted in transit, make sure to delete it
             await self.delete(key)
             raise
 
-        await assert_empty_response(self.conn, resp)
         return size
 
     @retry
@@ -512,8 +561,9 @@ class AsyncBackend(AsyncBackendBase):
             raise ValueError('Keys must not end with %s' % TEMP_SUFFIX)
         log.debug('started with %s', key)
         try:
-            resp = await self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._borrow_conn() as conn:
+                resp = await self._do_request(conn, 'DELETE', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 pass
@@ -583,26 +633,29 @@ class AsyncBackend(AsyncBackendBase):
             {'content-type': 'text/plain; charset=utf-8', 'accept': 'application/json'}
         )
 
-        resp = await self._do_request(
-            'POST', '/', subres='bulk-delete', body=[body], headers=headers
-        )
-
-        # bulk deletes should always return 200
-        if resp.status != 200:
-            raise HTTPError(resp.status, resp.reason, resp.headers)
-
-        hit = re.match(r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type'])
-        if not hit:
-            log.error(
-                'Unexpected server response. Expected json, got:\n%s',
-                await dump_response(self.conn, resp),
+        async with self._borrow_conn() as conn:
+            resp = await self._do_request(
+                conn, 'POST', '/', subres='bulk-delete', body=[body], headers=headers
             )
-            raise RuntimeError('Unexpected server reply')
 
-        # there might be an arbitrary amount of whitespace before the
-        # JSON response (to keep the connection from timing out)
-        # but json.loads discards these whitespace characters automatically
-        resp_dict = json.loads((await self.conn.readall()).decode(hit.group(2) or 'utf-8'))
+            # bulk deletes should always return 200
+            if resp.status != 200:
+                raise HTTPError(resp.status, resp.reason, resp.headers)
+
+            hit = re.match(
+                r'^application/json(;\s*charset="?(.+?)"?)?$', resp.headers['content-type']
+            )
+            if not hit:
+                log.error(
+                    'Unexpected server response. Expected json, got:\n%s',
+                    await dump_response(conn, resp),
+                )
+                raise RuntimeError('Unexpected server reply')
+
+            # there might be an arbitrary amount of whitespace before the
+            # JSON response (to keep the connection from timing out)
+            # but json.loads discards these whitespace characters automatically
+            resp_dict = json.loads((await conn.readall()).decode(hit.group(2) or 'utf-8'))
 
         log.debug('Response %s', resp_dict)
 
@@ -707,25 +760,27 @@ class AsyncBackend(AsyncBackendBase):
         if page_token:
             query_string['marker'] = page_token
 
-        try:
-            resp = await self._do_request('GET', '/', query_string=query_string)
-        except HTTPError as exc:
-            if exc.status == 404:
-                raise DanglingStorageURLError(self.container_name)
-            raise
+        async with self._borrow_conn() as conn:
+            try:
+                resp = await self._do_request(conn, 'GET', '/', query_string=query_string)
+            except HTTPError as exc:
+                if exc.status == 404:
+                    raise DanglingStorageURLError(self.container_name)
+                raise
 
-        if resp.status == 204:
-            return ([], None)
+            if resp.status == 204:
+                return ([], None)
 
-        hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
-        if not hit:
-            log.error(
-                'Unexpected server response. Expected json, got:\n%s',
-                await dump_response(self.conn, resp),
-            )
-            raise RuntimeError('Unexpected server reply')
+            hit = re.match('application/json; charset="?(.+?)"?$', resp.headers['content-type'])
+            if not hit:
+                log.error(
+                    'Unexpected server response. Expected json, got:\n%s',
+                    await dump_response(conn, resp),
+                )
+                raise RuntimeError('Unexpected server reply')
 
-        body = await self.conn.readall()
+            body = await conn.readall()
+
         names = []
         last_name = None
         count = 0
@@ -745,19 +800,19 @@ class AsyncBackend(AsyncBackendBase):
         return (names, page_token)
 
     async def close(self):
-        if self.conn is not None:
-            await self.conn.aclose()
+        if self._pool is not None:
+            await self._pool.aclose()
 
-    async def _detect_features(self, hostname, port, ssl_context):
-        '''Try to figure out the Swift version and supported features by
-        examining the /info endpoint of the storage server.
+    async def _detect_features(self, hostname, port, ssl_context) -> 'Features':
+        '''Figure out the Swift version and supported features by examining the
+        /info endpoint of the storage server, and return them as a `Features`.
 
         See https://docs.openstack.org/swift/latest/middleware.html#discoverability
         '''
 
         if 'no-feature-detection' in self.options:
             log.debug('Skip feature detection')
-            return
+            return Features()
 
         if not port:
             port = 443 if ssl_context else 80
@@ -778,7 +833,7 @@ class AsyncBackend(AsyncBackendBase):
             if resp.status not in (200, 401, 403, 404):
                 log.error(
                     "Wrong server response.\n%s",
-                    await dump_response(self.conn, resp, body=await conn.read()),
+                    await dump_response(conn, resp, body=await conn.read()),
                 )
                 raise HTTPError(resp.status, resp.reason, resp.headers)
 
@@ -789,7 +844,7 @@ class AsyncBackend(AsyncBackendBase):
                 if not hit:
                     log.error(
                         "Wrong server response. Expected json. Got: \n%s",
-                        await dump_response(self.conn, resp, body=await conn.read()),
+                        await dump_response(conn, resp, body=await conn.read()),
                     )
                     raise RuntimeError('Unexpected server reply')
 
@@ -838,15 +893,14 @@ class AsyncBackend(AsyncBackendBase):
                     port,
                 )
 
-        self.features = detected_features
+        return detected_features
 
     def _do_authentication_expired(self, reason):
-        '''Closes the current connection and raises AuthenticationExpired'''
+        '''Drop the cached storage pool so the next request reauthenticates.'''
         log.info('OpenStack auth token seems to have expired, requesting new one.')
-        self.conn.reset()
-        # Force constructing a new connection with a new token, otherwise
-        # the connection will be reestablished with the same token.
-        self.conn = None  # ty:ignore[invalid-assignment]
+        # Dropping the pool forces the next `_borrow_conn()` to reauthenticate,
+        # which refreshes the auth token and storage endpoint and rebuilds the pool.
+        self._pool = None
         raise AuthenticationExpired(reason)
 
 

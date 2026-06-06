@@ -34,6 +34,7 @@ from s3ql.http import (
     CaseInsensitiveDict,
     HTTPConnection,
     HTTPResponse,
+    Pool,
     fh_size,
     is_temp_network_error,
 )
@@ -88,12 +89,12 @@ class AsyncBackend(AsyncBackendBase):
     hostname: str
     port: int
     proxy: tuple[str, int] | None
-    conn: HTTPConnection
+    _pool: Pool
     password: str
     login: str
     _extra_put_headers: CaseInsensitiveDict
 
-    def __init__(self, *, options: BackendOptionsProtocol) -> None:
+    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
@@ -114,15 +115,21 @@ class AsyncBackend(AsyncBackendBase):
         self.hostname = host
         self.port = port
         self.proxy = get_proxy(self.ssl_context is not None)
-        self.conn = self._get_conn()
+        self._max_connections = max_connections
         self.password = options.backend_password
         self.login = options.backend_login
         self._extra_put_headers = CaseInsensitiveDict()
 
     @classmethod
-    async def create(cls: type[AsyncBackend], options: BackendOptionsProtocol) -> AsyncBackend:
+    async def create(
+        cls: type[AsyncBackend],
+        options: BackendOptionsProtocol,
+        max_connections: int = 1,
+    ) -> AsyncBackend:
         '''Create a new S3-compatible backend instance.'''
-        return cls(options=options)
+        self = cls(options=options, max_connections=max_connections)
+        self._pool = self._make_pool()
+        return self
 
     @staticmethod
     def _parse_storage_url(
@@ -156,14 +163,17 @@ class AsyncBackend(AsyncBackendBase):
 
         return (hostname, port, bucketname, prefix)
 
-    def _get_conn(self) -> HTTPConnection:
-        '''Return connection to server'''
+    def _make_pool(self) -> Pool:
+        '''Return a fresh connection pool for the current host/port.'''
 
-        conn = HTTPConnection(
-            self.hostname, self.port, proxy=self.proxy, ssl_context=self.ssl_context
+        return Pool(
+            self.hostname,
+            self.port,
+            proxy=self.proxy,
+            ssl_context=self.ssl_context,
+            max_connections=self._max_connections,
+            timeout=int(self.options.get('tcp-timeout', 20)),
         )
-        conn.timeout = int(self.options.get('tcp-timeout', 20))
-        return conn
 
     # This method is also used implicitly for the retry handling of
     # `gs.Backend._get_access_token`. When modifying this method, do not forget
@@ -172,8 +182,7 @@ class AsyncBackend(AsyncBackendBase):
 
     def is_temp_failure(self, exc: BaseException) -> bool:  # IGNORE:W0613
         if is_temp_network_error(exc) or isinstance(exc, ssl.SSLError):
-            # We probably can't use the connection anymore
-            self.conn.reset()
+            # The pool drops the affected connection automatically.
             return True
 
         if isinstance(  # noqa: SIM114
@@ -208,8 +217,9 @@ class AsyncBackend(AsyncBackendBase):
     async def delete(self, key: str) -> None:
         log.debug('started with %s', key)
         try:
-            resp = await self._do_request('DELETE', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'DELETE', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
         except NoSuchKeyError:
             pass
 
@@ -234,25 +244,26 @@ class AsyncBackend(AsyncBackendBase):
         if page_token:
             query_string['marker'] = page_token
 
-        resp = await self._do_request('GET', '/', query_string=query_string)
+        async with self._pool.get() as conn:
+            resp = await self._do_request(conn, 'GET', '/', query_string=query_string)
 
-        if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
-            raise RuntimeError('unexpected content type: %s' % resp.headers['Content-Type'])
+            if not XML_CONTENT_RE.match(resp.headers['Content-Type']):
+                raise RuntimeError('unexpected content type: %s' % resp.headers['Content-Type'])
 
-        body = await self.conn.readall()
-        etree = ElementTree.fromstring(body)
-        root_xmlns_uri = _tag_xmlns_uri(etree)
-        if root_xmlns_uri is None:
-            root_xmlns_prefix = ''
-        else:
-            # Validate the XML namespace
-            root_xmlns_prefix = '{%s}' % (root_xmlns_uri,)
-            if root_xmlns_prefix != self.xml_ns_prefix:
-                log.error(
-                    'Unexpected server reply to list operation:\n%s',
-                    await dump_response(self.conn, resp, body=body),
-                )
-                raise RuntimeError('List response has unknown namespace')
+            body = await conn.readall()
+            etree = ElementTree.fromstring(body)
+            root_xmlns_uri = _tag_xmlns_uri(etree)
+            if root_xmlns_uri is None:
+                root_xmlns_prefix = ''
+            else:
+                # Validate the XML namespace
+                root_xmlns_prefix = '{%s}' % (root_xmlns_uri,)
+                if root_xmlns_prefix != self.xml_ns_prefix:
+                    log.error(
+                        'Unexpected server reply to list operation:\n%s',
+                        await dump_response(conn, resp, body=body),
+                    )
+                    raise RuntimeError('List response has unknown namespace')
 
         names: builtins.list[str] = []
         for x in etree.findall(root_xmlns_prefix + 'Contents'):
@@ -280,13 +291,14 @@ class AsyncBackend(AsyncBackendBase):
         log.debug('started with %s', key)
 
         try:
-            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'HEAD', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
+
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
-            else:
-                raise
+            raise
 
         return self._extractmeta(resp, key)
 
@@ -295,13 +307,13 @@ class AsyncBackend(AsyncBackendBase):
         log.debug('started with %s', key)
 
         try:
-            resp = await self._do_request('HEAD', '/%s%s' % (self.prefix, key))
-            await assert_empty_response(self.conn, resp)
+            async with self._pool.get() as conn:
+                resp = await self._do_request(conn, 'HEAD', '/%s%s' % (self.prefix, key))
+                await assert_empty_response(conn, resp)
         except HTTPError as exc:
             if exc.status == 404:
                 raise NoSuchObject(key)
-            else:
-                raise
+            raise
 
         try:
             return int(resp.headers['Content-Length'])
@@ -319,26 +331,25 @@ class AsyncBackend(AsyncBackendBase):
 
     @retry
     async def _readinto_fh(self, key: str, fh: BinaryOutput, off: int) -> BasicMappingT:
-        try:
-            resp = await self._do_request('GET', '/%s%s' % (self.prefix, key))
-        except NoSuchKeyError:
-            raise NoSuchObject(key)
-        etag = resp.headers['ETag'].strip('"').lower()
+        async with self._pool.get() as conn:
+            try:
+                resp = await self._do_request(conn, 'GET', '/%s%s' % (self.prefix, key))
+            except NoSuchKeyError:
+                raise NoSuchObject(key)
+            etag = resp.headers['ETag'].strip('"').lower()
+            try:
+                meta = self._extractmeta(resp, key)
+            except (BadDigestError, CorruptedObjectError):
+                # Small bodies are cheap to drain so we can keep the keep-alive connection.
+                # Larger ones aren't worth the bandwidth — leave the conn mid-cycle so the pool
+                # drops it on exit.
+                if resp.length is not None and resp.length < 64 * 1024:
+                    await conn.discard()
+                raise
 
-        try:
-            meta = self._extractmeta(resp, key)
-        except (BadDigestError, CorruptedObjectError):
-            # If there's less than 64 kb of data, read and throw
-            # away. Otherwise re-establish connection.
-            if resp.length is not None and resp.length < 64 * 1024:
-                await self.conn.discard()
-            else:
-                await self.conn.aclose()
-            raise
-
-        md5 = hashlib.md5()
-        fh.seek(off)
-        await self.conn.readinto_fh(fh, update=md5.update)
+            md5 = hashlib.md5()
+            fh.seek(off)
+            await conn.readinto_fh(fh, update=md5.update)
 
         if etag != md5.hexdigest():
             log.warning('MD5 mismatch for %s: %s vs %s', key, etag, md5.hexdigest())
@@ -375,26 +386,28 @@ class AsyncBackend(AsyncBackendBase):
             headers['Content-MD5'] = b64encode(bytes.fromhex(md5_hex)).decode('ascii')
 
         try:
-            resp = await self._do_request(
-                'PUT',
-                '/%s%s' % (self.prefix, key),
-                headers=headers,
-                body=[fh],
-            )
+            async with self._pool.get() as conn:
+                resp = await self._do_request(
+                    conn,
+                    'PUT',
+                    '/%s%s' % (self.prefix, key),
+                    headers=headers,
+                    body=[fh],
+                )
+                if md5_hex is not None and 200 <= resp.status <= 299:
+                    etag = resp.headers['ETag'].strip('"').lower()
+                    if etag != md5_hex:
+                        raise BadDigestError(
+                            'BadDigest',
+                            f'MD5 mismatch when uploading {key} '
+                            f'(received: {etag}, sent: {md5_hex})',
+                        )
+                await assert_empty_response(conn, resp)
         except BadDigestError:
             # Object was corrupted in transit, make sure to delete it
             await self.delete(key)
             raise
 
-        if md5_hex is not None and 200 <= resp.status <= 299:
-            etag = resp.headers['ETag'].strip('"').lower()
-            if etag != md5_hex:
-                raise BadDigestError(
-                    'BadDigest',
-                    f'MD5 mismatch when uploading {key} (received: {etag}, sent: {md5_hex})',
-                )
-
-        await assert_empty_response(self.conn, resp)
         return size
 
     def _add_meta_headers(
@@ -438,6 +451,7 @@ class AsyncBackend(AsyncBackendBase):
 
     async def _do_request(
         self,
+        conn: HTTPConnection,
         method: str,
         path: str,
         subres: str | None = None,
@@ -453,6 +467,7 @@ class AsyncBackend(AsyncBackendBase):
             headers = CaseInsensitiveDict()
 
         resp = await self._do_request_inner(
+            conn,
             method,
             path,
             headers=headers,
@@ -462,10 +477,10 @@ class AsyncBackend(AsyncBackendBase):
         )
         if 200 <= resp.status <= 299:
             return resp
-        await self._parse_error_response(resp)
+        await self._parse_error_response(conn, resp)
         raise AssertionError('unreachable')
 
-    async def _parse_error_response(self, resp: HTTPResponse) -> NoReturn:
+    async def _parse_error_response(self, conn: HTTPConnection, resp: HTTPResponse) -> NoReturn:
         '''Handle error response from server
 
         Try to raise most-specific exception.
@@ -483,7 +498,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # If not XML, do the best we can
         if content_type is None or resp.length == 0 or not XML_CONTENT_RE.match(content_type):
-            body = await self.conn.readall()
+            body = await conn.readall()
             if body:
                 log.debug(
                     'Non-XML error response (HTTP %d %s, Content-Type=%s): %r',
@@ -496,13 +511,13 @@ class AsyncBackend(AsyncBackendBase):
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
-        body = await self.conn.readall()
+        body = await conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
             log.error(
                 'Unable to parse server response as XML:\n%s',
-                await dump_response(self.conn, resp, body),
+                await dump_response(conn, resp, body),
             )
             raise
 
@@ -510,7 +525,9 @@ class AsyncBackend(AsyncBackendBase):
             raise RuntimeError('XML document has no root element')
         raise get_S3Error(tree.findtext('Code'), tree.findtext('Message'), resp.headers)
 
-    async def _parse_xml_response(self, resp: HTTPResponse, body: bytes | None = None) -> Element:
+    async def _parse_xml_response(
+        self, conn: HTTPConnection, resp: HTTPResponse, body: bytes | None = None
+    ) -> Element:
         '''Return element tree for XML response'''
 
         content_type = resp.headers['Content-Type']
@@ -523,20 +540,20 @@ class AsyncBackend(AsyncBackendBase):
         elif not XML_CONTENT_RE.match(content_type):
             log.error(
                 'Unexpected server reply: expected XML, got:\n%s',
-                await dump_response(self.conn, resp),
+                await dump_response(conn, resp),
             )
             raise RuntimeError('Unexpected server response')
 
         # We don't stream the data into the parser because we want
         # to be able to dump a copy if the parsing fails.
         if body is None:
-            body = await self.conn.readall()
+            body = await conn.readall()
         try:
             tree = ElementTree.parse(BytesIO(body)).getroot()
         except:
             log.error(
                 'Unable to parse server response as XML:\n%s',
-                await dump_response(self.conn, resp, body),
+                await dump_response(conn, resp, body),
             )
             raise
 
@@ -601,6 +618,7 @@ class AsyncBackend(AsyncBackendBase):
 
     async def _do_request_inner(
         self,
+        conn: HTTPConnection,
         method: str,
         path: str,
         headers: CaseInsensitiveDict,
@@ -631,7 +649,7 @@ class AsyncBackend(AsyncBackendBase):
 
         log.debug('sending %s %s', method, path)
 
-        return await self.conn.send_request(
+        return await conn.send_request(
             method,
             path,
             headers=headers,
@@ -640,8 +658,7 @@ class AsyncBackend(AsyncBackendBase):
         )
 
     async def close(self) -> None:
-        if self.conn is not None:
-            await self.conn.aclose()
+        await self._pool.aclose()
 
     def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> BasicMappingT:
         '''Extract metadata from HTTP response object'''
