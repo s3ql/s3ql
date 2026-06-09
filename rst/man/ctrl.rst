@@ -30,7 +30,10 @@ the file system was mounted with :cmdopt:`--allow-other` or :cmdopt:`--allow-roo
 root user.
 
 Every subcommand takes the *mountpoint* of the file system as its first argument, plus
-any additional arguments described below. The following subcommands are available:
+any additional arguments described below. Individual subcommands may accept additional
+options; these are listed below where they exist, but you can always run
+``s3qlctrl <subcommand> --help`` to see the full set of options accepted by a particular
+subcommand. The following subcommands are available:
 
 
 flushcache

@@ -17,20 +17,21 @@ import stat
 import sys
 import textwrap
 import time
-from argparse import Namespace
+from contextlib import AsyncExitStack
 from datetime import datetime
 from os.path import basename
 from tempfile import NamedTemporaryFile
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 import apsw
-import trio
+import typer
 from pyfuse3 import InodeT
 
 from s3ql.mount import determine_threads
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
-from .backends import open_backend
+from .authinfo import Authinfo
+from .backends import open_backend_v2
 from .backends.common import NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .backends.local import AsyncBackend as LocalAsyncBackend
@@ -55,8 +56,27 @@ from .database import (
     upload_params,
     write_params,
 )
-from .logging import QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import QuietError, setup_logging
+from .parse_args import (
+    DEFAULT_AUTHFILE,
+    AuthFile,
+    BackendOptions,
+    CacheDir,
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    MaxConnections,
+    MaxThreads,
+    QuietFlag,
+    StorageUrl,
+    init_cachedir,
+    make_app,
+    pick,
+    run_app,
+    trio_command,
+)
+
+DEFAULT_FSCK_LOG = os.path.expanduser('~/.s3ql/fsck.log')
 
 if TYPE_CHECKING:
     from .database import Connection
@@ -1222,94 +1242,74 @@ class Fsck:
         self.conn.execute('DELETE FROM names WHERE refcount=0 AND id=?', (name_id,))
 
 
-def parse_args(args: list[str]) -> Namespace:
-    parser = ArgumentParser(description="Checks and repairs an S3QL filesystem.")
-
-    parser.add_log('~/.s3ql/fsck.log')
-    parser.add_cachedir()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_backend_options()
-    parser.add_version()
-    parser.add_storage_url()
-    parser.add_compress()
-
-    parser.add_argument(
-        "--keep-cache",
-        action="store_true",
-        default=False,
-        help="Do not purge locally cached files on exit.",
-    )
-    parser.add_argument(
-        "--batch",
-        action="store_true",
-        default=False,
-        help="If user input is required, exit without prompting.",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Force checking even if file system is marked clean.",
-    )
-    parser.add_argument(
-        "--force-remote",
-        action="store_true",
-        default=False,
-        help="Force use of remote metadata even when this would likely result in data loss.",
-    )
-    parser.add_argument(
-        "--fast",
-        action="store_true",
-        default=False,
-        help="Run a faster, less thorough check.",
-    )
-    parser.add_max_threads()
-    parser.add_max_connections()
-    options = parser.parse_args(args)
-
-    return options
+app = make_app()
 
 
-def main(args: list[str] | None = None) -> None:
-    if args is None:
-        args = sys.argv[1:]
+@app.command()
+@trio_command
+async def fsck(
+    storage_url: StorageUrl,
+    authfile: AuthFile = None,
+    cachedir: CacheDir = None,
+    backend_options: BackendOptions = None,
+    keep_cache: Annotated[
+        bool, typer.Option('--keep-cache', help='Do not purge locally cached files on exit.')
+    ] = False,
+    batch: Annotated[
+        bool, typer.Option('--batch', help='If user input is required, exit without prompting.')
+    ] = False,
+    force: Annotated[
+        bool, typer.Option('--force', help='Force checking even if file system is marked clean.')
+    ] = False,
+    force_remote: Annotated[
+        bool,
+        typer.Option(
+            '--force-remote',
+            help='Force use of remote metadata even when this would likely result in data loss.',
+        ),
+    ] = False,
+    fast: Annotated[
+        bool, typer.Option('--fast', help='Run a faster, less thorough check.')
+    ] = False,
+    max_connections: MaxConnections = None,
+    max_threads: MaxThreads = None,
+    log_target: LogDest = DEFAULT_FSCK_LOG,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+    *,
+    stack: AsyncExitStack,
+) -> None:
+    '''Check and repair an S3QL file system.'''
+    setup_logging(quiet=quiet, log=log_target, debug=debug, debug_modules=debug_modules)
 
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
-    )
+    authinfo = Authinfo.from_file(pick(authfile, DEFAULT_AUTHFILE), storage_url)
+    cachepath = init_cachedir(pick(cachedir, authinfo.cachedir), storage_url)
 
-    if options.max_threads is None:
-        options.max_threads = determine_threads(options.compress)
-    AsyncComprencBackend.set_max_threads(options.max_threads)
+    # fsck only writes metadata, so size the thread pool from the CPU count alone.
+    threads = pick(max_threads, authinfo.max_threads) or determine_threads(None)
+    AsyncComprencBackend.set_max_threads(threads)
 
-    trio.run(main_async, options)
-
-
-async def main_async(options: Namespace) -> None:
-    # Check if fs is mounted on this computer
-    # This is not foolproof but should prevent common mistakes
-    if is_mounted(options.storage_url):
+    # Check if fs is mounted on this computer. This is not foolproof but should prevent
+    # common mistakes.
+    if is_mounted(storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
-    backend = await open_backend(options)
-    try:
-        await main_inner(options, backend)
-    finally:
-        await backend.close()
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=backend_options,
+            max_connections=pick(max_connections, authinfo.max_connections),
+            compress=authinfo.compress,
+        )
+    )
 
-
-async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
-    if options.fast:
-        log.info('Starting fast fsck of %s', options.storage_url)
+    if fast:
+        log.info('Starting fast fsck of %s', storage_url)
     else:
-        log.info('Starting fsck of %s', options.storage_url)
+        log.info('Starting fsck of %s', storage_url)
 
-    cachepath = options.cachepath
     db = None
 
     param = await read_remote_params(backend)
@@ -1349,9 +1349,9 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
             sep='\n',
             end='',
         )
-        if options.force_remote:
+        if force_remote:
             print('(--force-remote specified, continuing anyway)')
-        elif options.batch:
+        elif batch:
             raise QuietError('(in batch mode, exiting)', exitcode=41)
         elif sys.stdin.readline().strip() != 'continue, I know what I am doing':
             raise QuietError(exitcode=42)
@@ -1360,7 +1360,7 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     if (
         not param.needs_fsck and (time.time() - param.last_fsck) < 60 * 60 * 24 * 31
     ):  # last check more than 1 month ago
-        if options.force:
+        if force:
             log.info('File system seems clean, checking anyway.')
         else:
             log.info('File system is marked as clean. Use --force to force checking.')
@@ -1395,7 +1395,7 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     # cache files can not be dirty.
     check_cache: bool | Literal['keep']
     if db and param.is_mounted:
-        if options.keep_cache:
+        if keep_cache:
             check_cache = 'keep'
         else:
             check_cache = True
@@ -1437,7 +1437,7 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
 
     # To detect bugs in S3QL, make sure we can correctly download
     # the last few metadata snapshots.
-    if not options.fast:
+    if not fast:
         await verify_metadata_snapshots(
             backend,
             count=5,
@@ -1489,12 +1489,16 @@ async def main_inner(options: Namespace, backend: AsyncComprencBackend) -> None:
     await upload_params(backend, param)
     await expire_objects(backend)
 
-    log.info('Completed fsck of %s', options.storage_url)
+    log.info('Completed fsck of %s', storage_url)
 
     if fsck.found_errors:
         sys.exit(128)
     else:
         sys.exit(0)
+
+
+def main(args: list[str] | None = None) -> None:
+    run_app(app, args, prog_name='fsck.s3ql')
 
 
 def escape(path: bytes) -> bytes:

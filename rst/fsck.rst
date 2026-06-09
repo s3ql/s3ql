@@ -38,7 +38,7 @@ The :program:`fsck.s3ql` command has the following syntax::
 This command accepts the following options:
 
 .. pipeinclude:: fsck.s3ql --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 
 .. _s3ql_verify:
@@ -82,4 +82,4 @@ The :program:`s3ql_verify` command has the following syntax::
 This command accepts the following options:
 
 .. pipeinclude:: s3ql_verify --help
-   :start-after: show this help message and exit
+   :start-after: Options:

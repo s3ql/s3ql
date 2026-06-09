@@ -27,6 +27,7 @@ def test_invalid_option(reg_output):
         print('[entry1]', 'storage-url: local:///foo', 'invalid-option: bla', '', file=fh, sep='\n')
         fh.flush()
 
+        reg_output(r"ERROR: Unknown key\(s\) in authentication file", count=1)
         proc = subprocess.Popen(
             ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
             stdin=subprocess.PIPE,
@@ -45,7 +46,7 @@ def test_invalid_option(reg_output):
         assert proc.wait() == 16
 
 
-def test_invalid_backend_option():
+def test_invalid_backend_option(reg_output):
     with tempfile.NamedTemporaryFile('wt') as fh:
         print(
             '[entry1]',
@@ -56,6 +57,7 @@ def test_invalid_backend_option():
         )
         fh.flush()
 
+        reg_output(r"ERROR: Unknown backend option: invalid-key", count=1)
         proc = subprocess.Popen(
             ['fsck.s3ql', '--quiet', '--authfile', fh.name, '--log', 'none', 'local:///foo/bar'],
             stdin=subprocess.PIPE,

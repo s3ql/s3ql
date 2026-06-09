@@ -37,6 +37,7 @@ from __future__ import annotations
 import argparse
 import configparser
 import functools
+import inspect
 import logging
 import os
 import re
@@ -44,6 +45,7 @@ import stat
 import sys
 from argparse import ArgumentError, ArgumentTypeError
 from collections.abc import Awaitable, Callable, Sequence
+from contextlib import AsyncExitStack
 from getpass import getpass
 from typing import Annotated, Any, Literal, ParamSpec
 
@@ -58,7 +60,7 @@ from .authinfo import DEFAULT_AUTHFILE, DEFAULT_CACHEDIR, DEFAULT_MAX_CONNECTION
 from .authinfo import pick as pick
 from .backends import async_prefix_map
 from .common import escape
-from .logging import setup_warnings
+from .logging import QuietError, setup_warnings
 
 DEFAULT_USAGE: object = object()
 log: logging.Logger = logging.getLogger(__name__)
@@ -73,14 +75,40 @@ def trio_command(fn: Callable[P, Awaitable[None]]) -> Callable[P, None]:
     `__wrapped__` attribute set by `functools.wraps`. The async function's full
     `Annotated[...]` signature is therefore visible to Typer even though the wrapper
     itself is synchronous, so command parameters need to be declared only once.
+
+    A command that manages resources may declare a keyword-only `stack: AsyncExitStack`
+    parameter. The decorator then keeps an `AsyncExitStack` open for the duration of the
+    call and passes it in, so the command can register cleanups with `enter_async_context`
+    instead of nesting its body in a `try`/`finally`. This parameter is stripped from the
+    signature Typer inspects, so it does not turn into a command-line option.
     '''
+    sig = inspect.signature(fn, eval_str=True)
+    wants_stack = 'stack' in sig.parameters
 
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
         async def _entry() -> None:
-            await fn(*args, **kwargs)
+            if wants_stack:
+                async with AsyncExitStack() as stack:
+                    # The `stack` parameter is part of *fn*'s signature but hidden from the
+                    # ParamSpec-typed wrapper, so this injected argument cannot be expressed.
+                    await fn(*args, stack=stack, **kwargs)  # ty: ignore[invalid-argument-type]
+            else:
+                await fn(*args, **kwargs)
 
         trio.run(_entry)
+
+    if wants_stack:
+        visible = [p for name, p in sig.parameters.items() if name != 'stack']
+        # Override the signature and annotations Typer sees so the injected `stack` never
+        # surfaces as a CLI option, while the remaining parameters keep their resolved
+        # `Annotated[...]` types.
+        wrapper.__signature__ = sig.replace(parameters=visible)  # ty: ignore[unresolved-attribute]
+        wrapper.__annotations__ = {
+            name: p.annotation
+            for name, p in sig.parameters.items()
+            if name != 'stack' and p.annotation is not inspect.Parameter.empty
+        }
 
     return wrapper
 
@@ -208,6 +236,27 @@ MaxThreads = Annotated[
         'bounds CPU parallelism only and is independent of --max-connections.',
     ),
 ]
+
+
+def init_cachedir(cachedir: str, storage_url: str) -> str:
+    '''Ensure *cachedir* exists and return the cache path for *storage_url*.
+
+    Creates *cachedir* if it is missing, points `SQLITE_TMPDIR` at it, and returns the
+    per-file-system cache path. Raises `QuietError` if the directory cannot be created or
+    accessed.
+    '''
+    if not os.path.exists(cachedir):
+        try:
+            os.mkdir(cachedir, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        except PermissionError:
+            raise QuietError('No permission to create cache directory ' + cachedir, exitcode=45)
+
+    if not os.access(cachedir, os.R_OK | os.W_OK | os.X_OK):
+        raise QuietError('No permission to access cache directory ' + cachedir, exitcode=45)
+
+    cachedir = os.path.abspath(cachedir)
+    os.environ['SQLITE_TMPDIR'] = cachedir
+    return os.path.join(cachedir, escape(storage_url))
 
 
 class HelpFormatter(argparse.HelpFormatter):

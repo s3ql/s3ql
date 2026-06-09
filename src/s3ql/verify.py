@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import atexit
 import dataclasses
 import faulthandler
@@ -17,22 +16,42 @@ import logging
 import os
 import signal
 import sys
-import textwrap
 from collections.abc import AsyncIterable, Iterator, Sequence
-from typing import IO
+from contextlib import AsyncExitStack
+from typing import IO, Annotated
 
-import trio
+import typer
 
-from .backends import open_backend
+from .authinfo import Authinfo
+from .backends import open_backend_v2
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .common import ParallelPipeline, pretty_print_size, sha256_fh
 from .database import Connection
-from .logging import delay_eval, setup_logging, setup_warnings
+from .logging import delay_eval, setup_logging
 from .mount import determine_threads, get_metadata
-from .parse_args import ArgumentParser
+from .parse_args import (
+    DEFAULT_AUTHFILE,
+    AuthFile,
+    BackendOptions,
+    CacheDir,
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    MaxConnections,
+    MaxThreads,
+    QuietFlag,
+    StorageUrl,
+    init_cachedir,
+    make_app,
+    pick,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
+
+app = make_app()
 
 
 @dataclasses.dataclass
@@ -42,129 +61,103 @@ class ObjectToVerify:
     exp_size: int
 
 
-def _new_file_type(s: str, encoding: str = 'utf-8') -> IO[str]:
-    '''An argparse type for a file that does not yet exist'''
+def _open_new_file(path: str, encoding: str = 'utf-8') -> IO[str]:
+    '''Open *path* for writing, refusing to overwrite an existing non-empty file.'''
 
-    if os.path.exists(s) and os.stat(s).st_size != 0:
-        msg = 'File already exists - refusing to overwrite: %s' % s
-        raise argparse.ArgumentTypeError(msg)
+    if os.path.exists(path) and os.stat(path).st_size != 0:
+        raise typer.BadParameter('File already exists - refusing to overwrite: %s' % path)
 
-    fh = open(s, 'w', encoding=encoding)  # noqa: SIM115
+    fh = open(path, 'w', encoding=encoding)  # noqa: SIM115
     atexit.register(fh.close)
     return fh
 
 
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
+@app.command()
+@trio_command
+async def verify(
+    storage_url: StorageUrl,
+    authfile: AuthFile = None,
+    cachedir: CacheDir = None,
+    backend_options: BackendOptions = None,
+    missing_file: Annotated[
+        str, typer.Option(metavar='<name>', help='File to store keys of missing objects.')
+    ] = 'missing_objects.txt',
+    corrupted_file: Annotated[
+        str, typer.Option(metavar='<name>', help='File to store keys of corrupted objects.')
+    ] = 'corrupted_objects.txt',
+    data: Annotated[
+        bool,
+        typer.Option(
+            '--data', help='Read every object completely, instead of checking just the metadata.'
+        ),
+    ] = False,
+    start_with: Annotated[
+        int,
+        typer.Option(
+            metavar='<n>', help='Skip over first <n> objects and start verifying object <n>+1.'
+        ),
+    ] = 0,
+    max_connections: MaxConnections = None,
+    max_threads: MaxThreads = None,
+    log_target: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+    *,
+    stack: AsyncExitStack,
+) -> None:
+    '''Verify that all data in an S3QL file system can be downloaded from the storage backend.
 
-    parser = ArgumentParser(
-        description=textwrap.dedent(
-            '''\
-        Verifies that all data in an S3QL file system can be downloaded
-        from the storage backend.
+    In contrast to fsck.s3ql, this program does not trust the object listing returned by the
+    backend, but actually attempts to retrieve every object. It therefore takes a lot longer.
+    '''
+    setup_logging(quiet=quiet, log=log_target, debug=debug, debug_modules=debug_modules)
 
-        In contrast to fsck.s3ql, this program does not trust the object
-        listing returned by the backend, but actually attempts to retrieve
-        every object. It therefore takes a lot longer.
-        '''
+    authinfo = Authinfo.from_file(pick(authfile, DEFAULT_AUTHFILE), storage_url)
+    cachepath = init_cachedir(pick(cachedir, authinfo.cachedir), storage_url)
+    max_conns = pick(max_connections, authinfo.max_connections)
+
+    # verify only reads objects, so size the thread pool from the CPU count alone.
+    threads = pick(max_threads, authinfo.max_threads) or determine_threads(None)
+    AsyncComprencBackend.set_max_threads(threads)
+
+    missing_fh = _open_new_file(missing_file)
+    corrupted_fh = _open_new_file(corrupted_file)
+
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=backend_options,
+            max_connections=max_conns,
+            compress=authinfo.compress,
         )
     )
+    (_, db) = await get_metadata(backend, cachepath)
 
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-    parser.add_cachedir()
-    parser.add_backend_options()
-    parser.add_storage_url()
-
-    parser.add_argument(
-        "--missing-file",
-        type=_new_file_type,
-        metavar='<name>',
-        default='missing_objects.txt',
-        help="File to store keys of missing objects.",
+    await retrieve_objects(
+        db,
+        backend,
+        corrupted_fh,
+        missing_fh,
+        worker_count=max_conns + threads,
+        full=data,
+        offset=start_with,
     )
 
-    parser.add_argument(
-        "--corrupted-file",
-        type=_new_file_type,
-        metavar='<name>',
-        default='corrupted_objects.txt',
-        help="File to store keys of corrupted objects.",
-    )
+    db.close()
 
-    parser.add_argument(
-        "--data",
-        action="store_true",
-        default=False,
-        help="Read every object completely, instead of checking just the metadata.",
-    )
-
-    parser.add_max_threads()
-    parser.add_max_connections()
-
-    parser.add_argument(
-        "--start-with",
-        default=0,
-        type=int,
-        metavar='<n>',
-        help="Skip over first <n> objects and with verifying object <n>+1.",
-    )
-
-    options = parser.parse_args(args)
-
-    return options
+    if corrupted_fh.tell() or missing_fh.tell():
+        sys.exit(46)
+    else:
+        os.unlink(corrupted_fh.name)
+        os.unlink(missing_fh.name)
 
 
 def main(args: Sequence[str] | None = None) -> None:
     faulthandler.enable()
     faulthandler.register(signal.SIGUSR1)
-
-    if args is None:
-        args = sys.argv[1:]
-
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
-    )
-
-    if options.max_threads is None:
-        options.max_threads = determine_threads(None)
-    AsyncComprencBackend.set_max_threads(options.max_threads)
-
-    trio.run(main_async, options)
-
-
-async def main_async(options: argparse.Namespace) -> None:
-    backend = await open_backend(options)
-    try:
-        # Retrieve metadata
-        (_, db) = await get_metadata(backend, options.cachepath)
-
-        await retrieve_objects(
-            db,
-            backend,
-            options.corrupted_file,
-            options.missing_file,
-            worker_count=options.max_connections + options.max_threads,
-            full=options.data,
-            offset=options.start_with,
-        )
-
-        db.close()
-    finally:
-        await backend.close()
-
-    if options.corrupted_file.tell() or options.missing_file.tell():
-        sys.exit(46)
-    else:
-        os.unlink(options.corrupted_file.name)
-        os.unlink(options.missing_file.name)
-        sys.exit(0)
+    run_app(app, args, prog_name='s3ql_verify')
 
 
 @dataclasses.dataclass

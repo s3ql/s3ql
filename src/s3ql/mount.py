@@ -427,7 +427,7 @@ LZMA_MEMORY: dict[int, int] = {
 }
 
 
-def determine_threads(compress: tuple[str, int] | None) -> int:
+def determine_threads(compress: tuple[str | None, int] | None) -> int:
     '''Return optimum number of upload threads.
 
     *compress* is the (algorithm, level) tuple that compression will use,

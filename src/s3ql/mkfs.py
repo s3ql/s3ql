@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import shutil
@@ -17,12 +16,15 @@ import sys
 import time
 from base64 import b64encode
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from getpass import getpass
+from typing import Annotated
 
-import trio
+import typer
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
-from .backends import s3
+from .authinfo import Authinfo
+from .backends import open_raw_backend_v2, s3
 from .backends.comprenc import AsyncComprencBackend
 from .common import split_by_n, time_ns
 from .database import (
@@ -33,59 +35,29 @@ from .database import (
     upload_params,
     write_params,
 )
-from .logging import QuietError, setup_logging, setup_warnings
+from .logging import QuietError, setup_logging
 from .mount import determine_threads
-from .parse_args import ArgumentParser
+from .parse_args import (
+    DEFAULT_AUTHFILE,
+    AuthFile,
+    BackendOptions,
+    CacheDir,
+    DebugFlag,
+    DebugModules,
+    MaxConnections,
+    MaxThreads,
+    QuietFlag,
+    StorageUrl,
+    init_cachedir,
+    make_app,
+    pick,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    parser = ArgumentParser(description="Initializes an S3QL file system")
-
-    parser.add_cachedir()
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_backend_options()
-    parser.add_version()
-    parser.add_storage_url()
-
-    parser.add_argument(
-        "-L",
-        default='',
-        help="Filesystem label",
-        dest="label",
-        metavar='<name>',
-    )
-    parser.add_argument(
-        "--data-block-size",
-        type=int,
-        default=1024,
-        metavar='<size>',
-        help="Block size (in KiB) to use for storing file contents. Files "
-        "larger than this size will be stored in multiple backend objects. "
-        "Backend object size may be smaller than this due to compression. "
-        "Default: %(default)d KiB.",
-    )
-    parser.add_argument(
-        "--metadata-block-size",
-        type=int,
-        default=64,
-        metavar='<size>',
-        help="Block size (in KiB) to use for storing filesystem metadata. "
-        "Backend object size may be smaller than this due to compression. "
-        "Default: %(default)d KiB.",
-    )
-    parser.add_argument(
-        "--plain", action="store_true", default=False, help="Create unencrypted file system."
-    )
-    parser.add_max_connections()
-    parser.add_max_threads()
-
-    options = parser.parse_args(args)
-
-    return options
+app = make_app()
 
 
 def init_tables(conn: Connection) -> None:
@@ -141,35 +113,62 @@ def init_tables(conn: Connection) -> None:
     )
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    if args is None:
-        args = sys.argv[1:]
+@app.command()
+@trio_command
+async def mkfs(
+    storage_url: StorageUrl,
+    authfile: AuthFile = None,
+    cachedir: CacheDir = None,
+    backend_options: BackendOptions = None,
+    label: Annotated[
+        str, typer.Option('-L', '--label', metavar='<name>', help='Filesystem label')
+    ] = '',
+    data_block_size: Annotated[
+        int,
+        typer.Option(
+            metavar='<size>',
+            help='Block size (in KiB) to use for storing file contents. Files larger than this '
+            'size will be stored in multiple backend objects. Backend object size may be smaller '
+            'than this due to compression.',
+        ),
+    ] = 1024,
+    metadata_block_size: Annotated[
+        int,
+        typer.Option(
+            metavar='<size>',
+            help='Block size (in KiB) to use for storing filesystem metadata. Backend object '
+            'size may be smaller than this due to compression.',
+        ),
+    ] = 64,
+    plain: Annotated[bool, typer.Option('--plain', help='Create unencrypted file system.')] = False,
+    max_connections: MaxConnections = None,
+    max_threads: MaxThreads = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+    *,
+    stack: AsyncExitStack,
+) -> None:
+    '''Initialize an S3QL file system.'''
+    setup_logging(quiet=quiet, log=None, debug=debug, debug_modules=debug_modules)
 
-    options = parse_args(args)
-    setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
+    authinfo = Authinfo.from_file(pick(authfile, DEFAULT_AUTHFILE), storage_url)
+    cachepath = init_cachedir(pick(cachedir, authinfo.cachedir), storage_url)
+
+    # mkfs only uploads the initial (small) metadata snapshot, so size the thread pool from the
+    # CPU count alone.
+    threads = pick(max_threads, authinfo.max_threads) or determine_threads(None)
+    AsyncComprencBackend.set_max_threads(threads)
+
+    plain_backend = await stack.enter_async_context(
+        await open_raw_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=backend_options,
+            max_connections=pick(max_connections, authinfo.max_connections),
+        )
     )
-    setup_warnings()
 
-    if options.max_threads is None:
-        # mkfs only uploads the initial (small) metadata snapshot, so size
-        # the thread pool from CPU count alone.
-        options.max_threads = determine_threads(None)
-    AsyncComprencBackend.set_max_threads(options.max_threads)
-
-    trio.run(main_async, options)
-
-
-async def main_async(options: argparse.Namespace) -> None:
-    async with await options.backend_class.create(
-        options, max_connections=options.max_connections
-    ) as plain_backend:
-        await main_inner(options, plain_backend)
-
-
-async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     backend: AsyncComprencBackend | None = None
 
     log.info(
@@ -190,7 +189,7 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
         )
 
     data_pw: bytes | None
-    if not options.plain:
+    if not plain:
         if sys.stdin.isatty():
             wrap_pw = getpass("Enter encryption password: ")
             if not wrap_pw == getpass("Confirm encryption password: "):
@@ -204,15 +203,15 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
         with open('/dev/urandom', "rb", 0) as fh:  # No buffering
             data_pw = fh.read(32)
 
-        backend = await AsyncComprencBackend.create(wrap_pw_bytes, ('lzma', 2), plain_backend)
+        backend = await AsyncComprencBackend.create(
+            wrap_pw_bytes, authinfo.compress.to_comprenc(), plain_backend
+        )
         await backend.store('s3ql_passphrase', data_pw)
         await backend.store('s3ql_passphrase_bak1', data_pw)
         await backend.store('s3ql_passphrase_bak2', data_pw)
         await backend.store('s3ql_passphrase_bak3', data_pw)
     else:
         data_pw = None
-
-    cachepath = options.cachepath
 
     # There can't be a corresponding backend, so we can safely delete
     # these files.
@@ -224,9 +223,9 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     param = FsAttributes(
         revision=CURRENT_FS_REV,
         seq_no=int(time.time()),
-        label=options.label,
-        data_block_size=options.data_block_size * 1024,
-        metadata_block_size=options.metadata_block_size * 1024,
+        label=label,
+        data_block_size=data_block_size * 1024,
+        metadata_block_size=metadata_block_size * 1024,
         last_fsck=time.time(),
         last_modified=time.time(),
     )
@@ -237,13 +236,15 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
     init_tables(db)
     db.close()
 
-    backend = await AsyncComprencBackend.create(data_pw, ('lzma', 2), plain_backend)
+    backend = await AsyncComprencBackend.create(
+        data_pw, authinfo.compress.to_comprenc(), plain_backend
+    )
     log.info('Uploading metadata...')
     await upload_metadata(backend, db, param)
     write_params(cachepath, param)
     await upload_params(backend, param)
     # *backend* wraps *plain_backend*; its close() would also close
-    # *plain_backend*. The outer `async with` does that, so leave it alone.
+    # *plain_backend*, which the exit stack already handles, so leave it alone.
 
     if os.path.exists(cachepath + '-cache'):
         shutil.rmtree(cachepath + '-cache')
@@ -259,6 +260,10 @@ async def main_inner(options: argparse.Namespace, plain_backend) -> None:
             '---END MASTER KEY---',
             sep='\n',
         )
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    run_app(app, args, prog_name='mkfs.s3ql')
 
 
 if __name__ == '__main__':

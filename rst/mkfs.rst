@@ -12,7 +12,7 @@ following syntax::
 This command accepts the following options:
 
 .. pipeinclude:: mkfs.s3ql --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 Unless you have specified the :cmdopt:`--plain` option,
 :program:`mkfs.s3ql` will ask you to enter an encryption

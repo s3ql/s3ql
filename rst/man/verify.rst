@@ -32,7 +32,7 @@ Options
 The |command| command accepts the following options.
 
 .. pipeinclude:: s3ql_verify --help --log none
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 
 Exit Codes
