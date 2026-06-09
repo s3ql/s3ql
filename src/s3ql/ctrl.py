@@ -8,124 +8,119 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-import textwrap
 from collections.abc import Sequence
+from enum import Enum
+from typing import Annotated
 
 import pyfuse3
+import typer
 
 from .common import assert_fs_owner
-from .logging import QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
+app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
+MountPoint = Annotated[
+    str, typer.Argument(metavar='<mountpoint>', help='Mountpoint of the file system')
+]
 
-    parser = ArgumentParser(
-        description='''Control a mounted S3QL File System''',
-        epilog=textwrap.dedent(
-            '''\
-               Hint: run `%(prog)s <action> --help` to get help on the additional
-               arguments that the different actions take.'''
+
+class LogLevel(str, Enum):
+    debug = 'debug'
+    info = 'info'
+    warn = 'warn'
+
+
+@app.callback()
+def _setup(
+    log: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Control a mounted S3QL File System.'''
+    setup_logging(quiet=quiet, log=log, debug=debug, debug_modules=debug_modules)
+
+
+def _open_ctrlfile(mountpoint: str) -> str:
+    return assert_fs_owner(mountpoint.rstrip('/'), mountpoint=True)
+
+
+@app.command()
+@trio_command
+async def flushcache(mountpoint: MountPoint) -> None:
+    '''Flush file system cache.'''
+    pyfuse3.setxattr(_open_ctrlfile(mountpoint), 's3ql_flushcache!', b'dummy')
+
+
+@app.command()
+@trio_command
+async def dropcache(mountpoint: MountPoint) -> None:
+    '''Drop file system cache.'''
+    pyfuse3.setxattr(_open_ctrlfile(mountpoint), 's3ql_dropcache!', b'dummy')
+
+
+@app.command(name='backup-metadata')
+@trio_command
+async def backup_metadata(mountpoint: MountPoint) -> None:
+    '''Trigger immediate metadata backup.'''
+    pyfuse3.setxattr(_open_ctrlfile(mountpoint), 'upload-meta', b'dummy')
+
+
+@app.command()
+@trio_command
+async def cachesize(
+    mountpoint: MountPoint,
+    size: Annotated[int, typer.Argument(metavar='<size>', help='New cache size in KiB')],
+) -> None:
+    '''Change cache size.'''
+    pyfuse3.setxattr(_open_ctrlfile(mountpoint), 'cachesize', ('%d' % (size * 1024,)).encode())
+
+
+@app.command(name='log')
+@trio_command
+async def set_log_level(
+    mountpoint: MountPoint,
+    level: Annotated[
+        LogLevel,
+        typer.Argument(metavar='<level>', help='Desired new log level for mount.s3ql process'),
+    ],
+    modules: Annotated[
+        list[str] | None,
+        typer.Argument(
+            metavar='<module>',
+            help="Modules to enable debugging output for. Specify 'all' to enable debugging "
+            'for all modules.',
         ),
-    )
+    ] = None,
+) -> None:
+    '''Change log level.'''
+    if level is not LogLevel.debug and modules:
+        raise typer.BadParameter('Modules can only be specified with `debug` logging level.')
+    if not modules:
+        modules = ['all']
 
-    pparser = ArgumentParser(
-        add_help=False,
-        epilog=textwrap.dedent(
-            '''\
-               Hint: run `%(prog)s --help` to get help on other available actions and
-               optional arguments that can be used with all actions.'''
-        ),
-    )
-    pparser.add_argument(
-        "mountpoint",
-        metavar='<mountpoint>',
-        type=(lambda x: x.rstrip('/')),
-        help='Mountpoint of the file system',
-    )
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    subparsers = parser.add_subparsers(metavar='<action>', dest='action', help='may be either of')
-    subparsers.required = True
-    subparsers.add_parser('flushcache', help='flush file system cache', parents=[pparser])
-    subparsers.add_parser('dropcache', help='drop file system cache', parents=[pparser])
-    subparsers.add_parser(
-        'backup-metadata', help='Trigger immediate metadata backup', parents=[pparser]
-    )
-
-    sparser = subparsers.add_parser('cachesize', help='Change cache size', parents=[pparser])
-    sparser.add_argument('cachesize', metavar='<size>', type=int, help='New cache size in KiB')
-
-    sparser = subparsers.add_parser('log', help='Change log level', parents=[pparser])
-
-    sparser.add_argument(
-        'level',
-        choices=('debug', 'info', 'warn'),
-        metavar='<level>',
-        help='Desired new log level for mount.s3ql process. Allowed values: %(choices)s',
-    )
-    sparser.add_argument(
-        'modules',
-        nargs='*',
-        metavar='<module>',
-        help='Modules to enable debugging output for. Specify '
-        '`all` to enable debugging for all modules.',
-    )
-
-    options = parser.parse_args(args)
-
-    if options.action == 'log':
-        if options.level != 'debug' and options.modules:
-            parser.error('Modules can only be specified with `debug` logging level.')
-        if not options.modules:
-            options.modules = ['all']
-
-    return options
+    level_no = getattr(logging, level.value.upper())
+    cmd = ('(%r, %r)' % (level_no, ','.join(modules))).encode()
+    pyfuse3.setxattr(_open_ctrlfile(mountpoint), 'logging', cmd)
 
 
 def main(args: Sequence[str] | None = None) -> None:
     '''Control a mounted S3QL File System.'''
 
-    if args is None:
-        args = sys.argv[1:]
-
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(quiet=options.quiet, log=options.log, debug_modules=options.debug)
-
-    path = options.mountpoint
-
-    ctrlfile = assert_fs_owner(path, mountpoint=True)
-
-    if options.action == 'flushcache':
-        pyfuse3.setxattr(ctrlfile, 's3ql_flushcache!', b'dummy')
-
-    elif options.action == 'dropcache':
-        pyfuse3.setxattr(ctrlfile, 's3ql_dropcache!', b'dummy')
-
-    elif options.action == 'backup-metadata':
-        pyfuse3.setxattr(ctrlfile, 'upload-meta', b'dummy')
-
-    elif options.action == 'log':
-        level = getattr(logging, options.level.upper())
-        cmd = ('(%r, %r)' % (level, ','.join(options.modules))).encode()
-        pyfuse3.setxattr(ctrlfile, 'logging', cmd)
-
-    elif options.action == 'cachesize':
-        pyfuse3.setxattr(ctrlfile, 'cachesize', ('%d' % (options.cachesize * 1024,)).encode())
-
-    else:
-        raise QuietError('Need to specify subcommand')
+    run_app(app, args, prog_name='s3qlctrl')
 
 
 if __name__ == '__main__':

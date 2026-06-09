@@ -35,7 +35,7 @@ Options
 The |command| command accepts the following options:
 
 .. pipeinclude:: s3qlrm --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 
 Exit Codes
