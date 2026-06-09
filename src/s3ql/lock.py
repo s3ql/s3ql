@@ -8,67 +8,63 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import sys
-import textwrap
 from collections.abc import Sequence
+from typing import Annotated
 
 import pyfuse3
+import typer
 
 from .common import assert_fs_owner
-from .logging import QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import QuietError, setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    make_app,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
-
-    parser = ArgumentParser(
-        description=textwrap.dedent(
-            '''\
-        Makes the given directory tree(s) immutable. No changes of any sort can
-        be performed on the tree after that. Immutable entries can only be
-        deleted with s3qlrm.
-        '''
-        )
-    )
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    parser.add_argument(
-        'path',
-        metavar='<path>',
-        nargs='+',
-        help='Directories to make immutable.',
-        type=(lambda x: x.rstrip('/')),
-    )
-
-    return parser.parse_args(args)
+app = make_app()
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    '''Make directory tree immutable'''
+@app.command()
+@trio_command
+async def lock(
+    path: Annotated[
+        list[str], typer.Argument(metavar='<path>', help='Directories to make immutable.')
+    ],
+    log_target: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Make the given directory tree(s) immutable.
 
-    if args is None:
-        args = sys.argv[1:]
+    No changes of any sort can be performed on the tree after that. Immutable entries can
+    only be deleted with s3qlrm.
+    '''
+    setup_logging(quiet=quiet, log=log_target, debug=debug, debug_modules=debug_modules)
 
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(quiet=options.quiet, log=options.log, debug_modules=options.debug)
-
-    for name in options.path:
+    for name in path:
+        name = name.rstrip('/')
         if os.path.ismount(name):
             raise QuietError('%s is a mount point.' % name)
         ctrlfile = assert_fs_owner(name)
         fstat = os.stat(name)
         pyfuse3.setxattr(ctrlfile, 'lock', ('%d' % fstat.st_ino).encode())
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Make directory tree immutable'''
+
+    run_app(app, args, prog_name='s3qllock')
 
 
 if __name__ == '__main__':

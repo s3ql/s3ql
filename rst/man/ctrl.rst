@@ -29,35 +29,55 @@ in :var:`mountpoint`.
 the file system was mounted with :cmdopt:`--allow-other` or :cmdopt:`--allow-root`) the
 root user.
 
-The following actions may be specified:
+Every subcommand takes the *mountpoint* of the file system as its first argument, plus
+any additional arguments described below. The following subcommands are available:
 
-  :flushcache:
-              Write all modified blocks to the backend. The command blocks until the
-              cache is clean.
 
-  :dropcache:
-              Flush the filesystem cache and then drop all contents (i.e., make the cache
-              empty).
+flushcache
+----------
 
-  :log:
-              Change the amount of information that is logged. The complete syntax is::
+Write all modified blocks to the backend. The command blocks until the cache is clean::
 
-                s3qlctrl [options] log <mountpoint> <level> [<module> ...]
+  s3qlctrl [options] flushcache <mountpoint>
 
-              here :var:`level` is the desired new log level and may be either of *debug*,
-              *info* or *warn*. One or more :var:`module` may only be specified with the
-              *debug* level and allow to restrict the debug output to just the listed
-              modules.
 
-  :cachesize:
-              Changes the cache size of the file
-              system. This action requires an additional argument that specifies the new
-              cache size in KiB, so the complete command line is::
+dropcache
+---------
 
-                s3qlctrl [options] cachesize <mountpoint> <new-cache-size>
+Flush the file system cache and then drop all contents (i.e., make the cache empty)::
 
-  :backup-metadata:
-              Trigger a metadata backup.
+  s3qlctrl [options] dropcache <mountpoint>
+
+
+backup-metadata
+---------------
+
+Trigger an immediate metadata backup::
+
+  s3qlctrl [options] backup-metadata <mountpoint>
+
+
+cachesize
+---------
+
+Change the cache size of the file system::
+
+  s3qlctrl [options] cachesize <mountpoint> <size>
+
+:var:`size` is the new cache size in KiB.
+
+
+log
+---
+
+Change the amount of information that is logged by the mounted file system::
+
+  s3qlctrl [options] log <mountpoint> <level> [<module> ...]
+
+:var:`level` is the desired new log level and may be either of *debug*, *info* or *warn*.
+One or more :var:`module` may only be specified together with the *debug* level and
+restrict the debug output to just the listed modules. Specify *all* to enable debugging
+for every module.
 
 
 .. end_main_content
@@ -70,7 +90,8 @@ The |command| command also accepts the following options, no matter
 what specific action is being invoked:
 
 .. pipeinclude:: s3qlctrl --help
-   :start-after: show this help message and exit
+   :start-after: Options:
+   :end-before: Commands:
 
 
 Exit Codes

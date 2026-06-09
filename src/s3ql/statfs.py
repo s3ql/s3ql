@@ -8,63 +8,58 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import struct
 import sys
 from collections.abc import Sequence
+from typing import Annotated
 
 import pyfuse3
+import typer
 
 from .common import assert_fs_owner, pretty_print_size
-from .logging import setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    make_app,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
-
-    parser = ArgumentParser(description="Print file system statistics.")
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    parser.add_argument(
-        "mountpoint",
-        metavar='<mountpoint>',
-        type=(lambda x: x.rstrip('/')),
-        help='Mount point of the file system to examine',
-    )
-
-    parser.add_argument(
-        "--raw", action="store_true", default=False, help="Do not pretty-print numbers"
-    )
-
-    return parser.parse_args(args)
+app = make_app()
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    '''Print file system statistics to sys.stdout'''
+@app.command()
+@trio_command
+async def statfs(
+    mountpoint: Annotated[
+        str,
+        typer.Argument(metavar='<mountpoint>', help='Mount point of the file system to examine'),
+    ],
+    raw: Annotated[bool, typer.Option('--raw', help='Do not pretty-print numbers')] = False,
+    log_target: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Print file system statistics.'''
+    setup_logging(quiet=quiet, log=log_target, debug=debug, debug_modules=debug_modules)
 
-    if args is None:
-        args = sys.argv[1:]
+    mountpoint = mountpoint.rstrip('/')
 
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(quiet=options.quiet, log=options.log, debug_modules=options.debug)
-
-    if options.raw:
+    if raw:
 
         def pprint(bytes_: int) -> str:
             return '%d bytes' % bytes_
     else:
         pprint = pretty_print_size
 
-    ctrlfile = assert_fs_owner(options.mountpoint, mountpoint=True)
+    ctrlfile = assert_fs_owner(mountpoint, mountpoint=True)
 
     # Use a decent sized buffer, otherwise the statistics have to be
     # calculated three(!) times because we need to invoke getxattr
@@ -102,6 +97,12 @@ def main(args: Sequence[str] | None = None) -> None:
         'Queued object removals: %d' % (removal_cnt,),
         sep='\n',
     )
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Print file system statistics to sys.stdout'''
+
+    run_app(app, args, prog_name='s3qlstat')
 
 
 if __name__ == '__main__':

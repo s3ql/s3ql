@@ -22,7 +22,7 @@ system.
 The :program:`umount.s3ql` command accepts the following options:
 
 .. pipeinclude:: umount.s3ql --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 If, for some reason, the `umount.s3ql` command does not work, the file
 system can also be unmounted with `fusermount -u -z`. Note that this
