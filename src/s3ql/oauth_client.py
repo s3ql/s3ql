@@ -48,7 +48,7 @@ def main(args: Sequence[str] | None = None) -> None:
 
     setup_warnings()
     options = parse_args(args)
-    setup_logging(options)
+    setup_logging(quiet=options.quiet, log=options.log, debug_modules=options.debug)
 
     # We need full control in order to be able to update metadata
     # cf. https://stackoverflow.com/questions/24718787

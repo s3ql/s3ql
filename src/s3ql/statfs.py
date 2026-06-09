@@ -55,7 +55,7 @@ def main(args: Sequence[str] | None = None) -> None:
 
     setup_warnings()
     options = parse_args(args)
-    setup_logging(options)
+    setup_logging(quiet=options.quiet, log=options.log, debug_modules=options.debug)
 
     if options.raw:
 

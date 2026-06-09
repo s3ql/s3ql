@@ -146,7 +146,11 @@ def main(args: Sequence[str] | None = None) -> None:
         args = sys.argv[1:]
 
     options = parse_args(args)
-    setup_logging(options)
+    setup_logging(
+        quiet=options.quiet,
+        log=options.log,
+        debug_modules=options.debug,
+    )
     setup_warnings()
 
     if options.max_threads is None:

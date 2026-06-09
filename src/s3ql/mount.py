@@ -121,7 +121,12 @@ def main(args: list[str] | None = None) -> None:
     options = parse_args(args)
 
     # Save handler so that we can remove it when daemonizing
-    stdout_log_handler = setup_logging(options)
+    stdout_log_handler = setup_logging(
+        quiet=options.quiet,
+        log=options.log,
+        debug_modules=options.debug,
+        systemd=options.systemd,
+    )
 
     if not os.path.exists(options.mountpoint):
         raise QuietError('Mountpoint does not exist.', exitcode=36)

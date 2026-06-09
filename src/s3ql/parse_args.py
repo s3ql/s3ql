@@ -36,21 +36,94 @@ from __future__ import annotations
 # pylint: disable-all
 import argparse
 import configparser
+import functools
 import logging
 import os
 import re
 import stat
 import sys
 from argparse import ArgumentError, ArgumentTypeError
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from getpass import getpass
+from typing import Annotated, ParamSpec
+
+import trio
+import typer
 
 from . import RELEASE
 from .backends import async_prefix_map
 from .common import escape
+from .logging import setup_warnings
 
 DEFAULT_USAGE: object = object()
 log: logging.Logger = logging.getLogger(__name__)
+
+P = ParamSpec('P')
+
+
+def trio_command(fn: Callable[P, Awaitable[None]]) -> Callable[P, None]:
+    '''Adapt an `async def` Typer command so it runs under `trio.run`.
+
+    Typer inspects a command's signature via `inspect.signature`, which follows the
+    `__wrapped__` attribute set by `functools.wraps`. The async function's full
+    `Annotated[...]` signature is therefore visible to Typer even though the wrapper
+    itself is synchronous, so command parameters need to be declared only once.
+    '''
+
+    @functools.wraps(fn)
+    def wrapper(*args: P.args, **kwargs: P.kwargs) -> None:
+        async def _entry() -> None:
+            await fn(*args, **kwargs)
+
+        trio.run(_entry)
+
+    return wrapper
+
+
+def run_app(app: typer.Typer, args: Sequence[str] | None, prog_name: str) -> None:
+    '''Run a Typer *app* as an entry point.
+
+    Unlike calling *app* directly, this returns normally when the command succeeds instead
+    of raising `SystemExit(0)`. Non-zero exits (argument errors, `--help`, explicit failures)
+    still propagate so the process exits with the right status. This keeps in-process callers
+    (such as the test suite) from treating a successful run as an error.
+    '''
+    setup_warnings()
+    try:
+        app(args if args is not None else sys.argv[1:], prog_name=prog_name)
+    except SystemExit as exc:
+        if exc.code:
+            raise
+
+
+# Shared parameter type aliases. Defining the help text once here keeps it consistent
+# across all entry points that accept the same option.
+LogDest = Annotated[
+    str | None,
+    typer.Option(
+        metavar='<target>',
+        help="Destination for log messages. Specify 'none' for standard output or 'syslog' "
+        "for the system logging daemon. Anything else is interpreted as a file name. Log files "
+        "are rotated when they reach 1 MiB, keeping at most 5 old files.",
+    ),
+]
+DebugModules = Annotated[
+    list[str] | None,
+    typer.Option(
+        metavar='<module>',
+        help="Activate debugging output from the named module. May be given multiple times; "
+        "use 'all' for everything. Debug messages are written to the destination given by --log.",
+    ),
+]
+DebugFlag = Annotated[
+    bool,
+    typer.Option(
+        '--debug',
+        help="Activate debugging output from all S3QL modules. Debug messages are written to "
+        "the destination given by --log.",
+    ),
+]
+QuietFlag = Annotated[bool, typer.Option('--quiet', help="be really quiet")]
 
 
 class HelpFormatter(argparse.HelpFormatter):

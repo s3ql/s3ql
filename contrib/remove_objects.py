@@ -47,7 +47,11 @@ def main(args=None):
 
     setup_warnings()
     options = parse_args(args)
-    setup_logging(options)
+    setup_logging(
+        quiet=options.quiet,
+        log=options.log,
+        debug_modules=options.debug,
+    )
 
     trio.run(main_async, options)
 
