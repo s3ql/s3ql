@@ -245,10 +245,11 @@ class AsyncBackend(metaclass=ABCMeta):
             )
 
     @classmethod
-    async def create(cls: type[T], options: BackendOptionsProtocol) -> T:
+    async def create(cls: type[T], options: BackendOptionsProtocol, max_connections: int = 1) -> T:
         '''Async factory method to create backend instances.
 
-        Subclasses must override this method to perform initialization.
+        *max_connections* bounds the number of concurrent wire-level requests the backend may
+        issue. Subclasses must override this method to perform initialization.
         '''
         raise NotImplementedError(f'{cls.__name__}.create() must be implemented by subclass')
 

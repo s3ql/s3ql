@@ -41,7 +41,10 @@ class PipeInclude(Include):
             command_list[0] = sys.executable
 
         with tempfile.NamedTemporaryFile() as fh:
-            exitcode = subprocess.call(command_list, stdout=fh, cwd=source_dir)
+            # Signal S3QL commands to render plain `--help` output (no rich colors/boxes) so
+            # the captured text is suitable for inclusion in the documentation.
+            env = {**os.environ, 'S3QL_BUILDING_DOCS': '1'}
+            exitcode = subprocess.call(command_list, stdout=fh, cwd=source_dir, env=env)
             if exitcode != 0:
                 raise self.severe(
                     f'Problems with "{self.name}" directive:\n'

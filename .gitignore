@@ -6,6 +6,7 @@ __pycache__/
 /dist/
 /doc/
 /rst/autogen/
+/rst/builddir/
 /s3ql.old/
 /src/s3ql.egg-info/
 /src/s3ql/*.so
