@@ -9,7 +9,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 from __future__ import annotations
 
 import _thread
-import argparse
 import faulthandler
 import logging
 import os
@@ -23,18 +22,20 @@ import subprocess
 import sys
 import threading
 import time
-from argparse import Namespace
+from collections.abc import Sequence
 from contextlib import AsyncExitStack
 from types import FrameType, TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Annotated
 
 import pyfuse3
 import trio
+import typer
 
 from s3ql.backends.comprenc import AsyncComprencBackend
 
 from . import fs
-from .backends import open_backend
+from .authinfo import Authinfo, CompressAlgorithm, CompressSpec
+from .backends import open_backend_v2
 from .block_cache import BlockCache
 from .common import is_mounted
 from .daemonize import daemonize
@@ -50,13 +51,35 @@ from .database import (
     write_params,
 )
 from .inode_cache import InodeCache
-from .logging import ConsoleHandler, QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import QuietError, setup_logging
+from .parse_args import (
+    DEFAULT_AUTHFILE,
+    AuthFile,
+    BackendOptions,
+    CacheDir,
+    Compress,
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    MaxConnections,
+    MaxThreads,
+    QuietFlag,
+    StorageUrl,
+    init_cachedir,
+    make_app,
+    pick,
+    run_app,
+    trio_command,
+)
 
 if TYPE_CHECKING:
     from .fs import Operations
 
 log = logging.getLogger(__name__)
+
+DEFAULT_MOUNT_LOG = os.path.expanduser('~/.s3ql/mount.log')
+
+app = make_app()
 
 
 def systemd_notify(message: str) -> None:
@@ -110,135 +133,161 @@ def install_thread_excepthook() -> None:
     threading.Thread.__init__ = init  # type: ignore[method-assign]
 
 
-def main(args: list[str] | None = None) -> None:
-    '''Mount S3QL file system'''
-
-    if args is None:
-        args = sys.argv[1:]
-
-    install_thread_excepthook()
-    setup_warnings()
-    options = parse_args(args)
-
+@app.command()
+@trio_command
+async def mount(
+    storage_url: StorageUrl,
+    mountpoint: Annotated[
+        str, typer.Argument(metavar='<mountpoint>', help='Where to mount the file system')
+    ],
+    authfile: AuthFile = None,
+    cachedir: CacheDir = None,
+    backend_options: BackendOptions = None,
+    compress: Compress = None,
+    cachesize: Annotated[
+        int | None,
+        typer.Option(metavar='<size>', help='Cache size in KiB (default: autodetect).'),
+    ] = None,
+    max_cache_entries: Annotated[
+        int | None,
+        typer.Option(
+            metavar='<num>',
+            help='Maximum number of entries in cache (default: autodetect). Each cache entry '
+            'requires one file descriptor, so if you increase this number you have to make sure '
+            'that your process file descriptor limit (as set with `ulimit -n`) is high enough (at '
+            'least the number of cache entries + 100).',
+        ),
+    ] = None,
+    keep_cache: Annotated[
+        bool, typer.Option('--keep-cache', help='Do not purge locally cached files on exit.')
+    ] = False,
+    allow_other: Annotated[
+        bool,
+        typer.Option(
+            '--allow-other',
+            help='Normally, only the user who called `mount.s3ql` can access the mount point. This '
+            'user then also has full access to it, independent of individual file permissions. If '
+            'the --allow-other option is specified, other users can access the mount point as well '
+            'and individual file permissions are taken into account for all users.',
+        ),
+    ] = False,
+    allow_root: Annotated[
+        bool,
+        typer.Option(
+            '--allow-root',
+            help='Like --allow-other, but restrict access to the mounting user and the root user.',
+        ),
+    ] = False,
+    dirty_block_upload_delay: Annotated[
+        int,
+        typer.Option(
+            metavar='<seconds>',
+            help='Upload delay for dirty blocks in seconds (default: 10 seconds).',
+        ),
+    ] = 10,
+    fg: Annotated[bool, typer.Option('--fg', help='Do not daemonize, stay in foreground')] = False,
+    fs_name: Annotated[
+        str | None,
+        typer.Option(
+            help='Mount name passed to fuse, the name will be shown in the first column of the '
+            'system mount command output. If not specified your storage url is used.',
+        ),
+    ] = None,
+    systemd: Annotated[
+        bool,
+        typer.Option(
+            '--systemd',
+            help='Run as systemd unit. Consider specifying --log none as well to make use of '
+            'journald.',
+        ),
+    ] = False,
+    metadata_backup_interval: Annotated[
+        int,
+        typer.Option(
+            metavar='<seconds>',
+            help='Interval between metadata backups. Should the filesystem crash while mounted, '
+            'modifications made after the most recent metadata backup may be lost. During backups, '
+            'the filesystem will be unresponsive. Default: 6h',
+        ),
+    ] = 6 * 60 * 60,
+    max_connections: MaxConnections = None,
+    max_threads: MaxThreads = None,
+    nfs: Annotated[
+        bool,
+        typer.Option(
+            '--nfs', help='Enable some optimizations for exporting the file system over NFS.'
+        ),
+    ] = False,
+    log_target: LogDest = DEFAULT_MOUNT_LOG,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Mount an S3QL file system.'''
     # Save handler so that we can remove it when daemonizing
     stdout_log_handler = setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
-        systemd=options.systemd,
+        quiet=quiet,
+        log=log_target,
+        debug=debug,
+        debug_modules=debug_modules,
+        systemd=systemd,
     )
 
-    if not os.path.exists(options.mountpoint):
+    if allow_other and allow_root:
+        raise typer.BadParameter('--allow-other and --allow-root are mutually exclusive.')
+    if (log_target is None or log_target.lower() == 'none') and not (fg or systemd):
+        raise typer.BadParameter(
+            'Please activate logging to a file or syslog, or use the --fg option.'
+        )
+
+    mountpoint = os.path.abspath(mountpoint)
+
+    if not os.path.exists(mountpoint):
         raise QuietError('Mountpoint does not exist.', exitcode=36)
 
-    # Check if fs is mounted on this computer
-    # This is not foolproof but should prevent common mistakes
-    if is_mounted(options.storage_url):
+    # Check if fs is mounted on this computer. This is not foolproof but should prevent
+    # common mistakes.
+    if is_mounted(storage_url):
         raise QuietError('File system already mounted elsewhere on this machine.', exitcode=40)
 
-    if options.max_threads is None:
-        options.max_threads = determine_threads(options.compress)
-    AsyncComprencBackend.set_max_threads(options.max_threads)
+    authinfo = Authinfo.from_file(pick(authfile, DEFAULT_AUTHFILE), storage_url)
+    compress_spec = CompressSpec.parse(compress) if compress is not None else authinfo.compress
+    max_conns = pick(max_connections, authinfo.max_connections)
+    cache_dir = pick(cachedir, authinfo.cachedir)
+    cachepath = init_cachedir(cache_dir, storage_url)
 
-    avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
-    if avail_fd == resource.RLIM_INFINITY:
-        avail_fd = 4096
-    resource.setrlimit(resource.RLIMIT_NOFILE, (avail_fd, avail_fd))
+    threads = pick(max_threads, authinfo.max_threads) or determine_threads(compress_spec)
+    AsyncComprencBackend.set_max_threads(threads)
 
-    # Subtract some fd's for random things we forgot, and a fixed number for
-    # each upload connection (because each connection is using at least one
-    # socket and at least one temporary file)
-    avail_fd -= 32 + 3 * options.max_connections
+    cachedir_abs = os.path.abspath(cache_dir)
+    cache_entries = _determine_max_cache_entries(max_cache_entries, max_conns)
+    backup_interval = None if metadata_backup_interval == 0 else metadata_backup_interval
 
-    if options.max_cache_entries is None:
-        if avail_fd <= 64:
-            raise QuietError("Not enough available file descriptors.", exitcode=37)
-        log.info('Autodetected %d file descriptors available for cache entries', avail_fd)
-        options.max_cache_entries = avail_fd
-    else:
-        if options.max_cache_entries > avail_fd:
-            log.warning(
-                "Up to %d cache entries requested, but detected only %d "
-                "available file descriptors.",
-                options.max_cache_entries,
-                avail_fd,
-            )
-            options.max_cache_entries = avail_fd
-
-    if options.profile:
-        import cProfile
-        import pstats
-
-        prof = cProfile.Profile()
-        prof.runcall(trio.run, main_async, options, stdout_log_handler)
-        with open('s3ql_profile.txt', 'w') as fh:
-            prof.dump_stats('s3ql_profile.dat')
-            p = pstats.Stats('s3ql_profile.dat', stream=fh)
-            p.strip_dirs()
-            p.sort_stats('cumulative')
-            p.print_stats(50)
-            p.sort_stats('time')
-            p.print_stats(50)
-    else:
-        # trio.run(main_async, options, stdout_log_handler,
-        #         instruments=[Tracer()])
-        trio.run(main_async, options, stdout_log_handler)
-
-
-class Tracer(trio.abc.Instrument):
-    _sleep_time: float
-
-    def _print_with_task(self, msg: str, task: trio.lowlevel.Task) -> None:
-        print(f"{msg}: {task.name}")
-
-    def task_spawned(self, task: trio.lowlevel.Task) -> None:
-        self._print_with_task("### new task spawned", task)
-
-    def task_scheduled(self, task: trio.lowlevel.Task) -> None:
-        self._print_with_task("### task scheduled", task)
-
-    def before_task_step(self, task: trio.lowlevel.Task) -> None:
-        self._print_with_task(">>> about to run one step of task", task)
-
-    def after_task_step(self, task: trio.lowlevel.Task) -> None:
-        self._print_with_task("<<< task step finished", task)
-
-    def task_exited(self, task: trio.lowlevel.Task) -> None:
-        self._print_with_task("### task exited", task)
-
-    def before_io_wait(self, timeout: float) -> None:
-        if timeout:
-            print(f"### waiting for I/O for up to {timeout} seconds")
-        else:
-            print("### doing a quick check for I/O")
-        self._sleep_time = trio.current_time()
-
-    def after_io_wait(self, timeout: float) -> None:
-        duration = trio.current_time() - self._sleep_time
-        print(f"### finished I/O check (took {duration} seconds)")
-
-
-async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | None) -> None:
-    # Get paths
-    cachepath = options.cachepath
-
-    backend = await open_backend(options)
+    backend = await open_backend_v2(
+        storage_url,
+        authinfo,
+        backend_options=backend_options,
+        max_connections=max_conns,
+        compress=compress_spec,
+    )
     (param, db) = await get_metadata(backend, cachepath)
 
     # Handle --cachesize (all values in KiB)
-    rec_cachesize = options.max_cache_entries * param.data_block_size / 2 / 1024
+    rec_cachesize = cache_entries * param.data_block_size / 2 / 1024
     avail_cache = shutil.disk_usage(os.path.dirname(cachepath))[2] / 1024
-    if options.cachesize is None:
-        options.cachesize = min(rec_cachesize, 0.8 * avail_cache)
-        log.info('Setting cache size to %d MB', options.cachesize / 1024)
-    elif options.cachesize > avail_cache:
-        log.warning(
-            'Requested cache size %d MB, but only %d MB available',
-            options.cachesize / 1024,
-            avail_cache / 1024,
-        )
+    if cachesize is None:
+        eff_cachesize = min(rec_cachesize, 0.8 * avail_cache)
+        log.info('Setting cache size to %d MB', eff_cachesize / 1024)
+    else:
+        eff_cachesize = cachesize
+        if eff_cachesize > avail_cache:
+            log.warning(
+                'Requested cache size %d MB, but only %d MB available',
+                eff_cachesize / 1024,
+                avail_cache / 1024,
+            )
 
-    if options.nfs:
+    if nfs:
         # NFS may try to look up '..', so we have to speed up this kind of query
         log.info('Creating NFS indices...')
         db.execute('CREATE INDEX IF NOT EXISTS ix_contents_inode ON contents(inode)')
@@ -246,7 +295,13 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     else:
         db.execute('DROP INDEX IF EXISTS ix_contents_inode')
 
-    metadata_upload_task = MetadataUploadTask(param, backend, db, options)
+    metadata_upload_task = MetadataUploadTask(
+        param,
+        backend,
+        db,
+        metadata_backup_interval=backup_interval,
+        cachepath=cachepath,
+    )
 
     async with AsyncExitStack() as cm:
         nursery = await cm.enter_async_context(trio.open_nursery())
@@ -254,11 +309,11 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
             backend,
             db,
             cachepath + '-cache',
-            int(options.cachesize * 1024),
-            max_entries=options.max_cache_entries,
+            int(eff_cachesize * 1024),
+            max_entries=cache_entries,
             nursery=nursery,
         )
-        cm.push_async_callback(block_cache.destroy, options.keep_cache)
+        cm.push_async_callback(block_cache.destroy, keep_cache)
 
         operations = fs.Operations(
             block_cache,
@@ -271,9 +326,15 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         block_cache.fs = operations
         metadata_upload_task.fs = operations
 
-        log.info('Mounting %s at %s...', options.storage_url, options.mountpoint)
+        log.info('Mounting %s at %s...', storage_url, mountpoint)
         try:
-            pyfuse3.init(operations, options.mountpoint, get_fuse_opts(options))
+            fuse_opts = get_fuse_opts(
+                fs_name=fs_name,
+                storage_url=storage_url,
+                allow_other=allow_other,
+                allow_root=allow_root,
+            )
+            pyfuse3.init(operations, mountpoint, fuse_opts)
         except RuntimeError as exc:
             raise QuietError(str(exc), exitcode=39)
 
@@ -285,20 +346,20 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
 
         cm.callback(unmount)
 
-        if options.fg or options.systemd:
+        if fg or systemd:
             faulthandler.enable()
             faulthandler.register(signal.SIGUSR1)
         else:
             if stdout_log_handler:
                 logging.getLogger().removeHandler(stdout_log_handler)
             crit_log_fd = os.open(
-                os.path.join(options.cachedir, 'mount.s3ql_crit.log'),
+                os.path.join(cachedir_abs, 'mount.s3ql_crit.log'),
                 flags=os.O_APPEND | os.O_CREAT | os.O_WRONLY,
                 mode=0o644,
             )
             faulthandler.enable(crit_log_fd)
             faulthandler.register(signal.SIGUSR1, file=crit_log_fd)
-            daemonize(options.cachedir)
+            daemonize(cachedir_abs)
 
         param.seq_no += 1
         param.is_mounted = True
@@ -309,7 +370,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
 
-        commit_task = CommitTask(block_cache, options.dirty_block_upload_delay)
+        commit_task = CommitTask(block_cache, dirty_block_upload_delay)
         nursery.start_soon(commit_task.run, name='commit-task')
         cm.callback(commit_task.stop)
 
@@ -337,7 +398,7 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
         signal.signal(signal.SIGTERM, signal_handler)
         old_handler = signal.signal(signal.SIGINT, signal_handler)
 
-        if options.systemd:
+        if systemd:
             systemd_notify('READY=1')
 
         await pyfuse3.main()
@@ -379,6 +440,44 @@ async def main_async(options: Namespace, stdout_log_handler: ConsoleHandler | No
     await backend.close()
 
     log.info('All done.')
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Mount S3QL file system'''
+
+    install_thread_excepthook()
+    args = _expand_fstab_options(list(args if args is not None else sys.argv[1:]))
+    run_app(app, args, prog_name='mount.s3ql')
+
+
+def _determine_max_cache_entries(max_cache_entries: int | None, max_connections: int) -> int:
+    '''Return the number of cache entries to use, bounded by available file descriptors.'''
+
+    avail_fd = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    if avail_fd == resource.RLIM_INFINITY:
+        avail_fd = 4096
+    resource.setrlimit(resource.RLIMIT_NOFILE, (avail_fd, avail_fd))
+
+    # Subtract some fd's for random things we forgot, and a fixed number for each upload
+    # connection (because each connection is using at least one socket and at least one
+    # temporary file)
+    avail_fd -= 32 + 3 * max_connections
+
+    if max_cache_entries is None:
+        if avail_fd <= 64:
+            raise QuietError("Not enough available file descriptors.", exitcode=37)
+        log.info('Autodetected %d file descriptors available for cache entries', avail_fd)
+        return avail_fd
+
+    if max_cache_entries > avail_fd:
+        log.warning(
+            "Up to %d cache entries requested, but detected only %d available file descriptors.",
+            max_cache_entries,
+            avail_fd,
+        )
+        return avail_fd
+
+    return max_cache_entries
 
 
 def get_system_memory() -> int:
@@ -427,13 +526,12 @@ LZMA_MEMORY: dict[int, int] = {
 }
 
 
-def determine_threads(compress: tuple[str | None, int] | None) -> int:
+def determine_threads(compress: CompressSpec | None) -> int:
     '''Return optimum number of upload threads.
 
-    *compress* is the (algorithm, level) tuple that compression will use,
-    or None if the caller does not perform bulk compressed uploads (e.g.
-    mkfs and adm). When None, the result is sized purely from the CPU
-    count.
+    *compress* is the `CompressSpec` that compression will use, or None if the caller does
+    not perform bulk compressed uploads (e.g. mkfs and adm). When None, the result is sized
+    purely from the CPU count.
     '''
 
     try:
@@ -444,10 +542,10 @@ def determine_threads(compress: tuple[str | None, int] | None) -> int:
 
     memory = get_system_memory()
 
-    if compress is not None and compress[0] == 'lzma':
+    if compress is not None and compress.algorithm is CompressAlgorithm.LZMA:
         # Keep this in sync with compression level in backends/common.py
         # Memory usage according to man xz(1)
-        mem_per_thread = LZMA_MEMORY[compress[1]] * 1024**2
+        mem_per_thread = LZMA_MEMORY[compress.level] * 1024**2
     else:
         # Only check LZMA memory usage
         mem_per_thread = 0
@@ -516,26 +614,28 @@ async def get_metadata(
     return (param, db)
 
 
-def get_fuse_opts(options: Namespace) -> set[str]:
-    '''Return fuse options for given command line options'''
+def get_fuse_opts(
+    fs_name: str | None, storage_url: str, allow_other: bool, allow_root: bool
+) -> set[str]:
+    '''Return fuse options for the given mount configuration'''
 
-    fsname = options.fs_name
+    fsname = fs_name
     if not fsname:
-        fsname = options.storage_url
+        fsname = storage_url
     fuse_opts: set[str] = {'fsname=%s' % fsname, 'subtype=s3ql'}
 
-    if options.allow_other:
+    if allow_other:
         fuse_opts.add('allow_other')
-    if options.allow_root:
+    if allow_root:
         fuse_opts.add('allow_root')
-    if options.allow_other or options.allow_root:
+    if allow_other or allow_root:
         fuse_opts.add('default_permissions')
 
     return fuse_opts
 
 
-def parse_args(args: list[str]) -> Namespace:
-    '''Parse command line'''
+def _expand_fstab_options(args: list[str]) -> list[str]:
+    '''Translate fstab-style `-o key=val,flag` options into long-form arguments.'''
 
     # Parse fstab-style -o options
     if '--' in args:
@@ -584,120 +684,7 @@ def parse_args(args: list[str]) -> Namespace:
                     raise QuietError('Read-only mounting not supported.', exitcode=35)
                 args.insert(pos, '--' + opt)
 
-    parser = ArgumentParser(description="Mount an S3QL file system.")
-
-    parser.add_log('~/.s3ql/mount.log')
-    parser.add_cachedir()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_backend_options()
-    parser.add_version()
-    parser.add_storage_url()
-    parser.add_compress()
-
-    parser.add_argument(
-        "mountpoint",
-        metavar='<mountpoint>',
-        type=os.path.abspath,
-        help='Where to mount the file system',
-    )
-    parser.add_argument(
-        "--cachesize",
-        type=int,
-        default=None,
-        metavar='<size>',
-        help="Cache size in KiB (default: autodetect).",
-    )
-    parser.add_argument(
-        "--max-cache-entries",
-        type=int,
-        default=None,
-        metavar='<num>',
-        help="Maximum number of entries in cache (default: autodetect). "
-        'Each cache entry requires one file descriptor, so if you increase '
-        'this number you have to make sure that your process file descriptor '
-        'limit (as set with `ulimit -n`) is high enough (at least the number '
-        'of cache entries + 100).',
-    )
-    parser.add_argument(
-        "--keep-cache",
-        action="store_true",
-        default=False,
-        help="Do not purge locally cached files on exit.",
-    )
-    parser.add_argument(
-        "--allow-other",
-        action="store_true",
-        default=False,
-        help='Normally, only the user who called `mount.s3ql` can access the mount '
-        'point. This user then also has full access to it, independent of '
-        'individual file permissions. If the `--allow-other` option is '
-        'specified, other users can access the mount point as well and '
-        'individual file permissions are taken into account for all users.',
-    )
-    parser.add_argument(
-        "--allow-root",
-        action="store_true",
-        default=False,
-        help='Like `--allow-other`, but restrict access to the mounting user and the root user.',
-    )
-    parser.add_argument(
-        "--dirty-block-upload-delay",
-        action="store",
-        type=int,
-        default=10,
-        metavar='<seconds>',
-        help="Upload delay for dirty blocks in seconds (default: 10 seconds).",
-    )
-    parser.add_argument(
-        "--fg", action="store_true", default=False, help="Do not daemonize, stay in foreground"
-    )
-    parser.add_argument(
-        "--fs-name",
-        default=None,
-        help="Mount name passed to fuse, the name will be shown in the first "
-        "column of the system mount command output. If not specified your "
-        "storage url is used.",
-    )
-    parser.add_argument(
-        "--systemd",
-        action="store_true",
-        default=False,
-        help="Run as systemd unit. Consider specifying --log none as well to make use of journald.",
-    )
-    parser.add_argument(
-        "--metadata-backup-interval",
-        action="store",
-        type=int,
-        default=6 * 60 * 60,
-        metavar='<seconds>',
-        help='Interval between metadata backups. Should the filesystem crash while mounted, '
-        'modifications made after the most recent metadata backup may be lost. During '
-        'backups, the filesystem will be unresponsile. Default: 6h',
-    )
-    parser.add_max_connections()
-    parser.add_max_threads()
-    parser.add_argument(
-        "--nfs",
-        action="store_true",
-        default=False,
-        help='Enable some optimizations for exporting the file system '
-        'over NFS. (default: %(default)s)',
-    )
-    parser.add_argument("--profile", action="store_true", default=False, help=argparse.SUPPRESS)
-
-    options = parser.parse_args(args)
-
-    if options.allow_other and options.allow_root:
-        parser.error("--allow-other and --allow-root are mutually exclusive.")
-
-    if not options.log and not (options.fg or options.systemd):
-        parser.error("Please activate logging to a file or syslog, or use the --fg option.")
-
-    if options.metadata_backup_interval == 0:
-        options.metadata_backup_interval = None
-
-    return options
+    return args
 
 
 class MetadataUploadTask:
@@ -712,7 +699,8 @@ class MetadataUploadTask:
     event: trio.Event
     quit: bool
     params: FsAttributes
-    options: Namespace
+    metadata_backup_interval: int | None
+    cachepath: str
     fs: Operations | None
 
     def __init__(
@@ -720,7 +708,9 @@ class MetadataUploadTask:
         params: FsAttributes,
         backend: AsyncComprencBackend,
         db: Connection,
-        options: Namespace,
+        *,
+        metadata_backup_interval: int | None,
+        cachepath: str,
     ) -> None:
         super().__init__()
         self.backend = backend
@@ -728,15 +718,16 @@ class MetadataUploadTask:
         self.event = trio.Event()
         self.quit = False
         self.params = params
-        self.options = options
+        self.metadata_backup_interval = metadata_backup_interval
+        self.cachepath = cachepath
         self.fs = None
 
     async def run(self) -> None:
         log.debug('started')
 
         while not self.quit:
-            if self.options.metadata_backup_interval:
-                with trio.move_on_after(self.options.metadata_backup_interval):
+            if self.metadata_backup_interval:
+                with trio.move_on_after(self.metadata_backup_interval):
                     await self.event.wait()
             else:
                 await self.event.wait()
@@ -771,7 +762,7 @@ class MetadataUploadTask:
                     update_params=True,
                     incremental=True,
                 )
-                write_params(self.options.cachepath, self.params)
+                write_params(self.cachepath, self.params)
                 await upload_params(self.backend, self.params)
 
                 # Write a new params file immediately, so that we're in the same state as right
@@ -779,7 +770,7 @@ class MetadataUploadTask:
                 # with a sequence number for which there is no corresponding s3ql_params_*
                 # object.
                 self.params.seq_no += 1
-                write_params(self.options.cachepath, self.params)
+                write_params(self.cachepath, self.params)
                 await upload_params(self.backend, self.params)
 
                 await expire_objects(self.backend)

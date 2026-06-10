@@ -236,6 +236,17 @@ MaxThreads = Annotated[
         'bounds CPU parallelism only and is independent of --max-connections.',
     ),
 ]
+Compress = Annotated[
+    str | None,
+    typer.Option(
+        '--compress',
+        metavar='<algorithm-lvl>',
+        show_default=False,
+        help='Compression algorithm and level to use when storing new data. *algorithm* may be '
+        'any of `lzma`, `bzip2`, `zlib`, or none. *lvl* may be any integer from 0 (fastest) to '
+        '9 (slowest). Default: lzma-6.',
+    ),
+]
 
 
 def init_cachedir(cachedir: str, storage_url: str) -> str:

@@ -20,7 +20,7 @@ command. It has the following syntax::
 This command accepts the following options:
 
 .. pipeinclude:: mount.s3ql --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 
 Permission Checking
