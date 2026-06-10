@@ -24,7 +24,7 @@ import typer
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .authinfo import Authinfo
-from .backends import open_raw_backend_v2, s3
+from .backends import open_raw_backend, s3
 from .backends.comprenc import AsyncComprencBackend
 from .common import split_by_n, time_ns
 from .database import (
@@ -161,7 +161,7 @@ async def mkfs(
     AsyncComprencBackend.set_max_threads(threads)
 
     plain_backend = await stack.enter_async_context(
-        await open_raw_backend_v2(
+        await open_raw_backend(
             storage_url,
             authinfo,
             backend_options=backend_options,

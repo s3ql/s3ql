@@ -18,7 +18,7 @@ from contextlib import ExitStack, suppress
 
 import trio
 
-from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import (
@@ -31,6 +31,7 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
+from .config import BackendConfig
 
 log = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class AsyncBackend(AsyncBackendBase):
     # against the worst-case serial duration.
     request_delay: float = 0.0
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize local backend - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
@@ -67,7 +68,7 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new local backend instance.

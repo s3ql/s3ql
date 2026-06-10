@@ -31,7 +31,7 @@ from s3ql.mount import determine_threads
 
 from . import CTRL_INODE, CURRENT_FS_REV, ROOT_INODE
 from .authinfo import Authinfo
-from .backends import open_backend_v2
+from .backends import open_backend
 from .backends.common import NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .backends.local import AsyncBackend as LocalAsyncBackend
@@ -1296,7 +1296,7 @@ async def fsck(
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=backend_options,

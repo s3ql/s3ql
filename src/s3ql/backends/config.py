@@ -20,8 +20,7 @@ class BackendConfig:
 
     Combines the backend class and storage URL with parsed backend options, credentials, the
     connection limit, and the optional file system passphrase. It is internal to the `backends`
-    layer and handed to `backend_class.create()`; it conforms to
-    `s3ql.types.BackendOptionsProtocol`.
+    layer and handed to `backend_class.create()`.
     '''
 
     backend_class: type[AsyncBackend]

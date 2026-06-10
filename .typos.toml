@@ -7,3 +7,6 @@
 # From faq.rst, in "mount.s3ql_crit.log"
 "crit" = "crit"
 
+[default.extend-words]
+"unparseable" = "unparseable"
+

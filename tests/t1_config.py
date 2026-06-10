@@ -32,7 +32,7 @@ from s3ql.authinfo import (
     CompressSpec,
     pick,
 )
-from s3ql.backends import local, open_raw_backend_v2
+from s3ql.backends import local, open_raw_backend
 from s3ql.logging import QuietError
 
 
@@ -202,7 +202,7 @@ def test_authinfo_insecure_permissions_rejected(tmp_path):
     assert exc.value.exitcode == 12
 
 
-# --- open_raw_backend_v2 -----------------------------------------------------------------------
+# --- open_raw_backend -----------------------------------------------------------------------
 
 
 def _default_authinfo() -> Authinfo:
@@ -210,31 +210,31 @@ def _default_authinfo() -> Authinfo:
 
 
 @pytest.mark.trio
-async def test_open_raw_backend_v2_unknown_scheme():
+async def test_open_raw_backend_unknown_scheme():
     with assert_raises(QuietError) as exc:
-        await open_raw_backend_v2('nosuch://foo', _default_authinfo())
+        await open_raw_backend('nosuch://foo', _default_authinfo())
     assert exc.value.exitcode == 11
 
 
 @pytest.mark.trio
-async def test_open_raw_backend_v2_unparseable_url():
+async def test_open_raw_backend_unparseable_url():
     with assert_raises(QuietError) as exc:
-        await open_raw_backend_v2('not-a-storage-url', _default_authinfo())
+        await open_raw_backend('not-a-storage-url', _default_authinfo())
     assert exc.value.exitcode == 2
 
 
 @pytest.mark.trio
-async def test_open_raw_backend_v2_unknown_suboption(tmp_path):
+async def test_open_raw_backend_unknown_suboption(tmp_path):
     storage_url = 'local://' + tmp_path
     with assert_raises(QuietError) as exc:
-        await open_raw_backend_v2(storage_url, _default_authinfo(), backend_options='badoption')
+        await open_raw_backend(storage_url, _default_authinfo(), backend_options='badoption')
     assert exc.value.exitcode == 3
 
 
 @pytest.mark.trio
-async def test_open_raw_backend_v2_valid(tmp_path):
+async def test_open_raw_backend_valid(tmp_path):
     storage_url = 'local://' + tmp_path
-    backend = await open_raw_backend_v2(storage_url, _default_authinfo())
+    backend = await open_raw_backend(storage_url, _default_authinfo())
     try:
         assert isinstance(backend, local.AsyncBackend)
     finally:

@@ -41,7 +41,7 @@ from s3ql.mount import determine_threads, get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
 from .authinfo import Authinfo
-from .backends import open_backend_v2, open_raw_backend_v2
+from .backends import open_backend, open_raw_backend
 from .backends.common import NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .common import (
@@ -147,7 +147,7 @@ async def passphrase(ctx: typer.Context, storage_url: StorageUrl, *, stack: Asyn
     args = get_shared_args(ctx)
     authinfo, _cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,
@@ -196,7 +196,7 @@ async def recover_key(
     args = get_shared_args(ctx)
     authinfo, _cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_raw_backend_v2(
+        await open_raw_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,
@@ -239,7 +239,7 @@ async def clear(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExit
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_raw_backend_v2(
+        await open_raw_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,
@@ -315,7 +315,7 @@ async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: Async
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,
@@ -369,7 +369,7 @@ async def upgrade(
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,
@@ -512,7 +512,7 @@ async def restore_metadata(
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=args.backend_options,

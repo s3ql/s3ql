@@ -23,7 +23,7 @@ from typing import IO, Annotated
 import typer
 
 from .authinfo import Authinfo
-from .backends import open_backend_v2
+from .backends import open_backend
 from .backends.common import CorruptedObjectError, NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .common import ParallelPipeline, pretty_print_size, sha256_fh
@@ -125,7 +125,7 @@ async def verify(
     corrupted_fh = _open_new_file(corrupted_file)
 
     backend = await stack.enter_async_context(
-        await open_backend_v2(
+        await open_backend(
             storage_url,
             authinfo,
             backend_options=backend_options,

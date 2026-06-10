@@ -16,11 +16,12 @@ import ssl
 from urllib.parse import urlparse
 
 from s3ql.http import CaseInsensitiveDict, HTTPConnection, HTTPResponse
-from s3ql.types import BackendOptionsProtocol, BasicMappingT
+from s3ql.types import BasicMappingT
 
 from ..logging import QuietError
 from . import s3c4
 from .common import AuthenticationError, AuthorizationError
+from .config import BackendConfig
 from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ class AsyncBackend(s3c4.AsyncBackend):
 
     known_options: set[str] = s3c4.AsyncBackend.known_options - {'sig-region'}
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         super().__init__(options=options, max_connections=max_connections)
         # `s3c4` reads `sig-region` from backend options (defaulting to
@@ -51,7 +52,7 @@ class AsyncBackend(s3c4.AsyncBackend):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new Backblaze B2 (S3-compatible) backend instance.'''

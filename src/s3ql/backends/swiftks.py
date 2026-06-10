@@ -13,11 +13,11 @@ import urllib.parse
 from urllib.parse import urlsplit
 
 from s3ql.http import CaseInsensitiveDict, HTTPConnection
-from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import swift
 from .common import AuthorizationError, DanglingStorageURLError, retry
+from .config import BackendConfig
 from .s3c import HTTPError
 from .swift import _AuthResult
 
@@ -35,7 +35,7 @@ class AsyncBackend(swift.AsyncBackend):
         'identity-url',
     }
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize swiftks backend - use AsyncBackend.create() instead.'''
         self.region = None
         super().__init__(options=options, max_connections=max_connections)

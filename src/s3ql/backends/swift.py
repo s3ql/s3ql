@@ -32,7 +32,7 @@ from s3ql.http import (
     fh_size,
     is_temp_network_error,
 )
-from s3ql.types import BackendOptionsProtocol, BinaryInput, BinaryOutput
+from s3ql.types import BinaryInput, BinaryOutput
 
 from ..logging import LOG_ONCE, QuietError
 from .common import (
@@ -54,6 +54,7 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
+from .config import BackendConfig
 from .s3c import BadDigestError, HTTPError
 
 log = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type['AsyncBackend'],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> 'AsyncBackend':
         '''Create a new Swift backend instance.
@@ -192,7 +193,7 @@ class AsyncBackend(AsyncBackendBase):
 
         return meta
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize swift backend - use AsyncBackend.create() instead.'''
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
         self.options = options.backend_options

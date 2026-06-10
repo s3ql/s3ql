@@ -16,10 +16,10 @@ from xml.sax.saxutils import escape as xml_escape
 from more_itertools import chunked
 
 from s3ql.http import CaseInsensitiveDict
-from s3ql.types import BackendOptionsProtocol
 
 from . import s3c
 from .common import log_delete_progress, retry
+from .config import BackendConfig
 from .s3c import get_S3Error, md5sum_b64
 
 log = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class AsyncBackend(s3c.AsyncBackend):
 
     known_options = s3c.AsyncBackend.known_options | {'sig-region'}
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         sig_region = options.backend_options.get('sig-region', 'us-east-1')
         assert isinstance(sig_region, str)
@@ -49,7 +49,7 @@ class AsyncBackend(s3c.AsyncBackend):
     @classmethod
     async def create(
         cls: type['AsyncBackend'],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> 'AsyncBackend':
         '''Create a new S3-compatible (v4 signature) backend instance.'''

@@ -34,7 +34,7 @@ from s3ql.http import (
     fh_size,
     is_temp_network_error,
 )
-from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
 from ..common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 from ..logging import QuietError
@@ -54,6 +54,7 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
+from .config import BackendConfig
 
 log = logging.getLogger(__name__)
 
@@ -194,9 +195,7 @@ class AsyncBackend(AsyncBackendBase):
     _pool: Pool
 
     @classmethod
-    async def create(
-        cls, options: BackendOptionsProtocol, max_connections: int = 1
-    ) -> AsyncBackend:
+    async def create(cls, options: BackendConfig, max_connections: int = 1) -> AsyncBackend:
         backend = cls(_FACTORY_SENTINEL, options, max_connections)
         await backend._check_bucket()
         return backend
@@ -204,7 +203,7 @@ class AsyncBackend(AsyncBackendBase):
     def __init__(
         self,
         _sentinel: object,
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> None:
         if _sentinel is not _FACTORY_SENTINEL:

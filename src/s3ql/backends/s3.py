@@ -14,10 +14,10 @@ import ssl
 from urllib.parse import urlsplit
 
 from s3ql.http import CaseInsensitiveDict, HTTPConnection
-from s3ql.types import BackendOptionsProtocol
 
 from ..logging import QuietError
 from . import s3c4
+from .config import BackendConfig
 
 log = logging.getLogger(__name__)
 
@@ -40,7 +40,7 @@ class AsyncBackend(s3c4.AsyncBackend):
     }
     region: str
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
         self.region = ''
         super().__init__(options=options, max_connections=max_connections)
@@ -50,7 +50,7 @@ class AsyncBackend(s3c4.AsyncBackend):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new Amazon S3 backend instance.'''

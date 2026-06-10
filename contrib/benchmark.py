@@ -27,7 +27,7 @@ import typer
 
 from s3ql import BUFSIZE
 from s3ql.authinfo import Authinfo
-from s3ql.backends import open_raw_backend_v2
+from s3ql.backends import open_raw_backend
 from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.logging import setup_logging
 from s3ql.parse_args import (
@@ -155,7 +155,7 @@ async def benchmark(
 
     authinfo = Authinfo.from_file(pick(authfile, DEFAULT_AUTHFILE), storage_url)
     backend = await stack.enter_async_context(
-        await open_raw_backend_v2(
+        await open_raw_backend(
             storage_url, authinfo, backend_options=backend_options, max_connections=1
         )
     )

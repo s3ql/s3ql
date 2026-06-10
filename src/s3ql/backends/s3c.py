@@ -38,7 +38,7 @@ from s3ql.http import (
     fh_size,
     is_temp_network_error,
 )
-from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
 from ..logging import QuietError
 from .common import (
@@ -59,6 +59,7 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
+from .config import BackendConfig
 
 C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 C_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -94,7 +95,7 @@ class AsyncBackend(AsyncBackendBase):
     login: str
     _extra_put_headers: CaseInsensitiveDict
 
-    def __init__(self, *, options: BackendOptionsProtocol, max_connections: int = 1) -> None:
+    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
@@ -125,7 +126,7 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendOptionsProtocol,
+        options: BackendConfig,
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new S3-compatible backend instance.'''

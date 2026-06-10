@@ -8,10 +8,7 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
-
-if TYPE_CHECKING:
-    from s3ql.backends.common import AsyncBackend
+from typing import Protocol
 
 
 class HashFunction(Protocol):
@@ -43,16 +40,6 @@ class CompressorProtocol(Protocol):
 # Type aliases
 ElementaryT = int | float | str | bytes | complex | bool | None
 BasicMappingT = dict[str, ElementaryT]
-
-
-class BackendOptionsProtocol(Protocol):
-    """Protocol for backend options object passed to backend constructors."""
-
-    backend_class: type[AsyncBackend]
-    storage_url: str
-    backend_options: dict[str, str | bool]
-    backend_login: str
-    backend_password: str
 
 
 class BinaryInput(Protocol):

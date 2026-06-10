@@ -35,7 +35,7 @@ from s3ql.backends.comprenc import AsyncComprencBackend
 
 from . import fs
 from .authinfo import Authinfo, CompressAlgorithm, CompressSpec
-from .backends import open_backend_v2
+from .backends import open_backend
 from .block_cache import BlockCache
 from .common import is_mounted
 from .daemonize import daemonize
@@ -263,7 +263,7 @@ async def mount(
     cache_entries = _determine_max_cache_entries(max_cache_entries, max_conns)
     backup_interval = None if metadata_backup_interval == 0 else metadata_backup_interval
 
-    backend = await open_backend_v2(
+    backend = await open_backend(
         storage_url,
         authinfo,
         backend_options=backend_options,

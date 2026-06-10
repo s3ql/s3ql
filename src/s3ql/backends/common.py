@@ -34,10 +34,12 @@ from s3ql import BUFSIZE
 from s3ql.common import ParallelPipeline
 from s3ql.http import HTTPConnection, HTTPResponse, InvalidResponse
 from s3ql.logging import LOG_ONCE, QuietError
-from s3ql.types import BackendOptionsProtocol, BasicMappingT, BinaryInput, BinaryOutput
+from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 
 if TYPE_CHECKING:
     from hmac import HMAC
+
+    from .config import BackendConfig
 
 F = TypeVar('F', bound=Callable[..., object])
 T = TypeVar('T', bound='AsyncBackend')
@@ -245,7 +247,7 @@ class AsyncBackend(metaclass=ABCMeta):
             )
 
     @classmethod
-    async def create(cls: type[T], options: BackendOptionsProtocol, max_connections: int = 1) -> T:
+    async def create(cls: type[T], options: BackendConfig, max_connections: int = 1) -> T:
         '''Async factory method to create backend instances.
 
         *max_connections* bounds the number of concurrent wire-level requests the backend may
