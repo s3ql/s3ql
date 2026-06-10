@@ -13,72 +13,57 @@ This work can be distributed under the terms of the GNU GPLv3.
 import logging
 import subprocess
 import sys
-from argparse import ArgumentTypeError
+from collections.abc import Sequence
+from typing import Annotated
 
-from s3ql.logging import setup_logging, setup_warnings
-from s3ql.parse_args import ArgumentParser
+import typer
+
+from s3ql.logging import setup_logging
+from s3ql.parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    run_app,
+    trio_command,
+)
 
 log = logging.getLogger(__name__)
 
 pool = ('abcdefghijklmnopqrstuvwxyz', 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '0123456789')
 
+app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 
-def processes_to_int(string):
-    value = int(string)
-    if value < 2 or value > len(pool[0]) + 1:
-        raise ArgumentTypeError(
-            "%d needs to be between 2 and %d (inclusive)" % (value, len(pool[0]) + 1)
+
+@app.command()
+@trio_command
+async def pcp(
+    paths: Annotated[
+        list[str],
+        typer.Argument(metavar='<source>... <dest>', help='Directories to copy, then the target'),
+    ],
+    archive: Annotated[bool, typer.Option('-a', help='Pass -aHAX option to rsync.')] = False,
+    processes: Annotated[
+        int, typer.Option(metavar='<no>', help='Number of rsync processes to use.')
+    ] = 10,
+    log_target: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Recursively copy source(s) to destination using multiple parallel rsync processes.'''
+    setup_logging(quiet=quiet, log=log_target, debug=debug, debug_modules=debug_modules)
+
+    if len(paths) < 2:
+        raise typer.BadParameter('Need at least one source and a destination.')
+    if processes < 2 or processes > len(pool[0]) + 1:
+        raise typer.BadParameter(
+            '%d needs to be between 2 and %d (inclusive)' % (processes, len(pool[0]) + 1)
         )
-    return value
 
-
-def parse_args(args):
-    '''Parse command line'''
-
-    parser = ArgumentParser(
-        description='Recursively copy source(s) to destination using multiple '
-        'parallel rsync processes.'
-    )
-
-    parser.add_log()
-    parser.add_quiet()
-    parser.add_debug()
-    parser.add_version()
-
-    parser.add_argument("-a", action="store_true", help='Pass -aHAX option to rsync.')
-    parser.add_argument(
-        "--processes",
-        action="store",
-        type=processes_to_int,
-        metavar='<no>',
-        default=10,
-        help='Number of rsync processes to use (default: %(default)s).',
-    )
-
-    parser.add_argument('source', metavar='<source>', nargs='+', help='Directories to copy')
-    parser.add_argument('dest', metavar='<destination>', help="Target directory")
-
-    options = parser.parse_args(args)
-    options.pps = options.source + [options.dest]
-
-    return options
-
-
-def main(args=None):
-    if args is None:
-        args = sys.argv[1:]
-
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
-    )
-
-    steps = [len(x) / (options.processes - 1) for x in pool]
+    steps = [len(x) / (processes - 1) for x in pool]
     prefixes = list()
-    for i in range(options.processes - 1):
+    for i in range(processes - 1):
         parts = [x[int(i * y) : int((i + 1) * y)] for (x, y) in zip(pool, steps, strict=True)]
         prefixes.append(''.join(parts))
 
@@ -88,22 +73,26 @@ def main(args=None):
     filters.append('- [%s]*' % ''.join(prefixes))
 
     rsync_args = ['rsync', '-f', '+ */']
-    if not options.quiet:
+    if not quiet:
         rsync_args.append('--out-format')
         rsync_args.append('%n%L')
-    if options.a:
+    if archive:
         rsync_args.append('-aHAX')
 
-    processes = list()
+    processes_ = list()
     for filter_ in filters:
-        cmd = rsync_args + ['-f', filter_] + options.pps
+        cmd = rsync_args + ['-f', filter_] + paths
         log.debug('Calling %s', cmd)
-        processes.append(subprocess.Popen(cmd))
+        processes_.append(subprocess.Popen(cmd))
 
-    if all([c.wait() == 0 for c in processes]):
+    if all([c.wait() == 0 for c in processes_]):
         sys.exit(0)
     else:
         sys.exit(1)
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    run_app(app, args, prog_name='pcp.py')
 
 
 if __name__ == '__main__':
