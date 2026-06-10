@@ -19,7 +19,8 @@ The :program:`s3qladm` accepts the following general options, no
 matter what specific action is being invoked:
 
 .. pipeinclude:: s3qladm --help
-   :start-after: show this help message and exit
+   :start-after: Options:
+   :end-before: Commands:
 
 
 Changing the Passphrase

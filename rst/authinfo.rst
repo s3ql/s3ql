@@ -39,6 +39,10 @@ well by omitting the leading dashes, e.g. the ``--backend-options
 notls`` parameter may be written into the authinfo file as
 ``backend-options: notls``.
 
+Any entry other than ``storage-url`` that is neither one of the credential
+entries listed above nor such a shared command line parameter is rejected
+with an error.
+
 When reading the authinfo file, S3QL considers every applicable
 section in order and uses the last value that it found for each entry.
 For example, consider the following authentication file::

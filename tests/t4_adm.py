@@ -80,8 +80,6 @@ class TestAdm:
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 'passphrase',
@@ -113,8 +111,6 @@ class TestAdm:
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 'clear',
@@ -141,8 +137,6 @@ class TestAdm:
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 '--cachedir',
@@ -185,8 +179,6 @@ class TestAdm:
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 'recover-key',
@@ -215,8 +207,6 @@ class TestMetadataRestore(TestFuse):
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 '--cachedir',
@@ -285,8 +275,6 @@ class TestShrink(TestFuse):
             [
                 's3qladm',
                 '--quiet',
-                '--log',
-                'none',
                 '--authfile',
                 '/dev/null',
                 '--cachedir',

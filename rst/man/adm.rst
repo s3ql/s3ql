@@ -12,8 +12,8 @@ Synopsis
 
    s3qladm [options] <action> <storage url>
 
-where :var:`action` may be either of :program:`passphrase`, :program:`restore-metadata`,
-:program:`clear`, :program:`recover-key` or :program:`upgrade`.
+where :var:`action` may be either of :program:`passphrase`, :program:`recover-key`,
+:program:`clear`, :program:`shrink-db`, :program:`upgrade` or :program:`restore-metadata`.
 
 Description
 ===========
@@ -33,28 +33,57 @@ Options
 The |command| command accepts the following options.
 
 .. pipeinclude:: s3qladm --help
-   :start-after: show this help message and exit
+   :start-after: Options:
+   :end-before: Commands:
 
 Actions
 =======
 
-The following actions may be specified. Please consult the S3QL User's Guide for more
-detailed information.
+The following actions may be specified. Every action takes the *storage url* of the file
+system as its argument. Individual actions may accept additional options; these are listed
+below where they exist, but you can always run ``s3qladm <action> --help`` to see the full
+set of options accepted by a particular action. Please consult the S3QL User's Guide for
+more detailed information.
+
 
 passphrase
-  Changes the encryption passphrase of the file system.
+----------
 
-restore-metadata
-  Interactively restore backups of the file system metadata.
+Change the encryption passphrase of the file system.
 
-clear
-  Delete the file system with all the stored data.
 
 recover-key
-  Recover master encryption key from external backup.
+-----------
+
+Recover the master encryption key from an external backup.
+
+
+clear
+-----
+
+Delete the file system with all the stored data.
+
+
+shrink-db
+---------
+
+Recover unused space in the metadata database.
+
 
 upgrade
-  Upgrade the file system to the newest revision.
+-------
+
+Upgrade the file system to the newest revision. This action accepts the following option:
+
+.. pipeinclude:: s3qladm upgrade --help
+   :start-after: Options:
+   :end-before: --help
+
+
+restore-metadata
+----------------
+
+Interactively restore backups of the file system metadata.
 
 
 

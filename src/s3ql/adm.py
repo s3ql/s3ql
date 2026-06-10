@@ -8,7 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import dataclasses
 import logging
 import os
@@ -20,10 +19,12 @@ import textwrap
 import time
 from base64 import b64decode
 from collections.abc import Sequence
+from contextlib import AsyncExitStack
 from datetime import datetime
 from getpass import getpass
+from typing import Annotated, cast
 
-import trio
+import typer
 
 from s3ql.database import (
     Connection,
@@ -39,146 +40,121 @@ from s3ql.database import (
 from s3ql.mount import determine_threads, get_metadata
 
 from . import CURRENT_FS_REV, REV_VER_MAP
-from .backends import open_backend, open_raw_backend
-from .backends.common import AsyncBackend, NoSuchObject
+from .authinfo import Authinfo
+from .backends import open_backend_v2, open_raw_backend_v2
+from .backends.common import NoSuchObject
 from .backends.comprenc import AsyncComprencBackend
 from .common import (
     is_mounted,
     pretty_print_size,
     thaw_basic_mapping,
 )
-from .logging import QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import QuietError, setup_logging
+from .parse_args import (
+    DEFAULT_AUTHFILE,
+    AuthFile,
+    BackendOptions,
+    CacheDir,
+    DebugFlag,
+    DebugModules,
+    MaxConnections,
+    MaxThreads,
+    QuietFlag,
+    StorageUrl,
+    init_cachedir,
+    make_app,
+    pick,
+    run_app,
+    trio_command,
+)
 from .types import BasicMappingT
 
 log: logging.Logger = logging.getLogger(__name__)
 
+app = make_app(help='Manage S3QL File Systems.')
 
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
 
-    parser = ArgumentParser(
-        description="Manage S3QL File Systems.",
-        epilog=textwrap.dedent(
-            '''\
-               Hint: run `%(prog)s <action> --help` to get help on the additional
-               arguments that the different actions take.'''
-        ),
+@dataclasses.dataclass
+class SharedArgs:
+    '''Backend-related options shared by all `s3qladm` subcommands.
+
+    They are declared on the group callback (`_setup`) because Typer builds the group-level option
+    parser from its signature, but they are consumed by the subcommands, which reach them through
+    `ctx.obj`.
+    '''
+
+    authfile: str | None
+    backend_options: str | None
+    cachedir: str | None
+    max_connections: int | None
+    max_threads: int | None
+
+
+def get_shared_args(ctx: typer.Context) -> SharedArgs:
+    '''Return the `SharedArgs` that the group callback stored on *ctx*.'''
+    return cast(SharedArgs, ctx.obj)
+
+
+# Typer builds the group-level option parser from this callback's signature, so every shared option
+# must be declared here even though the subcommands are what consume the backend ones. The callback
+# stashes them on `ctx.obj` as a `SharedArgs` for the subcommands to read back.
+@app.callback()
+def _setup(
+    ctx: typer.Context,
+    authfile: AuthFile = None,
+    backend_options: BackendOptions = None,
+    cachedir: CacheDir = None,
+    max_connections: MaxConnections = None,
+    max_threads: MaxThreads = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Manage S3QL File Systems.'''
+    setup_logging(quiet=quiet, log=None, debug=debug, debug_modules=debug_modules)
+    ctx.obj = SharedArgs(
+        authfile=authfile,
+        backend_options=backend_options,
+        cachedir=cachedir,
+        max_connections=max_connections,
+        max_threads=max_threads,
     )
 
-    pparser = ArgumentParser(
-        add_help=False,
-        epilog=textwrap.dedent(
-            '''\
-               Hint: run `%(prog)s --help` to get help on other available actions and
-               optional arguments that can be used with all actions.'''
-        ),
-    )
-    pparser.add_max_connections()
-    pparser.add_max_threads()
 
-    subparsers = parser.add_subparsers(metavar='<action>', dest='action', help='may be either of')
-    subparsers.add_parser("passphrase", help="change file system passphrase", parents=[pparser])
-    subparsers.add_parser(
-        "restore-metadata",
-        help="Interactively restore metadata backups.",
-        parents=[pparser],
-    )
+def _resolve(args: SharedArgs, storage_url: str) -> tuple[Authinfo, str]:
+    '''Read authinfo2, guard against a mounted file system, size the thread pool, and return the
+    parsed `Authinfo` together with the per-file-system cache path.
+    '''
+    authinfo = Authinfo.from_file(pick(args.authfile, DEFAULT_AUTHFILE), storage_url)
 
-    subparsers.add_parser("clear", help="delete file system and all data", parents=[pparser])
-    subparsers.add_parser(
-        "recover-key", help="Recover master key from offline copy.", parents=[pparser]
-    )
-    subparsers.add_parser(
-        "shrink-db", help="Recover unused space in the metadata database.", parents=[pparser]
-    )
-    sparser = subparsers.add_parser(
-        "upgrade", help="upgrade file system to newest revision", parents=[pparser]
-    )
-    sparser.add_argument(
-        "--metadata-block-size",
-        type=int,
-        default=64,
-        metavar='<size>',
-        help="Block size (in KiB) to use for storing filesystem metadata. "
-        "Backend object size may be smaller than this due to compression. "
-        "Default: %(default)d KiB.",
-    )
-
-    parser.add_storage_url()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_log()
-    parser.add_backend_options()
-    parser.add_cachedir()
-    parser.add_version()
-
-    options = parser.parse_args(args)
-
-    return options
-
-
-def main(args: Sequence[str] | None = None) -> None:
-    '''Change or show S3QL file system parameters'''
-
-    if args is None:
-        args = sys.argv[1:]
-
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(
-        quiet=options.quiet,
-        log=options.log,
-        debug_modules=options.debug,
-    )
-
-    # Check if fs is mounted on this computer
-    # This is not foolproof but should prevent common mistakes
-    if is_mounted(options.storage_url):
+    # Check if fs is mounted on this computer. This is not foolproof but should prevent
+    # common mistakes.
+    if is_mounted(storage_url):
         raise QuietError('Can not work on mounted file system.')
 
-    if options.max_threads is None:
-        # Admin actions never bulk-upload data, so size the thread pool
-        # purely from the CPU count.
-        options.max_threads = determine_threads(None)
-    AsyncComprencBackend.set_max_threads(options.max_threads)
+    # Admin actions never bulk-upload data, so size the thread pool purely from the CPU count.
+    threads = pick(args.max_threads, authinfo.max_threads) or determine_threads(None)
+    AsyncComprencBackend.set_max_threads(threads)
 
-    trio.run(main_async, options)
-
-
-async def main_async(options: argparse.Namespace) -> None:
-    if options.action == 'clear':
-        async with await open_raw_backend(options) as backend:
-            await clear(backend, options)
-        return
-
-    if options.action == 'recover-key':
-        async with await open_raw_backend(options) as backend:
-            await recover(backend, options)
-        return
-
-    backend = await open_backend(options)
-    try:
-        if options.action == 'passphrase':
-            await change_passphrase(backend)
-
-        elif options.action == 'restore-metadata':
-            await restore_metadata_cmd(backend, options)
-
-        elif options.action == 'upgrade':
-            await upgrade(backend, options)
-
-        elif options.action == 'shrink-db':
-            await shrink_db(backend, options)
-
-        else:
-            raise QuietError('Unknown action: %s' % options.action)
-    finally:
-        await backend.close()
+    cachepath = init_cachedir(pick(args.cachedir, authinfo.cachedir), storage_url)
+    return (authinfo, cachepath)
 
 
-async def change_passphrase(backend: AsyncComprencBackend) -> None:
-    '''Change file system passphrase'''
+@app.command()
+@trio_command
+async def passphrase(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
+    '''Change file system passphrase.'''
+    args = get_shared_args(ctx)
+    authinfo, _cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+            compress=authinfo.compress,
+        )
+    )
 
     if not backend.passphrase:
         raise QuietError('File system is not encrypted.')
@@ -211,7 +187,23 @@ async def change_passphrase(backend: AsyncComprencBackend) -> None:
     backend.passphrase = data_pw
 
 
-async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
+@app.command(name='recover-key')
+@trio_command
+async def recover_key(
+    ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack
+) -> None:
+    '''Recover master key from offline copy.'''
+    args = get_shared_args(ctx)
+    authinfo, _cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_raw_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+        )
+    )
+
     print("Enter master key (should be 11 blocks of 4 characters each): ")
     data_pw_str = sys.stdin.readline()
     data_pw_str = re.sub(r'\s+', '', data_pw_str)
@@ -231,14 +223,30 @@ async def recover(backend: AsyncBackend, options: argparse.Namespace) -> None:
         wrap_pw = sys.stdin.readline().rstrip()
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
-    comprenc_backend = await AsyncComprencBackend.create(wrap_pw_bytes, ('lzma', 2), backend)
+    comprenc_backend = await AsyncComprencBackend.create(
+        wrap_pw_bytes, authinfo.compress.to_comprenc(), backend
+    )
     await comprenc_backend.store('s3ql_passphrase', data_pw)
     await comprenc_backend.store('s3ql_passphrase_bak1', data_pw)
     await comprenc_backend.store('s3ql_passphrase_bak2', data_pw)
     await comprenc_backend.store('s3ql_passphrase_bak3', data_pw)
 
 
-async def clear(backend: AsyncBackend, options: argparse.Namespace) -> None:
+@app.command()
+@trio_command
+async def clear(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
+    '''Delete file system and all data.'''
+    args = get_shared_args(ctx)
+    authinfo, cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_raw_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+        )
+    )
+
     print(
         'I am about to DELETE ALL DATA in %s.' % backend,
         'This includes not just S3QL file systems but *all* stored objects.',
@@ -257,11 +265,11 @@ async def clear(backend: AsyncBackend, options: argparse.Namespace) -> None:
 
     log.info('Deleting in batches...')
     for suffix in ('.db', '.params'):
-        name = options.cachepath + suffix
+        name = cachepath + suffix
         if os.path.exists(name):
             os.unlink(name)
 
-    name = options.cachepath + '-cache'
+    name = cachepath + '-cache'
     if os.path.exists(name):
         shutil.rmtree(name)
 
@@ -300,10 +308,22 @@ def get_old_rev_msg(rev: int, prog: str) -> str:
     )
 
 
-async def shrink_db(backend: AsyncComprencBackend, options) -> None:
-    '''Run VACUUM on SQLite database file'''
+@app.command(name='shrink-db')
+@trio_command
+async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
+    '''Recover unused space in the metadata database.'''
+    args = get_shared_args(ctx)
+    authinfo, cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+            compress=authinfo.compress,
+        )
+    )
 
-    cachepath = options.cachepath
     (param, db) = await get_metadata(backend, cachepath)
     param.seq_no += 1
     param.is_mounted = True
@@ -329,11 +349,37 @@ async def shrink_db(backend: AsyncComprencBackend, options) -> None:
     await expire_objects(backend)
 
 
-async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
-    '''Upgrade file system to newest revision'''
+@app.command()
+@trio_command
+async def upgrade(
+    ctx: typer.Context,
+    storage_url: StorageUrl,
+    metadata_block_size: Annotated[
+        int,
+        typer.Option(
+            metavar='<size>',
+            help='Block size (in KiB) to use for storing filesystem metadata. Backend object '
+            'size may be smaller than this due to compression.',
+        ),
+    ] = 64,
+    *,
+    stack: AsyncExitStack,
+) -> None:
+    '''Upgrade file system to newest revision.'''
+    args = get_shared_args(ctx)
+    authinfo, cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+            compress=authinfo.compress,
+        )
+    )
 
-    params_path = options.cachepath + '.params'
-    if not os.path.exists(options.cachepath + '.db') or not os.path.exists(params_path):
+    params_path = cachepath + '.params'
+    if not os.path.exists(cachepath + '.db') or not os.path.exists(params_path):
         print(
             'To upgrade the filesystem, first download file system metadata using the previous',
             'version of S3QL (eg. by running fsck.s3ql)',
@@ -406,9 +452,9 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
         Ctrl+C and resume at a later time, but the filesystem will not be in a usable state until
         the upgrade is complete.
 
-        Filesystem metadata will be split into {options.metadata_block_size} kB blocks for remote
-        storage. This value CAN NOT BE CHANGED after upgrade. To use a different value, restart the
-        update with a different --metadata-block-size parameter.
+        Filesystem metadata will be split into {metadata_block_size} kB blocks for remote storage.
+        This value CAN NOT BE CHANGED after upgrade. To use a different value, restart the update
+        with a different --metadata-block-size parameter.
         '''
         )
     )
@@ -423,7 +469,7 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
 
     new_params: BasicMappingT = {k.replace('-', '_'): v for k, v in local_params.items()}
     new_params['data_block_size'] = new_params['max_obj_size']
-    new_params['metadata_block_size'] = options.metadata_block_size * 1024
+    new_params['metadata_block_size'] = metadata_block_size * 1024
     new_params['revision'] = CURRENT_FS_REV
     # remove all deprecated attributes
     valid_keys = {f.name for f in dataclasses.fields(FsAttributes)}
@@ -432,13 +478,13 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
             del new_params[k]
     params = FsAttributes(**new_params)  # type: ignore[arg-type]
 
-    db = Connection(options.cachepath + '.db', options.metadata_block_size * 1024)
+    db = Connection(cachepath + '.db', metadata_block_size * 1024)
 
     params.last_modified = time.time()
     params.seq_no += 1
 
     await upload_metadata(backend, db, params, incremental=False)
-    write_params(options.cachepath, params)
+    write_params(cachepath, params)
     await upload_params(backend, params)
 
     # Re-upload the old metadata object to make sure that we don't accidentally
@@ -457,7 +503,24 @@ async def upgrade(backend: AsyncComprencBackend, options: argparse.Namespace) ->
     print('File system upgrade complete.')
 
 
-async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.Namespace) -> None:
+@app.command(name='restore-metadata')
+@trio_command
+async def restore_metadata(
+    ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack
+) -> None:
+    '''Interactively restore metadata backups.'''
+    args = get_shared_args(ctx)
+    authinfo, cachepath = _resolve(args, storage_url)
+    backend = await stack.enter_async_context(
+        await open_backend_v2(
+            storage_url,
+            authinfo,
+            backend_options=args.backend_options,
+            max_connections=args.max_connections,
+            compress=authinfo.compress,
+        )
+    )
+
     backups = sorted(await get_available_seq_nos(backend))
 
     if not backups:
@@ -496,7 +559,7 @@ async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.
     log.info('Downloading metadata...')
     conn = await download_metadata(
         backend,
-        options.cachepath + ".db",
+        cachepath + ".db",
         params,
     )
     conn.close()
@@ -506,13 +569,19 @@ async def restore_metadata_cmd(backend: AsyncComprencBackend, options: argparse.
     new_seq = max(int(time.time()), backups[-1] + 1)
     params.seq_no = new_seq
 
-    write_params(options.cachepath, params)
+    write_params(cachepath, params)
 
     print(
         'Backup restored into local metadata. Run fsck.s3ql to commit changes to',
         'backend and ensure file system consistency',
         sep='\n',
     )
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Change or show S3QL file system parameters'''
+
+    run_app(app, args, prog_name='s3qladm')
 
 
 if __name__ == '__main__':
