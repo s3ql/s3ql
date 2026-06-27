@@ -40,6 +40,10 @@ div.bodywrapper {
 div.body {
     margin: 0;
     padding: 0.5em 20px 20px 20px;
+    /* Establish a block formatting context so the right-floated sidebar does not
+       intrude here. Without this, Sphinx's `clear: both` on literal blocks pushes the
+       first code block on each page (the Synopsis) below the full height of the sidebar. */
+    display: flow-root;
 }
 
 div.related {
