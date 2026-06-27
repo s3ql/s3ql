@@ -34,6 +34,7 @@ dependencies = [
   "more-itertools>=11.0.2",
   "h11 >= 0.14",
   "httpcore >= 1.0",
+  "typer >= 0.12",
 ]
 
 [dependency-groups]

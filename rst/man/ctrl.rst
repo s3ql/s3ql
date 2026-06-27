@@ -70,7 +70,8 @@ The |command| command also accepts the following options, no matter
 what specific action is being invoked:
 
 .. pipeinclude:: s3qlctrl --help
-   :start-after: show this help message and exit
+   :start-after: Options:
+   :end-before: Commands:
 
 
 Exit Codes

@@ -1277,7 +1277,11 @@ def main(args: list[str] | None = None) -> None:
 
     setup_warnings()
     options = parse_args(args)
-    setup_logging(options)
+    setup_logging(
+        quiet=options.quiet,
+        log=options.log,
+        debug_modules=options.debug,
+    )
 
     if options.max_threads is None:
         options.max_threads = determine_threads(options.compress)

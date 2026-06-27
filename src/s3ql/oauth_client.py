@@ -8,47 +8,39 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import sys
-import textwrap
 from collections.abc import Sequence
 
+import typer
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from .common import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
-from .logging import setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
-
-    parser = ArgumentParser(
-        description=textwrap.dedent(
-            '''\
-        Obtain OAuth2 refresh token for Google Storage
-        '''
-        )
-    )
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    return parser.parse_args(args)
+app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    if args is None:
-        args = sys.argv[1:]
-
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(options)
+@app.command()
+@trio_command
+async def oauth_client(
+    log: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Obtain OAuth2 refresh token for Google Storage.'''
+    setup_logging(quiet=quiet, log=log, debug=debug, debug_modules=debug_modules)
 
     # We need full control in order to be able to update metadata
     # cf. https://stackoverflow.com/questions/24718787
@@ -68,3 +60,11 @@ def main(args: Sequence[str] | None = None) -> None:
     credentials = flow.run_local_server(open_browser=True)
 
     print('Success. Your refresh token is:\n', credentials.refresh_token)
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    run_app(app, args, prog_name='s3ql_oauth_client')
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

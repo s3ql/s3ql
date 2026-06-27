@@ -38,7 +38,7 @@ Options
 The |command| command accepts the following options:
 
 .. pipeinclude:: s3ql_oauth_client --help
-   :start-after: show this help message and exit
+   :start-after: Options:
 
 
 Exit Codes

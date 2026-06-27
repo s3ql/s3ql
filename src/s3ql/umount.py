@@ -8,70 +8,39 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import logging
 import os
 import platform
 import shutil
 import subprocess
 import sys
-import textwrap
 import time
 from collections.abc import Sequence
+from typing import Annotated
 
 import pyfuse3
+import typer
 
 from . import CTRL_NAME
 from .common import assert_s3ql_mountpoint, parse_literal
-from .logging import setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
+
+app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 
 
 def _fusermount() -> str:
     '''Return path to fusermount3 if available, otherwise 'fusermount'.'''
     return shutil.which('fusermount3') or 'fusermount'
-
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line
-
-    This function writes to stdout/stderr and may call `system.exit()` instead
-    of throwing an exception if it encounters errors.
-    '''
-
-    parser = ArgumentParser(
-        description=textwrap.dedent(
-            '''\
-        Unmounts an S3QL file system. The command returns only after all data
-        has been uploaded to the backend.'''
-        )
-    )
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    parser.add_argument(
-        "mountpoint",
-        metavar='<mountpoint>',
-        type=(lambda x: x.rstrip('/')),
-        help='Mount point to un-mount',
-    )
-
-    parser.add_argument(
-        '--lazy',
-        "-z",
-        action="store_true",
-        default=False,
-        help="Lazy umount. Detaches the file system immediately, even if there "
-        'are still open files. The data will be uploaded in the background '
-        'once all open files have been closed.',
-    )
-
-    return parser.parse_args(args)
 
 
 class UmountError(Exception):
@@ -205,38 +174,58 @@ def blocking_umount(mountpoint: str) -> None:
             step += 0.1
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    '''Umount S3QL file system'''
+@app.command()
+@trio_command
+async def umount(
+    mountpoint: Annotated[
+        str, typer.Argument(metavar='<mountpoint>', help='Mount point to un-mount')
+    ],
+    lazy: Annotated[
+        bool,
+        typer.Option(
+            '--lazy',
+            '-z',
+            help='Lazy umount. Detaches the file system immediately, even if there are still '
+            'open files. The data will be uploaded in the background once all open files have '
+            'been closed.',
+        ),
+    ] = False,
+    log: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Unmount an S3QL file system.
 
-    if args is None:
-        args = sys.argv[1:]
+    The command returns only after all data has been uploaded to the backend.
+    '''
+    setup_logging(quiet=quiet, log=log, debug=debug, debug_modules=debug_modules)
 
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(options)
-
-    assert_s3ql_mountpoint(options.mountpoint)
+    mountpoint = mountpoint.rstrip('/')
+    assert_s3ql_mountpoint(mountpoint)
 
     try:
-        if options.lazy:
-            lazy_umount(options.mountpoint)
+        if lazy:
+            lazy_umount(mountpoint)
         else:
-            blocking_umount(options.mountpoint)
+            blocking_umount(mountpoint)
 
     except MountInUseError as err:
         print(
             'Cannot unmount, the following processes still access the mountpoint:', file=sys.stderr
         )
-        subprocess.call(
-            ['fuser', '-v', '-m', options.mountpoint], stdout=sys.stderr, stderr=sys.stderr
-        )
+        subprocess.call(['fuser', '-v', '-m', mountpoint], stdout=sys.stderr, stderr=sys.stderr)
         sys.exit(err.exitcode)
 
     except UmountError as err:
-        print('%s: %s' % (options.mountpoint, err), file=sys.stderr)
+        print('%s: %s' % (mountpoint, err), file=sys.stderr)
         sys.exit(err.exitcode)
 
-    sys.exit(0)
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Umount S3QL file system'''
+
+    run_app(app, args, prog_name='umount.s3ql')
 
 
 if __name__ == '__main__':

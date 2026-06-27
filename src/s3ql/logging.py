@@ -14,7 +14,7 @@ import os.path
 import sys
 import time
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 
 class QuietError(Exception):
@@ -136,7 +136,13 @@ def create_handler(target: str) -> logging.Handler:
     return handler
 
 
-def setup_logging(options) -> ConsoleHandler | None:
+def setup_logging(
+    quiet: bool = False,
+    log: str | None = None,
+    debug: bool = False,
+    debug_modules: Sequence[str] | None = None,
+    systemd: bool = False,
+) -> ConsoleHandler | None:
     # We want to be able to detect warnings and higher severities
     # in the captured test output. 'critical' has too many potential
     # false positives, so we rename this level to "FATAL".
@@ -147,15 +153,26 @@ def setup_logging(options) -> ConsoleHandler | None:
         root_logger.debug("Logging already initialized.")
         return None
 
+    # A *log* of 'none' (e.g. from '--log none') means log to standard output only. Typer does
+    # not apply the argparse-era converter that turned this into None, so handle it here.
+    if log is not None and log.lower() == 'none':
+        log = None
+
+    # The --debug flag enables debugging for all S3QL modules; *debug_modules* names
+    # additional modules ('all' for everything). Combine both into a single module list.
+    debug_list = list(debug_modules) if debug_modules else []
+    if debug and 's3ql' not in debug_list:
+        debug_list.append('s3ql')
+
     filter = LogFilter()
 
-    stdout_handler = add_stdout_logging(options.quiet, getattr(options, 'systemd', False))
+    stdout_handler = add_stdout_logging(quiet, systemd)
     stdout_handler.addFilter(filter)
-    if hasattr(options, 'log') and options.log:
-        handler = create_handler(options.log)
+    if log:
+        handler = create_handler(log)
         handler.addFilter(filter)
         root_logger.addHandler(handler)
-    elif options.debug and (not hasattr(options, 'log') or not options.log):
+    elif debug_list:
         # When we have debugging enabled but no separate log target,
         # make stdout logging more detailed.
         formatter = logging.Formatter(
@@ -168,13 +185,13 @@ def setup_logging(options) -> ConsoleHandler | None:
 
     setup_excepthook()
 
-    if options.debug:
+    if debug_list:
         logging.getLogger('__main__').setLevel(logging.DEBUG)
-        if 'all' in options.debug:
+        if 'all' in debug_list:
             root_logger.setLevel(logging.DEBUG)
         else:
             root_logger.setLevel(logging.INFO)
-            for module in options.debug:
+            for module in debug_list:
                 logging.getLogger(module).setLevel(logging.DEBUG)
         logging.disable(logging.NOTSET)
     else:

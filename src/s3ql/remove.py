@@ -8,62 +8,49 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-import argparse
 import errno
 import logging
 import os
 import sys
-import textwrap
 from collections.abc import Sequence
+from typing import Annotated
 
 import pyfuse3
+import typer
 
 from .common import assert_fs_owner, path2bytes
-from .logging import QuietError, setup_logging, setup_warnings
-from .parse_args import ArgumentParser
+from .logging import QuietError, setup_logging
+from .parse_args import (
+    DebugFlag,
+    DebugModules,
+    LogDest,
+    QuietFlag,
+    run_app,
+    trio_command,
+)
 
 log: logging.Logger = logging.getLogger(__name__)
 
-
-def parse_args(args: Sequence[str]) -> argparse.Namespace:
-    '''Parse command line'''
-
-    parser = ArgumentParser(
-        description=textwrap.dedent(
-            '''\
-        Recursively delete files and directories in an S3QL file system,
-        including immutable entries.
-        '''
-        )
-    )
-
-    parser.add_log()
-    parser.add_debug()
-    parser.add_quiet()
-    parser.add_version()
-
-    parser.add_argument(
-        'path',
-        metavar='<path>',
-        nargs='+',
-        help='Directories to remove',
-        type=(lambda x: x.rstrip('/')),
-    )
-
-    return parser.parse_args(args)
+app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions_enable=False)
 
 
-def main(args: Sequence[str] | None = None) -> None:
-    '''Recursively delete files and directories in an S3QL file system'''
+@app.command()
+@trio_command
+async def remove(
+    path: Annotated[list[str], typer.Argument(metavar='<path>', help='Directories to remove')],
+    log: LogDest = None,
+    debug: DebugFlag = False,
+    debug_modules: DebugModules = None,
+    quiet: QuietFlag = False,
+) -> None:
+    '''Recursively delete files and directories in an S3QL file system.
 
-    if args is None:
-        args = sys.argv[1:]
+    This includes immutable entries.
+    '''
+    setup_logging(quiet=quiet, log=log, debug=debug, debug_modules=debug_modules)
 
-    setup_warnings()
-    options = parse_args(args)
-    setup_logging(options)
-
-    for name in options.path:
+    for name in path:
+        name = name.rstrip('/')
         if os.path.ismount(name):
             raise QuietError('%s is a mount point.' % name)
 
@@ -85,6 +72,12 @@ def main(args: Sequence[str] | None = None) -> None:
                 )
                 sys.exit(1)
             raise
+
+
+def main(args: Sequence[str] | None = None) -> None:
+    '''Recursively delete files and directories in an S3QL file system'''
+
+    run_app(app, args, prog_name='s3qlrm')
 
 
 if __name__ == '__main__':
