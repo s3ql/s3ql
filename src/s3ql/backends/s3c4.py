@@ -11,6 +11,7 @@ import hmac
 import logging
 import time
 import urllib.parse
+from typing import Literal, overload
 from xml.sax.saxutils import escape as xml_escape
 
 from more_itertools import chunked
@@ -245,7 +246,11 @@ class AsyncBackend(s3c.AsyncBackend):
         self.signing_key = (signing_key, ymd)
 
 
-def hmac_sha256(key, msg, hex=False):
+@overload
+def hmac_sha256(key: bytes, msg: bytes, hex: Literal[False] = False) -> bytes: ...
+@overload
+def hmac_sha256(key: bytes, msg: bytes, hex: Literal[True]) -> str: ...
+def hmac_sha256(key: bytes, msg: bytes, hex: bool = False) -> str | bytes:
     d = hmac.new(key, msg, hashlib.sha256)
     if hex:
         return d.hexdigest()

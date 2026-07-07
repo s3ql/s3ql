@@ -152,7 +152,7 @@ class AsyncBackend(AsyncBackendBase):
         headers[self.hdr_prefix + 'meta-format'] = 'raw2'
         headers[self.hdr_prefix + 'meta-md5'] = md5
 
-    def _extractmeta(self, resp, obj_key):
+    def _extractmeta(self, resp: HTTPResponse, obj_key: str) -> dict[str, Any]:
         '''Extract metadata from HTTP response object'''
 
         format_ = resp.headers.get('%smeta-format' % self.hdr_prefix, 'raw')
@@ -951,7 +951,7 @@ class AsyncBackend(AsyncBackendBase):
         raise AuthenticationExpired(reason)
 
 
-def _split_response_status(line):
+def _split_response_status(line: str) -> tuple[int, str]:
     '''Splits a HTTP response line into status code (integer)
     and status text.
 
