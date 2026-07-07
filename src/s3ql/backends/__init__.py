@@ -52,17 +52,22 @@ async def open_raw_backend(
     from *authinfo*, prompting interactively when the backend needs a login and authinfo2 does not
     supply one. The storage URL is neither probed for an existing S3QL file system nor wrapped for
     compression or encryption.
+
+    *storage_url* must already be canonicalized by `_canonicalize_storage_url` (as it is for every
+    CLI entry point); passing a malformed URL or an unknown backend scheme is a programming error.
     '''
     options_str = pick(backend_options, authinfo.backend_options)
     connections = pick(max_connections, authinfo.max_connections)
 
+    # The storage URL is expected to have been validated and canonicalized by
+    # `_canonicalize_storage_url`, so a malformed URL or unknown scheme here is a programming
+    # error rather than something the user can cause.
     hit = re.match(r'^([a-zA-Z0-9]+)://', storage_url)
-    if not hit:
-        raise QuietError('Unable to parse storage url ' + storage_url, exitcode=2)
-    try:
-        backend_class = async_prefix_map[hit.group(1)]
-    except KeyError:
-        raise QuietError('No such backend: ' + hit.group(1), exitcode=11)
+    assert hit is not None, 'storage url not canonicalized: ' + storage_url
+    assert hit.group(1) in async_prefix_map, (
+        'unknown backend not rejected during parsing: ' + hit.group(1)
+    )
+    backend_class = async_prefix_map[hit.group(1)]
 
     parsed_options = parse_suboptions(options_str) if options_str else {}
     for opt in parsed_options:

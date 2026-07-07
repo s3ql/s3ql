@@ -47,9 +47,6 @@ Exit Codes
 :3:
    Invalid backend option.
 
-:11:
-   No such backend.
-
 :12:
    Authentication file has insecure permissions.
 

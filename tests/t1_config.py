@@ -23,6 +23,7 @@ import stat
 import tempfile
 
 import pytest
+import typer
 from pytest import raises as assert_raises
 
 from s3ql.authinfo import (
@@ -34,6 +35,7 @@ from s3ql.authinfo import (
 )
 from s3ql.backends import local, open_raw_backend
 from s3ql.logging import QuietError
+from s3ql.parse_args import _canonicalize_storage_url
 
 
 def write_authinfo(tmp_path, text: str) -> str:
@@ -208,18 +210,28 @@ def _default_authinfo() -> Authinfo:
     return Authinfo.from_file('/does/not/exist/authinfo2', 'local:///foo')
 
 
+def test_canonicalize_unknown_scheme():
+    with assert_raises(typer.BadParameter):
+        _canonicalize_storage_url('nosuch://foo')
+
+
+def test_canonicalize_unparseable_url():
+    with assert_raises(typer.BadParameter):
+        _canonicalize_storage_url('not-a-storage-url')
+
+
 @pytest.mark.trio
 async def test_open_raw_backend_unknown_scheme():
-    with assert_raises(QuietError) as exc:
+    # An unknown scheme is rejected during canonicalization; reaching open_raw_backend with one
+    # is therefore a programming error rather than a user error.
+    with assert_raises(AssertionError):
         await open_raw_backend('nosuch://foo', _default_authinfo())
-    assert exc.value.exitcode == 11
 
 
 @pytest.mark.trio
 async def test_open_raw_backend_unparseable_url():
-    with assert_raises(QuietError) as exc:
+    with assert_raises(AssertionError):
         await open_raw_backend('not-a-storage-url', _default_authinfo())
-    assert exc.value.exitcode == 2
 
 
 @pytest.mark.trio

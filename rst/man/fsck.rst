@@ -47,9 +47,6 @@ used as-is:
 :10:
    Could not open log file for writing.
 
-:11:
-   No such backend.
-
 :12:
    Authentication file has insecure permissions.
 

@@ -143,9 +143,21 @@ QuietFlag = Annotated[bool, typer.Option('--quiet', help="be really quiet")]
 
 
 def _canonicalize_storage_url(value: str) -> str:
-    '''Typer callback that validates and canonicalizes a storage URL.'''
-    if not re.match(r'^([a-zA-Z0-9]+)://(.+)$', value):
+    '''Typer callback that validates and canonicalizes a storage URL.
+
+    Rejects both a malformed URL and a scheme that names no known backend with
+    `typer.BadParameter`.
+    '''
+
+    # imported locally so that CLI tools which never open a backend are not
+    # forced to eagerly import the backend package.
+    from .backends import async_prefix_map
+
+    hit = re.match(r'^([a-zA-Z0-9]+)://(.+)$', value)
+    if not hit:
         raise typer.BadParameter('%s is not a valid storage url.' % value)
+    if hit.group(1) not in async_prefix_map:
+        raise typer.BadParameter('no such backend: ' + hit.group(1))
     if value.startswith('local://'):
         # Append trailing slash so we can match patterns with a trailing slash in authinfo2.
         return 'local://%s/' % os.path.abspath(value[len('local://') :])
