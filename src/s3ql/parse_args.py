@@ -23,6 +23,9 @@ from typing import Annotated, Any, Literal, ParamSpec
 
 import trio
 import typer
+import typer.core
+import typer.main
+import typer.models
 
 # Re-exported so entry points can keep importing them from `parse_args`; `DEFAULT_AUTHFILE`,
 # `DEFAULT_CACHEDIR`, and `DEFAULT_MAX_CONNECTIONS` are also used below in option help text.
@@ -89,11 +92,55 @@ def run_app(app: typer.Typer, args: Sequence[str] | None, prog_name: str) -> Non
     still propagate so the process exits with the right status.
     '''
     setup_warnings()
+    _attach_help_epilogs(app, prog_name)
     try:
         app(args if args is not None else sys.argv[1:], prog_name=prog_name)
     except SystemExit as exc:
         if exc.code:
             raise
+
+
+def _attach_help_epilogs(app: typer.Typer, prog_name: str) -> None:
+    '''Cross-reference a Typer group's shared and per-subcommand options in their `--help` output.
+
+    Options declared on a Typer group callback must be given *before* the subcommand name and do
+    not appear in a subcommand's own `--help`, while options declared on a subcommand do not appear
+    in the group's `--help`. Either set is easy to miss. This gives each subcommand an epilog that
+    names the shared options and states that they precede the subcommand, and gives the group an
+    epilog that points at the per-subcommand help. Single-command apps (whose options are shown
+    directly) are left untouched, as are commands that already define their own epilog.
+    '''
+    callback_info = app.registered_callback
+    if callback_info is None or callback_info.callback is None:
+        return
+
+    cmd = typer.main.get_command(app)
+    if not isinstance(cmd, typer.core.TyperGroup):
+        return
+
+    # Match against the callback's own parameters so Typer's auto-added --help and
+    # --install-completion/--show-completion options do not leak into the list.
+    declared = set(inspect.signature(callback_info.callback).parameters)
+    opt_names = [param.opts[0] for param in cmd.params if param.name in declared and param.opts]
+    if not opt_names:
+        return
+
+    example_cmd = next(iter(cmd.commands), '<command>')
+    subcommand_epilog = (
+        f'Options shared by all subcommands ({", ".join(opt_names)}) must be given before the '
+        f'subcommand name, e.g. `{prog_name} {opt_names[0]} ... {example_cmd} ...`. Run '
+        f'`{prog_name} --help` to see their descriptions.'
+    )
+    for command_info in app.registered_commands:
+        if command_info.epilog is None:
+            command_info.epilog = subcommand_epilog
+
+    # An unset callback epilog is a DefaultPlaceholder rather than None.
+    if isinstance(callback_info.epilog, typer.models.DefaultPlaceholder):
+        callback_info.epilog = (
+            f'Individual subcommands may accept further options. Run `{prog_name} <command> '
+            f'--help` to list the options of a specific subcommand.'
+        )
 
 
 def make_app(**kwargs: Any) -> typer.Typer:
