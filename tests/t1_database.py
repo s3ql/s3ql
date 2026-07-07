@@ -23,6 +23,7 @@ import time
 from argparse import Namespace
 
 import pytest
+from common import COMPRESS_SPEC
 from pytest_checklogs import assert_logs
 from t2_block_cache import random_data
 
@@ -112,7 +113,7 @@ def test_track_dirty_count():
 async def backend():
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
         raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
-        yield await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+        yield await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
 
 @pytest.mark.parametrize("incremental", (True, False))
@@ -453,7 +454,7 @@ async def test_download_metadata_parallel_correctness():
         raw = local.AsyncBackend(
             options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
         )
-        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+        backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
         with tempfile.NamedTemporaryFile() as src_fh:
             db = Connection(src_fh.name, BLOCKSIZE)
@@ -511,7 +512,7 @@ async def test_upload_metadata_parallel_correctness(incremental):
         raw = local.AsyncBackend(
             options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
         )
-        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+        backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
         with tempfile.NamedTemporaryFile() as src_fh:
             db = Connection(src_fh.name, BLOCKSIZE)
@@ -571,7 +572,7 @@ async def test_delete_multi_parallel_fallback():
         raw = _NoDeleteMulti(
             options=Namespace(storage_url='local://' + backend_dir), max_connections=workers
         )
-        backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), raw)
+        backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
         for key in keys:
             await backend.store(key, b'data')

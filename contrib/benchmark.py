@@ -26,7 +26,7 @@ from typing import Annotated, Any, BinaryIO
 import typer
 
 from s3ql import BUFSIZE
-from s3ql.authinfo import Authinfo
+from s3ql.authinfo import Authinfo, CompressAlgorithm, CompressSpec
 from s3ql.backends import open_raw_backend
 from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.logging import setup_logging
@@ -207,7 +207,7 @@ async def benchmark(
         log.info('compressing with %s-6...', alg)
         compr_backend = await AsyncComprencBackend.create(
             b'pass',
-            (alg, 6),
+            CompressSpec(algorithm=CompressAlgorithm(alg), level=6),
             AsyncMockBackend(),  # type: ignore[arg-type]
         )
 

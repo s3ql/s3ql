@@ -21,7 +21,7 @@ import subprocess
 from argparse import Namespace
 
 import pytest
-from common import populate_dir
+from common import COMPRESS_SPEC, populate_dir
 from t4_fuse import TestFuse
 
 from s3ql.backends import local
@@ -98,7 +98,7 @@ class TestAdm:
 
         plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
         backend = await AsyncComprencBackend.create(
-            passphrase_new.encode(), ('zlib', 6), plain_backend
+            passphrase_new.encode(), COMPRESS_SPEC, plain_backend
         )
 
         await backend.fetch('s3ql_passphrase')  # will fail with wrong pw
@@ -168,7 +168,7 @@ class TestAdm:
         await plain_backend.delete('s3ql_passphrase')  # Oops
 
         backend = await AsyncComprencBackend.create(
-            self.passphrase.encode(), ('zlib', 6), plain_backend
+            self.passphrase.encode(), COMPRESS_SPEC, plain_backend
         )
         with pytest.raises(CorruptedObjectError):
             await backend.fetch('s3ql_params')
@@ -195,7 +195,7 @@ class TestAdm:
         assert proc.wait() == 0
 
         backend = await AsyncComprencBackend.create(
-            passphrase_new.encode(), ('zlib', 6), plain_backend
+            passphrase_new.encode(), COMPRESS_SPEC, plain_backend
         )
 
         await backend.fetch('s3ql_passphrase')  # will fail with wrong pw

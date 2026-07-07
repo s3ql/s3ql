@@ -67,14 +67,13 @@ def test_parse_compression_explicit_level():
 
 def test_parse_compression_none():
     spec = CompressSpec.parse('none')
-    assert spec.algorithm is CompressAlgorithm.NONE
-    assert spec.to_comprenc() == (None, 6)
+    assert spec == CompressSpec(algorithm=CompressAlgorithm.NONE, level=6)
 
 
 def test_parse_compression_roundtrip():
-    assert CompressSpec.parse('lzma-6').to_comprenc() == ('lzma', 6)
-    assert CompressSpec.parse('bzip2-1').to_comprenc() == ('bzip2', 1)
-    assert CompressSpec.parse('none-4').to_comprenc() == (None, 4)
+    assert CompressSpec.parse('lzma-6') == CompressSpec(algorithm=CompressAlgorithm.LZMA, level=6)
+    assert CompressSpec.parse('bzip2-1') == CompressSpec(algorithm=CompressAlgorithm.BZIP2, level=1)
+    assert CompressSpec.parse('none-4') == CompressSpec(algorithm=CompressAlgorithm.NONE, level=4)
 
 
 def test_parse_compression_malformed():

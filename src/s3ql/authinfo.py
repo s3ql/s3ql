@@ -63,16 +63,6 @@ class CompressSpec:
     algorithm: CompressAlgorithm
     level: int
 
-    def to_comprenc(self) -> tuple[str | None, int]:
-        '''Return the `(algorithm, level)` tuple accepted by `AsyncComprencBackend.create`.
-
-        `CompressAlgorithm.NONE` maps to a `None` algorithm, matching comprenc's convention that
-        the absence of compression is represented by `None` rather than a string.
-        '''
-        if self.algorithm is CompressAlgorithm.NONE:
-            return (None, self.level)
-        return (self.algorithm.value, self.level)
-
     @classmethod
     def parse(cls, value: str) -> CompressSpec:
         '''Parse a compression string such as `lzma-6` into a `CompressSpec`.

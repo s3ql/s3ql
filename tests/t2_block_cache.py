@@ -23,7 +23,7 @@ from argparse import Namespace
 
 import pytest
 import trio
-from common import safe_sleep
+from common import COMPRESS_SPEC, safe_sleep
 
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
@@ -81,7 +81,7 @@ async def ctx():
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
     plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
-    ctx.backend = await AsyncComprencBackend.create(b'foobar', ('zlib', 6), plain)
+    ctx.backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, plain)
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
     ctx.max_obj_size = 1024

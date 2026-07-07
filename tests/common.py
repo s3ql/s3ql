@@ -20,6 +20,12 @@ import time
 
 import pytest
 
+from s3ql.authinfo import CompressAlgorithm, CompressSpec
+
+# The compression spec used by tests that wrap a backend in `AsyncComprencBackend` but don't care
+# about the specific algorithm.
+COMPRESS_SPEC = CompressSpec(algorithm=CompressAlgorithm.ZLIB, level=6)
+
 
 def get_clock_granularity():
     resolution = float('inf')

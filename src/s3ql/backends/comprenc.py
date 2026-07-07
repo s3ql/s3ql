@@ -38,6 +38,7 @@ from s3ql.types import (
 )
 
 from .. import BUFSIZE
+from ..authinfo import CompressAlgorithm, CompressSpec
 from ..common import ThawError, copyfh, freeze_basic_mapping, thaw_basic_mapping
 from .common import (
     _FACTORY_SENTINEL,
@@ -56,19 +57,31 @@ HMAC_SIZE = 32
 crypto_backend = crypto_backends.default_backend()
 
 
-# Thresholds for using threaded compression/encryption/decompression/decryption
-# Yeah, these use different capitalization styles. Historical reasons.
-SYNC_COMPRESSION_THRESHOLD = {
-    'None': 50 * 1024,
-    'zlib': 10 * 1024,
-    'bzip2': 250,
-    'lzma': 0,
+# The token that records the compression algorithm in an object's on-disk metadata. This is a
+# serialization format that must stay stable for compatibility, which is why it's distinct
+# from `CompressAlgorithm.value`.
+_METADATA_TOKEN: dict[CompressAlgorithm, str] = {
+    CompressAlgorithm.NONE: 'None',
+    CompressAlgorithm.ZLIB: 'ZLIB',
+    CompressAlgorithm.BZIP2: 'BZIP2',
+    CompressAlgorithm.LZMA: 'LZMA',
 }
-SYNC_DECOMPRESSION_THRESHOLD = {
-    'None': 50 * 1024,
-    'ZLIB': 25 * 1024,
-    'BZIP2': 3 * 1024,
-    'LZMA': 4 * 1024,
+_ALGORITHM_BY_TOKEN: dict[str, CompressAlgorithm] = {v: k for k, v in _METADATA_TOKEN.items()}
+
+# Object sizes below these thresholds are (de)compressed synchronously rather than in a worker
+# thread, since the overhead of dispatching to a thread would dominate. The values differ between
+# compression and decompression because the two operations have different cost profiles.
+SYNC_COMPRESSION_THRESHOLD: dict[CompressAlgorithm, int] = {
+    CompressAlgorithm.NONE: 50 * 1024,
+    CompressAlgorithm.ZLIB: 10 * 1024,
+    CompressAlgorithm.BZIP2: 250,
+    CompressAlgorithm.LZMA: 0,
+}
+SYNC_DECOMPRESSION_THRESHOLD: dict[CompressAlgorithm, int] = {
+    CompressAlgorithm.NONE: 50 * 1024,
+    CompressAlgorithm.ZLIB: 25 * 1024,
+    CompressAlgorithm.BZIP2: 3 * 1024,
+    CompressAlgorithm.LZMA: 4 * 1024,
 }
 
 
@@ -105,7 +118,7 @@ class AsyncComprencBackend(AsyncBackend):
     '''
 
     passphrase: bytes | None
-    compression: tuple[str | None, int]
+    compress: CompressSpec
     backend: AsyncBackend
 
     _max_threads: ClassVar[int] = max(1, (os.cpu_count() or 2) // 2)
@@ -128,16 +141,16 @@ class AsyncComprencBackend(AsyncBackend):
     async def create(
         cls,
         passphrase: bytes | None,
-        compression: tuple[str | None, int],
+        compress: CompressSpec,
         backend: AsyncBackend,
     ) -> AsyncComprencBackend:
-        return cls(_FACTORY_SENTINEL, passphrase, compression, backend)
+        return cls(_FACTORY_SENTINEL, passphrase, compress, backend)
 
     def __init__(
         self,
         _sentinel: object,
         passphrase: bytes | None,
-        compression: tuple[str | None, int],
+        compress: CompressSpec,
         backend: AsyncBackend,
     ) -> None:
         if _sentinel is not _FACTORY_SENTINEL:
@@ -147,11 +160,11 @@ class AsyncComprencBackend(AsyncBackend):
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
         self.passphrase = passphrase
-        self.compression = compression
+        self.compress = compress
         self.backend = backend
 
-        if compression[0] not in ('bzip2', 'lzma', 'zlib', None) or compression[1] not in range(10):
-            raise ValueError(f'Unsupported compression: {compression}')
+        if compress.level not in range(10):
+            raise ValueError(f'Unsupported compression level: {compress.level}')
 
     @property
     def max_connections(self) -> int:
@@ -280,14 +293,16 @@ class AsyncComprencBackend(AsyncBackend):
             data_key = sha256(self.passphrase + nonce)
         else:
             data_key = None
-        compr_alg = meta_raw['compression']
-        assert isinstance(compr_alg, str)
+        compr_token = meta_raw['compression']
+        assert isinstance(compr_token, str)
         encr_alg = meta_raw['encryption']
         assert isinstance(encr_alg, str)
         if encr_alg != 'AES_v2' and encr_alg != 'None':
             raise RuntimeError('Unsupported encryption: %r' % encr_alg)
-        if compr_alg not in ('BZIP2', 'LZMA', 'ZLIB', 'None'):
-            raise RuntimeError('Unsupported compression: %r' % compr_alg)
+        try:
+            compr_alg = _ALGORITHM_BY_TOKEN[compr_token]
+        except KeyError:
+            raise RuntimeError('Unsupported compression: %r' % compr_token)
 
         # The `payload_offset` key only exists if the storage object was created with on old S3QL
         # version. In order to avoid having to download and re-upload the entire object during the
@@ -316,7 +331,7 @@ class AsyncComprencBackend(AsyncBackend):
 
         # If not compressed, decrypt directly into `fh`.
         limiter = self._get_thread_limiter()
-        if compr_alg == 'None':
+        if compr_alg is CompressAlgorithm.NONE:
             if data_key is not None:
                 if use_async:
                     await trio.to_thread.run_sync(decrypt_fh, buf, fh, data_key, limiter=limiter)
@@ -342,7 +357,7 @@ class AsyncComprencBackend(AsyncBackend):
 
     def _decompress_sync(
         self,
-        compr_alg: str,
+        compr_alg: CompressAlgorithm,
         data_key: bytes | None,
         ifh: BinaryInput,
         ofh: BinaryOutput,
@@ -354,11 +369,11 @@ class AsyncComprencBackend(AsyncBackend):
             decrypt_fh(ifh, buf, data_key)
             buf.seek(0)
 
-        if compr_alg == 'BZIP2':
+        if compr_alg is CompressAlgorithm.BZIP2:
             decompressor: DecompressorProtocol = bz2.BZ2Decompressor()
-        elif compr_alg == 'LZMA':
+        elif compr_alg is CompressAlgorithm.LZMA:
             decompressor = lzma.LZMADecompressor()
-        elif compr_alg == 'ZLIB':
+        elif compr_alg is CompressAlgorithm.ZLIB:
             decompressor = zlib.decompressobj()
         else:
             raise RuntimeError('Unsupported compression: %r' % compr_alg)
@@ -395,11 +410,11 @@ class AsyncComprencBackend(AsyncBackend):
             # If we're potentially reading from disk (which may take time), always use async
             use_async = True
         else:
-            if dont_compress or self.compression[0] is None:
-                compress_alg = 'None'
+            if dont_compress:
+                compr_alg = CompressAlgorithm.NONE
             else:
-                compress_alg = self.compression[0]
-            use_async = len_ > SYNC_COMPRESSION_THRESHOLD[compress_alg]
+                compr_alg = self.compress.algorithm
+            use_async = len_ > SYNC_COMPRESSION_THRESHOLD[compr_alg]
 
         if use_async:
             # We need to can't directly return an awaitable, because then run_sync believes
@@ -431,11 +446,12 @@ class AsyncComprencBackend(AsyncBackend):
         meta_buf = freeze_basic_mapping(metadata)
         meta_raw: BasicMappingT = dict(format_version=2)
 
-        no_compress = dont_compress or self.compression[0] is None
+        algorithm = CompressAlgorithm.NONE if dont_compress else self.compress.algorithm
+        no_compress = algorithm is CompressAlgorithm.NONE
         no_encrypt = self.passphrase is None
 
+        meta_raw['compression'] = _METADATA_TOKEN[algorithm]
         if no_compress:
-            meta_raw['compression'] = 'None'
             if no_encrypt and ((off := fh.tell()) != 0 or fh_size(fh) != len_):
                 # AbstractBackend.write_fh always writes the entire fh, so we
                 # may need a bounce buffer even when using neither compression
@@ -446,15 +462,13 @@ class AsyncComprencBackend(AsyncBackend):
                 fh = buf
                 fh.seek(0)
         else:
-            if self.compression[0] == 'zlib':
-                compr: CompressorProtocol = zlib.compressobj(self.compression[1])
-                meta_raw['compression'] = 'ZLIB'
-            elif self.compression[0] == 'bzip2':
-                compr = bz2.BZ2Compressor(self.compression[1])
-                meta_raw['compression'] = 'BZIP2'
-            elif self.compression[0] == 'lzma':
-                compr = lzma.LZMACompressor(preset=self.compression[1])
-                meta_raw['compression'] = 'LZMA'
+            level = self.compress.level
+            if algorithm is CompressAlgorithm.ZLIB:
+                compr: CompressorProtocol = zlib.compressobj(level)
+            elif algorithm is CompressAlgorithm.BZIP2:
+                compr = bz2.BZ2Compressor(level)
+            elif algorithm is CompressAlgorithm.LZMA:
+                compr = lzma.LZMACompressor(preset=level)
             buf = io.BytesIO()
             compress_fh(fh, buf, compr, len_=len_)
             len_ = buf.tell()

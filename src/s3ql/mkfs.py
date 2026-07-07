@@ -203,9 +203,7 @@ async def mkfs(
         with open('/dev/urandom', "rb", 0) as fh:  # No buffering
             data_pw = fh.read(32)
 
-        backend = await AsyncComprencBackend.create(
-            wrap_pw_bytes, authinfo.compress.to_comprenc(), plain_backend
-        )
+        backend = await AsyncComprencBackend.create(wrap_pw_bytes, authinfo.compress, plain_backend)
         await backend.store('s3ql_passphrase', data_pw)
         await backend.store('s3ql_passphrase_bak1', data_pw)
         await backend.store('s3ql_passphrase_bak2', data_pw)
@@ -236,9 +234,7 @@ async def mkfs(
     init_tables(db)
     db.close()
 
-    backend = await AsyncComprencBackend.create(
-        data_pw, authinfo.compress.to_comprenc(), plain_backend
-    )
+    backend = await AsyncComprencBackend.create(data_pw, authinfo.compress, plain_backend)
     log.info('Uploading metadata...')
     await upload_metadata(backend, db, param)
     write_params(cachepath, param)

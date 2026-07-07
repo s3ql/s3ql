@@ -158,9 +158,7 @@ async def open_backend(
 
     try:
         assert backend is not None
-        comprenc_backend = await AsyncComprencBackend.create(
-            fs_passphrase_bytes, compress.to_comprenc(), backend
-        )
+        comprenc_backend = await AsyncComprencBackend.create(fs_passphrase_bytes, compress, backend)
         if encrypted:
             try:
                 data_pw = (await comprenc_backend.fetch('s3ql_passphrase'))[0]

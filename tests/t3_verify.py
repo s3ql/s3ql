@@ -21,6 +21,7 @@ import tempfile
 from argparse import Namespace
 
 import pytest
+from common import COMPRESS_SPEC
 from pytest_checklogs import assert_logs
 
 from s3ql import verify
@@ -35,7 +36,7 @@ async def backend():
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     storage_url = 'local://' + backend_dir
     plain_backend = local.AsyncBackend(options=Namespace(storage_url=storage_url))
-    backend = await AsyncComprencBackend.create(b'schnorz', ('zlib', 6), plain_backend)
+    backend = await AsyncComprencBackend.create(b'schnorz', COMPRESS_SPEC, plain_backend)
     try:
         yield backend
     finally:

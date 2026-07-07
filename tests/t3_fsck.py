@@ -26,6 +26,7 @@ from dataclasses import dataclass
 import pytest
 
 from s3ql import ROOT_INODE
+from s3ql.authinfo import CompressAlgorithm, CompressSpec
 from s3ql.backends import local
 from s3ql.backends.comprenc import AsyncComprencBackend
 from s3ql.common import time_ns
@@ -54,7 +55,9 @@ async def ctx(tmp_path) -> AsyncIterator[FsckCtx]:
     backend_dir = str(tmp_path / 'backend')
     os.makedirs(backend_dir)
     raw_backend = await local.AsyncBackend.create(Namespace(storage_url='local://' + backend_dir))
-    backend = await AsyncComprencBackend.create(None, (None, 0), raw_backend)
+    backend = await AsyncComprencBackend.create(
+        None, CompressSpec(algorithm=CompressAlgorithm.NONE, level=0), raw_backend
+    )
     cachedir = str(tmp_path / 'cache')
     os.makedirs(cachedir)
     max_obj_size = 1024

@@ -23,7 +23,7 @@ from argparse import Namespace
 from random import randint
 
 import pytest
-from common import CLOCK_GRANULARITY, safe_sleep
+from common import CLOCK_GRANULARITY, COMPRESS_SPEC, safe_sleep
 from pyfuse3 import FUSEError
 from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
@@ -76,7 +76,7 @@ async def ctx(tmp_path):
     plain = await local.AsyncBackend.create(
         Namespace(storage_url='local://' + str(ctx.backend_dir))
     )
-    ctx.backend = await AsyncComprencBackend.create(b'schwubl', ('zlib', 6), plain)
+    ctx.backend = await AsyncComprencBackend.create(b'schwubl', COMPRESS_SPEC, plain)
 
     ctx.cachedir = tmp_path / 'cache'
     ctx.cachedir.mkdir()

@@ -223,9 +223,7 @@ async def recover_key(
         wrap_pw = sys.stdin.readline().rstrip()
     wrap_pw_bytes = wrap_pw.encode('utf-8')
 
-    comprenc_backend = await AsyncComprencBackend.create(
-        wrap_pw_bytes, authinfo.compress.to_comprenc(), backend
-    )
+    comprenc_backend = await AsyncComprencBackend.create(wrap_pw_bytes, authinfo.compress, backend)
     await comprenc_backend.store('s3ql_passphrase', data_pw)
     await comprenc_backend.store('s3ql_passphrase_bak1', data_pw)
     await comprenc_backend.store('s3ql_passphrase_bak2', data_pw)

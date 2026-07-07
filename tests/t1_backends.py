@@ -31,6 +31,7 @@ from pytest import raises as assert_raises
 from pytest_checklogs import assert_logs
 
 from s3ql import BUFSIZE, backends
+from s3ql.authinfo import CompressAlgorithm, CompressSpec
 from s3ql.backends import gs, local
 from s3ql.backends.common import AsyncBackend, CorruptedObjectError, NoSuchObject
 from s3ql.backends.comprenc import (
@@ -179,13 +180,23 @@ async def backend(request):
         if comprenc_kind == 'raw':
             backend = raw_backend
         elif comprenc_kind == 'plain':
-            backend = await AsyncComprencBackend.create(None, (None, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(
+                None, CompressSpec(algorithm=CompressAlgorithm.NONE, level=6), raw_backend
+            )
         elif comprenc_kind == 'aes+zlib':
-            backend = await AsyncComprencBackend.create(b'schlurz', ('zlib', 6), raw_backend)
+            backend = await AsyncComprencBackend.create(
+                b'schlurz', CompressSpec(algorithm=CompressAlgorithm.ZLIB, level=6), raw_backend
+            )
         elif comprenc_kind == 'aes':
-            backend = await AsyncComprencBackend.create(b'schlurz', (None, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(
+                b'schlurz', CompressSpec(algorithm=CompressAlgorithm.NONE, level=6), raw_backend
+            )
         else:
-            backend = await AsyncComprencBackend.create(None, (comprenc_kind, 6), raw_backend)
+            backend = await AsyncComprencBackend.create(
+                None,
+                CompressSpec(algorithm=CompressAlgorithm(comprenc_kind), level=6),
+                raw_backend,
+            )
 
         backend.unittest_info = raw_backend.unittest_info
 
@@ -1115,14 +1126,14 @@ async def test_conn_abort(backend, monkeypatch):
 async def test_compression_threshold_boundaries(backend: AsyncComprencBackend):
     '''Test data integrity when compressing data below and above thresholds'''
 
-    compression_algo = backend.compression[0] or 'None'
+    compression_algo = backend.compress.algorithm
     threshold = SYNC_COMPRESSION_THRESHOLD[compression_algo]
 
     # Test data sizes: below threshold and above threshold
     sizes = [int(threshold * 2 / 3), int(threshold * 4 / 3)]
 
     for size in sizes:
-        key = f'test_key_{compression_algo}_{size}'
+        key = f'test_key_{compression_algo.value}_{size}'
         data = (b'a' * 100 + b'b' * 100) * (size // 200 + 1)
         data = data[:size]
         metadata: BasicMappingT = {'test': 'metadata', 'size': size}
@@ -1139,19 +1150,14 @@ async def test_compression_threshold_boundaries(backend: AsyncComprencBackend):
 async def test_decompression_threshold_boundaries(backend: AsyncComprencBackend):
     '''Test decompression works correctly below and above thresholds'''
 
-    compression_algo = backend.compression[0]
-    if compression_algo is None:
-        compression_key = 'None'
-    else:
-        compression_key = compression_algo.upper()
-
-    threshold = SYNC_DECOMPRESSION_THRESHOLD[compression_key]
+    compression_algo = backend.compress.algorithm
+    threshold = SYNC_DECOMPRESSION_THRESHOLD[compression_algo]
 
     # Test data sizes: below threshold and above threshold
     sizes = [int(threshold * 2 / 3), int(threshold * 4 / 3)]
 
     for size in sizes:
-        key = f'test_key_decomp_{compression_key}_{size}'
+        key = f'test_key_decomp_{compression_algo.value}_{size}'
         data = (b'x' * 100 + b'y' * 100) * (size // 200 + 1)
         data = data[:size]
 
