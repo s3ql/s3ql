@@ -74,7 +74,7 @@ async def ctx(tmp_path):
     ctx.backend_dir.mkdir()
 
     plain = await local.AsyncBackend.create(
-        Namespace(storage_url='local://' + str(ctx.backend_dir))
+        storage_url='local://' + str(ctx.backend_dir), backend_options={}
     )
     ctx.backend = await AsyncComprencBackend.create(b'schwubl', COMPRESS_SPEC, plain)
 

@@ -21,7 +21,6 @@ from s3ql.types import BasicMappingT
 from ..logging import QuietError
 from . import s3c4
 from .common import AuthenticationError, AuthorizationError
-from .config import BackendConfig
 from .s3c import HTTPError
 
 log = logging.getLogger(__name__)
@@ -41,9 +40,23 @@ class AsyncBackend(s3c4.AsyncBackend):
 
     known_options: set[str] = s3c4.AsyncBackend.known_options - {'sig-region'}
 
-    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
-        super().__init__(options=options, max_connections=max_connections)
+        super().__init__(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
         # `s3c4` reads `sig-region` from backend options (defaulting to
         # `us-east-1`). We override unconditionally; the real region is
         # discovered in `_discover_region`.
@@ -52,11 +65,21 @@ class AsyncBackend(s3c4.AsyncBackend):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendConfig,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new Backblaze B2 (S3-compatible) backend instance.'''
-        self = cls(options=options, max_connections=max_connections)
+        self = cls(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
         await self._discover_region()
         self._pool = self._make_pool()
         return self

@@ -54,7 +54,6 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
-from .config import BackendConfig
 from .s3c import BadDigestError, HTTPError
 
 log = logging.getLogger(__name__)
@@ -94,7 +93,11 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type['AsyncBackend'],
-        options: BackendConfig,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
         max_connections: int = 1,
     ) -> 'AsyncBackend':
         '''Create a new Swift backend instance.
@@ -102,7 +105,13 @@ class AsyncBackend(AsyncBackendBase):
         Authentication happens lazily on the first request; the
         `_container_exists()` check below triggers it.
         '''
-        backend = cls(options=options, max_connections=max_connections)
+        backend = cls(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
         await backend._container_exists()
         return backend
 
@@ -193,10 +202,18 @@ class AsyncBackend(AsyncBackendBase):
 
         return meta
 
-    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> None:
         '''Initialize swift backend - use AsyncBackend.create() instead.'''
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
-        self.options = options.backend_options
+        self.options = backend_options
         self.auth_token: str | None = None
         self.auth_prefix: str | None = None
 
@@ -206,8 +223,8 @@ class AsyncBackend(AsyncBackendBase):
         # Serialises reauthentication after an expired token so concurrent tasks
         # do not redundantly hit the auth endpoint or stomp on each other's pool.
         self._auth_lock = trio.Lock()
-        self.password = options.backend_password
-        self.login = options.backend_login
+        self.password = backend_password
+        self.login = backend_login
         self.features = Features()
 
         # We may need the context even if no-ssl has been specified,
@@ -216,7 +233,7 @@ class AsyncBackend(AsyncBackendBase):
 
         # Note: this is intentionally a separate method (rather than inlining the
         # parsing logic), because derived backends (e.g. swiftks://) override it.
-        self._parse_storage_url(options.storage_url, self.ssl_context)
+        self._parse_storage_url(storage_url, self.ssl_context)
 
         self.proxy = get_proxy(self.ssl_context is not None)
 

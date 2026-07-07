@@ -18,7 +18,6 @@ import errno
 import os.path
 import signal
 import time
-from argparse import Namespace
 
 import pytest
 import t4_fuse
@@ -72,12 +71,10 @@ class TestFailsafe(t4_fuse.TestFuse):
 
         # Corrupt a data block via the backend directly
         async with await gs.AsyncBackend.create(
-            Namespace(
-                storage_url=self.storage_url,
-                backend_login=self.backend_login,
-                backend_password=self.backend_passphrase,
-                backend_options={},
-            ),
+            storage_url=self.storage_url,
+            backend_login=self.backend_login,
+            backend_password=self.backend_passphrase,
+            backend_options={},
         ) as backend:
             (val, meta) = await backend.fetch('s3ql_data_1')
             await backend.store('s3ql_data_1', val[:500] + b'oops' + val[500:], meta)

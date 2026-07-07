@@ -40,7 +40,7 @@ from s3ql.backends.comprenc import (
     AsyncComprencBackend,
     ObjectNotEncrypted,
 )
-from s3ql.backends.config import BackendConfig, parse_suboptions
+from s3ql.backends.config import parse_suboptions
 from s3ql.backends.s3c import BadDigestError, HTTPError, OperationAbortedError, S3Error
 from s3ql.http import ConnectionClosed
 from s3ql.types import BasicMappingT
@@ -206,11 +206,8 @@ async def backend(request):
 async def yield_local_backend(bi):
     backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
     backend = await local.AsyncBackend.create(
-        BackendConfig(
-            backend_class=local.AsyncBackend,
-            storage_url='local://' + backend_dir,
-            backend_options={},
-        )
+        storage_url='local://' + backend_dir,
+        backend_options={},
     )
     backend.unittest_info = Namespace()
     try:
@@ -232,13 +229,10 @@ async def yield_mock_backend(bi):
         'port': server.server_address[1],
     }
     backend = await backend_class.create(
-        BackendConfig(
-            backend_class=backend_class,
-            storage_url=storage_url,
-            backend_login='joe',
-            backend_password='swordfish',
-            backend_options={'no-ssl': True},
-        )
+        storage_url=storage_url,
+        backend_login='joe',
+        backend_password='swordfish',
+        backend_options={'no-ssl': True},
     )
 
     # Enable OAuth when using Google Backend
@@ -278,13 +272,10 @@ async def yield_remote_backend(bi, _ctr=[0]):  # noqa: B006
 
     backend_class = backends.async_prefix_map[bi.classname]
     backend = await backend_class.create(
-        BackendConfig(
-            backend_class=backend_class,
-            storage_url=storage_url,
-            backend_login=bi.login,
-            backend_password=bi.password,
-            backend_options=bi.options,
-        )
+        storage_url=storage_url,
+        backend_login=bi.login,
+        backend_password=bi.password,
+        backend_options=bi.options,
     )
 
     backend.unittest_info = Namespace()

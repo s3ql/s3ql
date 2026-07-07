@@ -59,7 +59,6 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
-from .config import BackendConfig
 
 C_DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 C_MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -95,30 +94,36 @@ class AsyncBackend(AsyncBackendBase):
     login: str
     _extra_put_headers: CaseInsensitiveDict
 
-    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> None:
         '''Initialize backend object - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
-        if 'no-ssl' in options.backend_options:
+        if 'no-ssl' in backend_options:
             self.ssl_context = None
         else:
-            ssl_ca_path = options.backend_options.get('ssl-ca-path', None)
+            ssl_ca_path = backend_options.get('ssl-ca-path')
             self.ssl_context = get_ssl_context(cast(str | None, ssl_ca_path))
 
-        (host, port, bucket_name, prefix) = self._parse_storage_url(
-            options.storage_url, self.ssl_context
-        )
+        (host, port, bucket_name, prefix) = self._parse_storage_url(storage_url, self.ssl_context)
 
-        self.options = options.backend_options
+        self.options = backend_options
         self.bucket_name = bucket_name
         self.prefix = prefix
         self.hostname = host
         self.port = port
         self.proxy = get_proxy(self.ssl_context is not None)
         self._max_connections = max_connections
-        self.password = options.backend_password
-        self.login = options.backend_login
+        self.password = backend_password
+        self.login = backend_login
         # Subclasses may populate this during construction; it is treated as immutable
         # afterwards, so concurrent readers need no synchronisation.
         self._extra_put_headers = CaseInsensitiveDict()
@@ -126,11 +131,21 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendConfig,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new S3-compatible backend instance.'''
-        self = cls(options=options, max_connections=max_connections)
+        self = cls(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
         self._pool = self._make_pool()
         await self._probe_access()
         return self

@@ -31,7 +31,6 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
-from .config import BackendConfig
 
 log = logging.getLogger(__name__)
 
@@ -52,11 +51,19 @@ class AsyncBackend(AsyncBackendBase):
     # against the worst-case serial duration.
     request_delay: float = 0.0
 
-    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> None:
         '''Initialize local backend - use AsyncBackend.create() instead.'''
 
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
-        self.prefix = options.storage_url[len('local://') :].rstrip('/')
+        self.prefix = storage_url[len('local://') :].rstrip('/')
         self._max_connections = max_connections
         # Bound concurrent filesystem operations, mirroring the connection limit
         # that networked backends enforce at the HTTP layer.
@@ -68,7 +75,11 @@ class AsyncBackend(AsyncBackendBase):
     @classmethod
     async def create(
         cls: type[AsyncBackend],
-        options: BackendConfig,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
         max_connections: int = 1,
     ) -> AsyncBackend:
         '''Create a new local backend instance.
@@ -78,7 +89,13 @@ class AsyncBackend(AsyncBackendBase):
         this limit lets callers throttle concurrent disk I/O - for example to a
         single operation at a time on a spinning disk.
         '''
-        return cls(options=options, max_connections=max_connections)
+        return cls(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
 
     @property
     def max_connections(self) -> int:

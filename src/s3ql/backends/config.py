@@ -8,29 +8,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from ..authinfo import DEFAULT_MAX_CONNECTIONS
-from .common import AsyncBackend
-
-
-@dataclass
-class BackendConfig:
-    '''Fully resolved parameters for opening a storage backend.
-
-    Combines the backend class and storage URL with parsed backend options, credentials, the
-    connection limit, and the optional file system passphrase. It is internal to the `backends`
-    layer and handed to `backend_class.create()`.
-    '''
-
-    backend_class: type[AsyncBackend]
-    storage_url: str
-    backend_options: dict[str, str | bool]
-    backend_login: str = ''
-    backend_password: str = ''
-    max_connections: int = DEFAULT_MAX_CONNECTIONS
-    fs_passphrase: str | None = None
-
 
 def parse_suboptions(value: str) -> dict[str, str | bool]:
     '''Parse a comma-separated backend suboption string into a mapping.

@@ -39,7 +39,7 @@ DEFAULT_CACHEDIR = os.path.expanduser('~/.s3ql')
 
 # Default number of concurrent backend I/O operations. Defined here for the same reason as the
 # paths above: `parse_args` interpolates it into --help output, while the value itself is applied
-# as the `max_connections` default in `AuthInfo` and `BackendConfig`.
+# as the `max_connections` default in `Authinfo`.
 DEFAULT_MAX_CONNECTIONS = 32
 
 

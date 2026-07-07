@@ -54,7 +54,6 @@ from .common import (
 from .common import (
     AsyncBackend as AsyncBackendBase,
 )
-from .config import BackendConfig
 
 log = logging.getLogger(__name__)
 
@@ -195,29 +194,48 @@ class AsyncBackend(AsyncBackendBase):
     _pool: Pool
 
     @classmethod
-    async def create(cls, options: BackendConfig, max_connections: int = 1) -> AsyncBackend:
-        backend = cls(_FACTORY_SENTINEL, options, max_connections)
+    async def create(
+        cls,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> AsyncBackend:
+        backend = cls(
+            _FACTORY_SENTINEL,
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
         await backend._check_bucket()
         return backend
 
     def __init__(
         self,
         _sentinel: object,
-        options: BackendConfig,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
         max_connections: int = 1,
     ) -> None:
         if _sentinel is not _FACTORY_SENTINEL:
             raise TypeError("Use 'await AsyncBackend.create(...)' instead of direct instantiation")
         super().__init__(_factory_sentinel=_FACTORY_SENTINEL)
 
-        ssl_ca_path = options.backend_options.get('ssl-ca-path', None)
+        ssl_ca_path = backend_options.get('ssl-ca-path')
         self.ssl_context = get_ssl_context(
             ssl_ca_path if isinstance(ssl_ca_path, str) or ssl_ca_path is None else None
         )
-        self.options = options.backend_options  # type: ignore[assignment]
+        self.options = backend_options  # type: ignore[assignment]
         self.proxy = get_proxy(ssl=True)
-        self.login = options.backend_login
-        self.refresh_token = options.backend_password
+        self.login = backend_login
+        self.refresh_token = backend_password
 
         if self.login == 'adc':
             if self.adc is None:
@@ -245,7 +263,7 @@ class AsyncBackend(AsyncBackendBase):
             r':([0-9]+)'  # Port
             r'/([^/]+)'  # Bucketname
             r'(?:/(.*))?$',  # Prefix
-            options.storage_url,
+            storage_url,
         )
         if hit:
             self.hostname = hit.group(1)
@@ -253,7 +271,7 @@ class AsyncBackend(AsyncBackendBase):
             self.bucket_name = hit.group(3)
             self.prefix = hit.group(4) or ''
         else:
-            hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', options.storage_url)
+            hit = re.match(r'^gs://([^/]+)(?:/(.*))?$', storage_url)
             if not hit:
                 raise QuietError('Invalid storage URL', exitcode=2)
 

@@ -20,7 +20,6 @@ import math
 import os
 import tempfile
 import time
-from argparse import Namespace
 
 import pytest
 from common import COMPRESS_SPEC
@@ -112,7 +111,7 @@ def test_track_dirty_count():
 @pytest.fixture
 async def backend():
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
-        raw = local.AsyncBackend(options=Namespace(storage_url="local://" + backend_dir))
+        raw = local.AsyncBackend(storage_url="local://" + backend_dir, backend_options={})
         yield await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
 
@@ -452,7 +451,7 @@ async def test_download_metadata_parallel_correctness():
 
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
         raw = local.AsyncBackend(
-            options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
+            storage_url="local://" + backend_dir, backend_options={}, max_connections=workers
         )
         backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
@@ -510,7 +509,7 @@ async def test_upload_metadata_parallel_correctness(incremental):
 
     with tempfile.TemporaryDirectory(prefix="s3ql-backend-") as backend_dir:
         raw = local.AsyncBackend(
-            options=Namespace(storage_url="local://" + backend_dir), max_connections=workers
+            storage_url="local://" + backend_dir, backend_options={}, max_connections=workers
         )
         backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 
@@ -570,7 +569,7 @@ async def test_delete_multi_parallel_fallback():
 
     with tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir:
         raw = _NoDeleteMulti(
-            options=Namespace(storage_url='local://' + backend_dir), max_connections=workers
+            storage_url='local://' + backend_dir, backend_options={}, max_connections=workers
         )
         backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, raw)
 

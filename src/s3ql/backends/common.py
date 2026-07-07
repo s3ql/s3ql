@@ -39,8 +39,6 @@ from s3ql.types import BasicMappingT, BinaryInput, BinaryOutput
 if TYPE_CHECKING:
     from hmac import HMAC
 
-    from .config import BackendConfig
-
 F = TypeVar('F', bound=Callable[..., object])
 T = TypeVar('T', bound='AsyncBackend')
 
@@ -247,11 +245,21 @@ class AsyncBackend(metaclass=ABCMeta):
             )
 
     @classmethod
-    async def create(cls: type[T], options: BackendConfig, max_connections: int = 1) -> T:
+    async def create(
+        cls: type[T],
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> T:
         '''Async factory method to create backend instances.
 
-        *max_connections* bounds the number of concurrent wire-level requests the backend may
-        issue. Subclasses must override this method to perform initialization.
+        *storage_url* selects the bucket/container and prefix to operate on, *backend_options*
+        holds the parsed backend suboptions, and *backend_login*/*backend_password* the
+        credentials. *max_connections* bounds the number of concurrent wire-level requests the
+        backend may issue. Subclasses must override this method to perform initialization.
         '''
         raise NotImplementedError(f'{cls.__name__}.create() must be implemented by subclass')
 

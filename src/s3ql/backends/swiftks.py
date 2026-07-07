@@ -17,7 +17,6 @@ from s3ql.http import CaseInsensitiveDict, HTTPConnection
 from ..logging import QuietError
 from . import swift
 from .common import AuthorizationError, DanglingStorageURLError, retry
-from .config import BackendConfig
 from .s3c import HTTPError
 from .swift import _AuthResult
 
@@ -35,10 +34,24 @@ class AsyncBackend(swift.AsyncBackend):
         'identity-url',
     }
 
-    def __init__(self, *, options: BackendConfig, max_connections: int = 1) -> None:
+    def __init__(
+        self,
+        *,
+        storage_url: str,
+        backend_options: dict[str, str | bool],
+        backend_login: str = '',
+        backend_password: str = '',
+        max_connections: int = 1,
+    ) -> None:
         '''Initialize swiftks backend - use AsyncBackend.create() instead.'''
         self.region = None
-        super().__init__(options=options, max_connections=max_connections)
+        super().__init__(
+            storage_url=storage_url,
+            backend_options=backend_options,
+            backend_login=backend_login,
+            backend_password=backend_password,
+            max_connections=max_connections,
+        )
 
     def _parse_storage_url(self, storage_url, ssl_context):
         hit = re.match(

@@ -80,7 +80,9 @@ async def ctx():
     ctx = Namespace()
     ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
 
-    plain = await local.AsyncBackend.create(Namespace(storage_url='local://' + ctx.backend_dir))
+    plain = await local.AsyncBackend.create(
+        storage_url='local://' + ctx.backend_dir, backend_options={}
+    )
     ctx.backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, plain)
 
     ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')

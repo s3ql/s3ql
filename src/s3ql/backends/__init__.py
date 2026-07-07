@@ -23,7 +23,7 @@ from .common import (
     NoSuchObject,
 )
 from .comprenc import AsyncComprencBackend
-from .config import BackendConfig, parse_suboptions
+from .config import parse_suboptions
 
 async_prefix_map: dict[str, type[AsyncBackend]] = {
     's3': s3.AsyncBackend,
@@ -77,18 +77,14 @@ async def open_raw_backend(
         if backend_password is None:
             backend_password = _prompt_credential('Enter backend password: ')
 
-    config = BackendConfig(
-        backend_class=backend_class,
-        storage_url=storage_url,
-        backend_options=parsed_options,
-        backend_login=backend_login or '',
-        backend_password=backend_password or '',
-        max_connections=connections,
-        fs_passphrase=authinfo.fs_passphrase,
-    )
-
     try:
-        backend = await backend_class.create(config, max_connections=connections)
+        backend = await backend_class.create(
+            storage_url=storage_url,
+            backend_options=parsed_options,
+            backend_login=backend_login or '',
+            backend_password=backend_password or '',
+            max_connections=connections,
+        )
     except AuthenticationError:
         raise QuietError('Invalid credentials (or skewed system clock?).', exitcode=14)
     except AuthorizationError:

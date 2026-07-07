@@ -19,7 +19,6 @@ import hashlib
 import inspect
 import os
 import stat
-from argparse import Namespace
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
@@ -54,7 +53,9 @@ class FsckCtx:
 async def ctx(tmp_path) -> AsyncIterator[FsckCtx]:
     backend_dir = str(tmp_path / 'backend')
     os.makedirs(backend_dir)
-    raw_backend = await local.AsyncBackend.create(Namespace(storage_url='local://' + backend_dir))
+    raw_backend = await local.AsyncBackend.create(
+        storage_url='local://' + backend_dir, backend_options={}
+    )
     backend = await AsyncComprencBackend.create(
         None, CompressSpec(algorithm=CompressAlgorithm.NONE, level=0), raw_backend
     )

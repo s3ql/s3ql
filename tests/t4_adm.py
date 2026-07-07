@@ -18,7 +18,6 @@ import os
 import re
 import shutil
 import subprocess
-from argparse import Namespace
 
 import pytest
 from common import COMPRESS_SPEC, populate_dir
@@ -96,7 +95,9 @@ class TestAdm:
 
         assert proc.wait() == 0
 
-        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        plain_backend = await local.AsyncBackend.create(
+            storage_url=self.storage_url, backend_options={}
+        )
         backend = await AsyncComprencBackend.create(
             passphrase_new.encode(), COMPRESS_SPEC, plain_backend
         )
@@ -123,7 +124,9 @@ class TestAdm:
         proc.stdin.close()
         assert proc.wait() == 0
 
-        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        plain_backend = await local.AsyncBackend.create(
+            storage_url=self.storage_url, backend_options={}
+        )
         assert [k async for k in plain_backend.list()] == []
 
     def test_upgrade_noop(self):
@@ -164,7 +167,9 @@ class TestAdm:
         assert hit
         master_key = hit.group(1)
 
-        plain_backend = await local.AsyncBackend.create(Namespace(storage_url=self.storage_url))
+        plain_backend = await local.AsyncBackend.create(
+            storage_url=self.storage_url, backend_options={}
+        )
         await plain_backend.delete('s3ql_passphrase')  # Oops
 
         backend = await AsyncComprencBackend.create(
