@@ -146,15 +146,16 @@ async def passphrase(ctx: typer.Context, storage_url: StorageUrl, *, stack: Asyn
     '''Change file system passphrase.'''
     args = get_shared_args(ctx)
     authinfo, _cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
 
     if not backend.passphrase:
         raise QuietError('File system is not encrypted.')
@@ -195,14 +196,15 @@ async def recover_key(
     '''Recover master key from offline copy.'''
     args = get_shared_args(ctx)
     authinfo, _cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_raw_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_raw_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
     )
+    await stack.enter_async_context(backend)
 
     print("Enter master key (should be 11 blocks of 4 characters each): ")
     data_pw_str = sys.stdin.readline()
@@ -236,14 +238,15 @@ async def clear(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExit
     '''Delete file system and all data.'''
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_raw_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_raw_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
     )
+    await stack.enter_async_context(backend)
 
     print(
         'I am about to DELETE ALL DATA in %s.' % backend,
@@ -312,15 +315,16 @@ async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: Async
     '''Recover unused space in the metadata database.'''
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
 
     (param, db) = await get_metadata(backend, cachepath)
     param.seq_no += 1
@@ -366,15 +370,16 @@ async def upgrade(
     '''Upgrade file system to newest revision.'''
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
 
     params_path = cachepath + '.params'
     if not os.path.exists(cachepath + '.db') or not os.path.exists(params_path):
@@ -509,15 +514,16 @@ async def restore_metadata(
     '''Interactively restore metadata backups.'''
     args = get_shared_args(ctx)
     authinfo, cachepath = _resolve(args, storage_url)
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=args.backend_options,
-            max_connections=args.max_connections,
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=args.backend_options,
+        max_connections=args.max_connections,
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
 
     backups = sorted(await get_available_seq_nos(backend))
 

@@ -160,14 +160,15 @@ async def mkfs(
     threads = pick(max_threads, authinfo.max_threads) or determine_threads(None)
     AsyncComprencBackend.set_max_threads(threads)
 
-    plain_backend = await stack.enter_async_context(
-        await open_raw_backend(
-            storage_url,
-            authinfo,
-            backend_options=backend_options,
-            max_connections=pick(max_connections, authinfo.max_connections),
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    plain_backend = await open_raw_backend(
+        storage_url,
+        authinfo,
+        backend_options=backend_options,
+        max_connections=pick(max_connections, authinfo.max_connections),
     )
+    await stack.enter_async_context(plain_backend)
 
     backend: AsyncComprencBackend | None = None
 

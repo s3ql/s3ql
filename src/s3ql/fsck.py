@@ -1295,15 +1295,16 @@ async def fsck(
     if is_mounted(storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
 
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=backend_options,
-            max_connections=pick(max_connections, authinfo.max_connections),
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=backend_options,
+        max_connections=pick(max_connections, authinfo.max_connections),
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
 
     if fast:
         log.info('Starting fast fsck of %s', storage_url)

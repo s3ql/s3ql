@@ -124,15 +124,16 @@ async def verify(
     missing_fh = _open_new_file(missing_file)
     corrupted_fh = _open_new_file(corrupted_file)
 
-    backend = await stack.enter_async_context(
-        await open_backend(
-            storage_url,
-            authinfo,
-            backend_options=backend_options,
-            max_connections=max_conns,
-            compress=authinfo.compress,
-        )
+    # Assign before entering the context: ty cannot infer the type through
+    # AsyncExitStack.enter_async_context().
+    backend = await open_backend(
+        storage_url,
+        authinfo,
+        backend_options=backend_options,
+        max_connections=max_conns,
+        compress=authinfo.compress,
     )
+    await stack.enter_async_context(backend)
     (_, db) = await get_metadata(backend, cachepath)
 
     await retrieve_objects(
