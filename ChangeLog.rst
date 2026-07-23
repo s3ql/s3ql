@@ -1,3 +1,33 @@
+S3QL 6.3.0 (2026-07-23)
+=======================
+
+* The legacy Backblaze B2 backend (the ``b2old://`` URL scheme) has been
+  removed.
+
+* Fixed the Backblaze B2 backend failing region discovery with ``HTTPError:
+  400`` when used with newer API keys (the region-discovery request now uses
+  the V4 API endpoint).
+
+* On the Amazon S3 and other S3-compatible backends, a response indicating that
+  the wrong region was configured is now reported at startup instead of being
+  silently worked around on every request.
+
+* The ``compress`` setting in the authentication file (``authinfo2``) now
+  applies to every command. Previously ``mkfs.s3ql``, ``fsck.s3ql``,
+  ``s3ql_verify``, and ``s3qladm`` always used ``lzma-2``. The default is now
+  ``lzma-6``.
+
+* Unknown keys in the authentication file (``authinfo2``) are now rejected
+  instead of being silently ignored.
+
+* ``mkfs.s3ql`` and ``s3qladm`` no longer accept the ``--log`` option; they log
+  to stdout. ``fsck.s3ql`` no longer accepts the ``--compress`` option (the
+  ``compress`` setting from the authentication file applies instead).
+
+* Specifying an unknown storage backend in the storage URL now exits with the
+  usage-error code 2 (previously 11).
+
+
 S3QL 6.2.2 (2026-06-05)
 =======================
 

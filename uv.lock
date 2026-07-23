@@ -945,7 +945,7 @@ wheels = [
 
 [[package]]
 name = "s3ql"
-version = "6.2.2"
+version = "6.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "anyio" },
