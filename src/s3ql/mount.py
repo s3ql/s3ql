@@ -367,6 +367,11 @@ async def mount(
 
         await upload_params(backend, param)
 
+        # This superblock only flags the fs as mounted; it contains no new metadata and is
+        # superseded once the next generation is committed. Remember its seq so we can drop
+        # the redundant superblock at unmount (it lingers meanwhile, which is harmless).
+        marker_seq_no = param.seq_no
+
         nursery.start_soon(metadata_upload_task.run, name='metadata-upload-task')
         cm.callback(metadata_upload_task.stop)
 
@@ -421,7 +426,10 @@ async def mount(
 
         unmount_clean = True
 
-    # At this point, there should be no other threads left
+    # At this point, there should be no other threads left. Advance the generation counter
+    # before persisting the unmounted state, so that a crash between the local and remote
+    # parameter write stays detectable through seq_no.
+    param.seq_no += 1
     param.is_mounted = False
     db.close()
 
@@ -435,6 +443,12 @@ async def mount(
     await upload_metadata(backend, db, param)
     write_params(cachepath, param)
     await upload_params(backend, param)
+
+    # Drop the redundant mount-start superblock now that the unmounted state is committed. The
+    # delete silently succeeds if a long session's expire_objects already reclaimed it.
+    log.debug('Removing redundant mount-start superblock %d', marker_seq_no)
+    await backend.delete('s3ql_params_%010x' % marker_seq_no)
+
     await expire_objects(backend)
 
     await backend.close()
@@ -736,46 +750,50 @@ class MetadataUploadTask:
                 break
 
             self.event = trio.Event()  # reset
-
-            # Upload twice without blocking writes, to reduce the amount of data left for
-            # the final upload (which is needed for a consistent snapshot).
-            self.db.sync_checkpoint()
-            for _ in range(2):
-                await upload_metadata(
-                    self.backend,
-                    self.db,
-                    self.params,
-                    update_params=False,
-                    incremental=True,
-                )
-
-            self.params.last_modified = time.time()
-
-            # Now upload with writes inhibited to get a consistent snapshot. inhibit_writes() blocks
-            # WAL checkpointing (writes go to WAL only), ensuring the main database file remains
-            # consistent while we read it.
-            async with self.db.inhibit_writes():
-                await upload_metadata(
-                    self.backend,
-                    self.db,
-                    self.params,
-                    update_params=True,
-                    incremental=True,
-                )
-                write_params(self.cachepath, self.params)
-                await upload_params(self.backend, self.params)
-
-                # Write a new params file immediately, so that we're in the same state as right
-                # after mounting and there is no window where we could have metadata_* objects
-                # with a sequence number for which there is no corresponding s3ql_params_*
-                # object.
-                self.params.seq_no += 1
-                write_params(self.cachepath, self.params)
-                await upload_params(self.backend, self.params)
-
-                await expire_objects(self.backend)
+            await self._upload_cycle()
 
         log.debug('finished')
+
+    async def _upload_cycle(self) -> None:
+        '''Commit one metadata snapshot to the backend.
+
+        Advances `self.params.seq_no`.
+        '''
+
+        self.db.sync_checkpoint()
+
+        # Advance seq_no before persisting any changed parameters, so that a crash partway
+        # through the cycle can never leave the local and remote parameter objects disagreeing
+        # at an equal seq_no. Every object written below is tagged with the new seq_no, so no
+        # previously committed s3ql_params_<seq> object is overwritten with different content.
+        self.params.seq_no += 1
+        self.params.last_modified = time.time()
+
+        # Upload twice without blocking writes, to reduce the amount of data left for
+        # the final upload (which is needed for a consistent snapshot).
+        for _ in range(2):
+            await upload_metadata(
+                self.backend,
+                self.db,
+                self.params,
+                update_params=False,
+                incremental=True,
+            )
+
+        # Now upload with writes inhibited to get a consistent snapshot. inhibit_writes() blocks
+        # WAL checkpointing (writes go to WAL only), ensuring the main database file remains
+        # consistent while we read it.
+        async with self.db.inhibit_writes():
+            await upload_metadata(
+                self.backend,
+                self.db,
+                self.params,
+                update_params=True,
+                incremental=True,
+            )
+            write_params(self.cachepath, self.params)
+            await upload_params(self.backend, self.params)
+            await expire_objects(self.backend)
 
     def stop(self) -> None:
         '''Signal thread to terminate'''

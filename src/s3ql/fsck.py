@@ -1450,6 +1450,11 @@ async def fsck(
     write_params(cachepath, param)
     await upload_params(backend, param)
 
+    # This superblock only flags the fs as mounted; it contains no new metadata and is
+    # superseded by the completed-fsck state below. Remember its seq so we can drop the
+    # redundant superblock once that state is committed.
+    marker_seq_no = param.seq_no
+
     fsck = Fsck(cachepath + '-cache', backend, param, db)
     await fsck.check(check_cache)
 
@@ -1470,6 +1475,9 @@ async def fsck(
     else:
         full_upload = False
 
+    # Advance the generation counter before persisting the completed-fsck state, so that a
+    # crash between the local and remote parameter write stays detectable through seq_no.
+    param.seq_no += 1
     param.needs_fsck = False
     param.is_mounted = False
     param.last_fsck = time.time()
@@ -1488,6 +1496,11 @@ async def fsck(
 
     write_params(cachepath, param)
     await upload_params(backend, param)
+
+    # Drop the redundant fsck-start superblock now that the completed-fsck state is committed.
+    log.debug('Removing redundant fsck-start superblock %d', marker_seq_no)
+    await backend.delete('s3ql_params_%010x' % marker_seq_no)
+
     await expire_objects(backend)
 
     log.info('Completed fsck of %s', storage_url)
