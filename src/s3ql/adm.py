@@ -332,6 +332,11 @@ async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: Async
     write_params(cachepath, param)
     await upload_params(backend, param)
 
+    # This superblock only flags the fs as mounted; it contains no new metadata and is
+    # superseded by the unmounted state below. Remember its seq so we can drop the redundant
+    # superblock once that state is committed.
+    marker_seq_no = param.seq_no
+
     old_size = os.path.getsize(db.file)
     db.execute('VACUUM')
     db.close()
@@ -343,11 +348,19 @@ async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: Async
         100 * (old_size - new_size) / old_size,
     )
 
+    # Advance the generation counter before persisting the unmounted state, so that a crash
+    # between the local and remote parameter write stays detectable through seq_no.
+    param.seq_no += 1
     param.is_mounted = False
     param.last_modified = time.time()
     await upload_metadata(backend, db, param)
     write_params(cachepath, param)
     await upload_params(backend, param)
+
+    # Drop the redundant shrink-db-start superblock now that the unmounted state is committed.
+    log.debug('Removing redundant shrink-db-start superblock %d', marker_seq_no)
+    await backend.delete('s3ql_params_%010x' % marker_seq_no)
+
     await expire_objects(backend)
 
 
