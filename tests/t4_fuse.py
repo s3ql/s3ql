@@ -38,6 +38,13 @@ USE_VALGRIND = False
 @pytest.mark.usefixtures('pass_reg_output')
 class TestFuse:
     def setup_method(self, method):
+        # Collect all temporary directory handles here so that teardown_method
+        # can clean them up. Each handle also removes its directory at
+        # interpreter exit, so nothing is leaked even if setup_method raises
+        # before teardown_method gets a chance to run.
+        self._tempdirs = []
+        self._cache_tmp = None
+
         if platform.system() != 'Darwin':
             skip_if_no_fusermount()
 
@@ -46,9 +53,9 @@ class TestFuse:
         if os.path.getsize(self.src) < 1048:
             raise RuntimeError("test file %s should be bigger than 1 KiB" % self.src)
 
-        self.mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt-')
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        self.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+        self.mnt_dir = self.make_tempdir(prefix='s3ql-mnt-')
+        self.reset_cache_dir()
+        self.backend_dir = self.make_tempdir(prefix='s3ql-backend-')
 
         self.storage_url = 'local://%s/' % (self.backend_dir,)
         self.passphrase = 'oeut3d'
@@ -59,6 +66,22 @@ class TestFuse:
         self.mount_process = None
         self.name_cnt = 0
         self.cachepath = os.path.join(self.cache_dir, escape(self.storage_url))
+
+    def make_tempdir(self, prefix):
+        d = tempfile.TemporaryDirectory(prefix=prefix)
+        self._tempdirs.append(d)
+        return d.name
+
+    def reset_cache_dir(self):
+        # Some tests delete the cache directory mid-run to exercise recovery
+        # from the backend, so remove the previous one before creating a fresh
+        # one rather than deferring to teardown.
+        if self._cache_tmp is not None:
+            self._cache_tmp.cleanup()
+            self._tempdirs.remove(self._cache_tmp)
+        self._cache_tmp = tempfile.TemporaryDirectory(prefix='s3ql-cache-')
+        self._tempdirs.append(self._cache_tmp)
+        self.cache_dir = self._cache_tmp.name
 
     def mkfs(self, max_obj_size=500):
         argv = [
@@ -197,7 +220,6 @@ class TestFuse:
 
     def teardown_method(self, method):
         self.umount_fuse()
-        os.rmdir(self.mnt_dir)
 
         # Give mount process a little while to terminate
         if self.mount_process is not None:
@@ -210,8 +232,8 @@ class TestFuse:
                 except subprocess.TimeoutExpired:
                     self.mount_process.kill()
 
-        shutil.rmtree(self.cache_dir)
-        shutil.rmtree(self.backend_dir)
+        for tempdir in self._tempdirs:
+            tempdir.cleanup()
 
     def test(self):
         # Run all tests in same environment, mounting and umounting
@@ -234,12 +256,10 @@ class TestFuse:
         self.fsck()
 
         # Test metadata recovery
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.reset_cache_dir()
         self.fsck()
 
-        shutil.rmtree(self.cache_dir)
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+        self.reset_cache_dir()
         self.mount()
         self.umount()
 

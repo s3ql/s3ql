@@ -16,7 +16,6 @@ if __name__ == '__main__':
 
 import logging
 import os
-import shutil
 import stat
 import tempfile
 from argparse import Namespace
@@ -78,14 +77,16 @@ def random_data(len_):
 @pytest.fixture
 async def ctx():
     ctx = Namespace()
-    ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
+    ctx._backend_tmp = tempfile.TemporaryDirectory(prefix='s3ql-backend-')
+    ctx.backend_dir = ctx._backend_tmp.name
 
     plain = await local.AsyncBackend.create(
         storage_url='local://' + ctx.backend_dir, backend_options={}
     )
     ctx.backend = await AsyncComprencBackend.create(b'foobar', COMPRESS_SPEC, plain)
 
-    ctx.cachedir = tempfile.mkdtemp(prefix='s3ql-cache-')
+    ctx._cache_tmp = tempfile.TemporaryDirectory(prefix='s3ql-cache-')
+    ctx.cachedir = ctx._cache_tmp.name
     ctx.max_obj_size = 1024
 
     # Destructors are not guaranteed to run, and we can't unlink
@@ -144,8 +145,8 @@ async def ctx():
         ctx.cache.backend = ctx.backend
         if ctx.cache.destroy is not None:
             await ctx.cache.destroy()
-        shutil.rmtree(ctx.cachedir)
-        shutil.rmtree(ctx.backend_dir)
+        ctx._cache_tmp.cleanup()
+        ctx._backend_tmp.cleanup()
         ctx.db.close()
         ctx.dbfile.close()
         os.unlink(ctx.dbfile.name)

@@ -18,7 +18,6 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import os
-import shutil
 import stat
 import tempfile
 
@@ -48,9 +47,8 @@ def write_authinfo(tmp_path, text: str) -> str:
 
 @pytest.fixture()
 def tmp_path():
-    path = tempfile.mkdtemp(prefix='s3ql-cfg-test-')
-    yield path
-    shutil.rmtree(path)
+    with tempfile.TemporaryDirectory(prefix='s3ql-cfg-test-') as path:
+        yield path
 
 
 # --- parse_compression -------------------------------------------------------------------------

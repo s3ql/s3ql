@@ -17,7 +17,6 @@ if __name__ == '__main__':
 import os
 import shutil
 import subprocess
-import tempfile
 from subprocess import CalledProcessError, check_output
 
 import pytest
@@ -51,13 +50,8 @@ class TestUpgrade(t4_fuse.TestFuse):
             pytest.skip('no previous S3QL version found')
 
         super().setup_method(method)
-        self.tempdir = tempfile.mkdtemp(prefix='s3ql-upgrade-test')
-        self.ref_dir = tempfile.mkdtemp(prefix='s3ql-upgrade-ref')
-
-    def teardown_method(self, method):
-        super().teardown_method(method)
-        shutil.rmtree(self.tempdir)
-        shutil.rmtree(self.ref_dir)
+        self.tempdir = self.make_tempdir(prefix='s3ql-upgrade-test')
+        self.ref_dir = self.make_tempdir(prefix='s3ql-upgrade-ref')
 
     def mkfs_old(self, force=False, max_obj_size=500):
         argv = [

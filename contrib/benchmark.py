@@ -14,7 +14,6 @@ This work can be distributed under the terms of the GNU GPLv3.
 import io
 import logging
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -55,11 +54,8 @@ app = typer.Typer(add_completion=False, rich_markup_mode=None, pretty_exceptions
 
 def test_write_speed(size, blocksize, cachedir, rnd_fh):
     with ExitStack() as mgr:
-        mnt_dir = tempfile.mkdtemp(prefix='s3ql-mnt')
-        mgr.callback(shutil.rmtree, mnt_dir)
-
-        backend_dir = tempfile.mkdtemp(prefix='s3ql-benchmark-')
-        mgr.callback(shutil.rmtree, backend_dir)
+        mnt_dir = mgr.enter_context(tempfile.TemporaryDirectory(prefix='s3ql-mnt'))
+        backend_dir = mgr.enter_context(tempfile.TemporaryDirectory(prefix='s3ql-benchmark-'))
 
         subprocess.check_call(
             [

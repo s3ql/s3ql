@@ -14,7 +14,6 @@ if __name__ == '__main__':
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import shutil
 import subprocess
 import tempfile
 from subprocess import CalledProcessError, check_output
@@ -33,8 +32,7 @@ class TestFull(t4_fuse.TestFuse):
     def test(self):
         skip_without_rsync()
 
-        ref_dir = tempfile.mkdtemp(prefix='s3ql-ref-')
-        try:
+        with tempfile.TemporaryDirectory(prefix='s3ql-ref-') as ref_dir:
             self.populate_dir(ref_dir)
             self.mkfs()
             self.mount()
@@ -43,8 +41,7 @@ class TestFull(t4_fuse.TestFuse):
             self.fsck()
 
             # Delete cache, run fsck and compare
-            shutil.rmtree(self.cache_dir)
-            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+            self.reset_cache_dir()
             self.fsck()
             self.mount()
             try:
@@ -69,13 +66,9 @@ class TestFull(t4_fuse.TestFuse):
             self.umount()
 
             # Delete cache and mount
-            shutil.rmtree(self.cache_dir)
-            self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
+            self.reset_cache_dir()
             self.mount()
             self.umount()
-
-        finally:
-            shutil.rmtree(ref_dir)
 
 
 class RemoteTest:
