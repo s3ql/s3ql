@@ -17,7 +17,6 @@ if __name__ == '__main__':
 import functools
 import logging
 import re
-import shutil
 import tempfile
 import threading
 import time
@@ -204,17 +203,16 @@ async def backend(request):
 
 
 async def yield_local_backend(bi):
-    backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    backend = await local.AsyncBackend.create(
-        storage_url='local://' + backend_dir,
-        backend_options={},
-    )
-    backend.unittest_info = Namespace()
-    try:
-        yield backend
-    finally:
-        await backend.close()
-        shutil.rmtree(backend_dir)
+    with tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir:
+        backend = await local.AsyncBackend.create(
+            storage_url='local://' + backend_dir,
+            backend_options={},
+        )
+        backend.unittest_info = Namespace()
+        try:
+            yield backend
+        finally:
+            await backend.close()
 
 
 async def yield_mock_backend(bi):

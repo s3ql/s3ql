@@ -16,7 +16,6 @@ if __name__ == '__main__':
 
 import io
 import logging
-import shutil
 import tempfile
 
 import pytest
@@ -32,15 +31,14 @@ from s3ql.mkfs import init_tables
 
 @pytest.fixture()
 async def backend():
-    backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    storage_url = 'local://' + backend_dir
-    plain_backend = local.AsyncBackend(storage_url=storage_url, backend_options={})
-    backend = await AsyncComprencBackend.create(b'schnorz', COMPRESS_SPEC, plain_backend)
-    try:
-        yield backend
-    finally:
-        await backend.close()
-        shutil.rmtree(backend_dir)
+    with tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir:
+        storage_url = 'local://' + backend_dir
+        plain_backend = local.AsyncBackend(storage_url=storage_url, backend_options={})
+        backend = await AsyncComprencBackend.create(b'schnorz', COMPRESS_SPEC, plain_backend)
+        try:
+            yield backend
+        finally:
+            await backend.close()
 
 
 @pytest.fixture()

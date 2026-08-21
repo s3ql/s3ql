@@ -14,7 +14,6 @@ if __name__ == '__main__':
 
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
-import shutil
 import subprocess
 import tempfile
 from argparse import Namespace
@@ -95,14 +94,15 @@ def test_option_precedence(reg_output):
 @pytest.fixture()
 def context():
     ctx = Namespace()
-    ctx.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-    ctx.backend_dir = tempfile.mkdtemp(prefix='s3ql-backend-')
-    ctx.storage_url = 'local://' + ctx.backend_dir
+    with (
+        tempfile.TemporaryDirectory(prefix='s3ql-cache-') as cache_dir,
+        tempfile.TemporaryDirectory(prefix='s3ql-backend-') as backend_dir,
+    ):
+        ctx.cache_dir = cache_dir
+        ctx.backend_dir = backend_dir
+        ctx.storage_url = 'local://' + ctx.backend_dir
 
-    yield ctx
-
-    shutil.rmtree(ctx.cache_dir)
-    shutil.rmtree(ctx.backend_dir)
+        yield ctx
 
 
 def test_passphrase(context, reg_output):

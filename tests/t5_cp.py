@@ -15,7 +15,6 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import os.path
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -46,8 +45,7 @@ class TestCp(t4_fuse.TestFuse):
         self.logfile.close()
 
     def tst_cp(self):
-        tempdir = tempfile.mkdtemp(prefix='s3ql-cp-')
-        try:
+        with tempfile.TemporaryDirectory(prefix='s3ql-cp-') as tempdir:
             populate_dir(tempdir)
 
             # Rsync
@@ -83,9 +81,6 @@ class TestCp(t4_fuse.TestFuse):
 
             if out:
                 pytest.fail('Copy not equal to original, rsync says:\n' + out)
-
-        finally:
-            shutil.rmtree(tempdir)
 
     def test_cp_inode_invalidate(self):
         # check if we can write to drop_caches

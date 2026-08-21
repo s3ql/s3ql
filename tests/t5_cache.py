@@ -15,7 +15,6 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import os
-import shutil
 import subprocess
 import tempfile
 import time
@@ -105,15 +104,15 @@ class TestPerstCache(t4_fuse.TestFuse):
 
         # Mount elsewhere
         bak = self.cache_dir
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        try:
-            self.mount()
-            with open(pjoin(self.mnt_dir, 'testfile2'), 'wb') as fh:
-                fh.write(b'hello')
-            self.umount()
-        finally:
-            shutil.rmtree(self.cache_dir)
-            self.cache_dir = bak
+        with tempfile.TemporaryDirectory(prefix='s3ql-cache-') as alt_cache:
+            self.cache_dir = alt_cache
+            try:
+                self.mount()
+                with open(pjoin(self.mnt_dir, 'testfile2'), 'wb') as fh:
+                    fh.write(b'hello')
+                self.umount()
+            finally:
+                self.cache_dir = bak
 
         # Make sure that cache is ignored
         if with_fsck:
@@ -155,18 +154,18 @@ class TestPerstCache(t4_fuse.TestFuse):
         # Mount elsewhere
         self.reg_output(r'^WARNING: sqlite3: recovered [0-9]+ frames from WAL file', count=1)
         bak = self.cache_dir
-        self.cache_dir = tempfile.mkdtemp(prefix='s3ql-cache-')
-        try:
-            self.fsck(expect_retcode=0, args=['--force-remote'])
-            self.mount()
-            with open(pjoin(self.mnt_dir, 'testfile2'), 'wb') as fh:
-                fh.write(b'hello')
-            self.mount_process.kill()
-            self.mount_process.wait()
-            self.umount_fuse()
-        finally:
-            shutil.rmtree(self.cache_dir)
-            self.cache_dir = bak
+        with tempfile.TemporaryDirectory(prefix='s3ql-cache-') as alt_cache:
+            self.cache_dir = alt_cache
+            try:
+                self.fsck(expect_retcode=0, args=['--force-remote'])
+                self.mount()
+                with open(pjoin(self.mnt_dir, 'testfile2'), 'wb') as fh:
+                    fh.write(b'hello')
+                self.mount_process.kill()
+                self.mount_process.wait()
+                self.umount_fuse()
+            finally:
+                self.cache_dir = bak
 
         # Make sure that cache is ignored
         self.fsck(expect_retcode=0, args=['--force-remote', '--keep-cache'])
