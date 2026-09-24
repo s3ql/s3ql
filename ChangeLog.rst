@@ -1,3 +1,13 @@
+S3QL 6.3.1 (2026-09-24)
+=======================
+
+* Fixed ``mount.s3ql`` aborting with a bare ``AssertionError`` when the locally
+  cached filesystem parameters and the parameters stored in the backend had the
+  same sequence number but differed in some other field. This could happen when
+  a previous run of ``mount.s3ql``, ``fsck.s3ql``, or ``s3qladm`` was
+  interrupted by a crash or network failure at the wrong moment.
+
+
 S3QL 6.3.0 (2026-07-23)
 =======================
 
