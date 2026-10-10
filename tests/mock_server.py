@@ -15,6 +15,7 @@ import re
 import socketserver
 import urllib.parse
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler
 from xml.sax.saxutils import escape as xml_escape
 
@@ -58,15 +59,65 @@ class ParsedURL:
     __slots__ = ['bucket', 'key', 'params', 'fragment']
 
 
-class S3CRequestHandler(BaseHTTPRequestHandler):
+class MockRequestHandler(BaseHTTPRequestHandler):
+    '''Base class for mock storage request handlers'''
+
+    server_version = "MockHTTP"
+    protocol_version = 'HTTP/1.1'
+
+    def send_error(self, status, message=None, code='', resource='', extra_headers=None):
+        '''Send an error response with HTTP status *status*
+
+        *message* is a human-readable description, *code* and *resource* are the error code and
+        the affected resource in the protocol's terms, and *extra_headers* is a dict of
+        additional response headers.
+        '''
+
+        raise NotImplementedError()
+
+    def log_message(self, format, *args):
+        log.debug(format, *args)
+
+    def handle(self):
+        # Ignore exceptions resulting from the client closing
+        # the connection.
+        try:
+            return super().handle()
+        except ValueError as exc:
+            if exc.args == ('I/O operation on closed file.',):
+                pass
+            else:
+                raise
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _check_encoding(self) -> int | None:
+        encoding = self.headers['Content-Encoding']
+        if 'Content-Length' not in self.headers:
+            self.send_error(400, message='Missing Content-Length', code='MissingContentLength')
+            return None
+        elif encoding and encoding != 'identity':
+            self.send_error(501, message='Unsupported encoding', code='NotImplemented')
+            return None
+
+        return int(self.headers['Content-Length'])
+
+    def send_data(self, data):
+        '''Write *data* to the response body
+
+        This is a separate method so that tests can intercept the response body.
+        '''
+
+        self.wfile.write(data)
+
+
+class S3CRequestHandler(MockRequestHandler):
     '''A request handler implementing a subset of the AWS S3 Interface
 
     Bucket names are ignored, all keys share the same global
     namespace.
     '''
 
-    server_version = "MockHTTP"
-    protocol_version = 'HTTP/1.1'
     meta_header_re = re.compile(r'X-AMZ-Meta-([a-z0-9_.-]+)$', re.IGNORECASE)
     hdr_prefix = 'X-AMZ-'
     xml_ns = 'http://s3.amazonaws.com/doc/2006-03-01/'
@@ -85,22 +136,6 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
 
         return p
 
-    def log_message(self, format, *args):
-        log.debug(format, *args)
-
-    def handle(self):
-        # Ignore exceptions resulting from the client closing
-        # the connection.
-        try:
-            return super().handle()
-        except ValueError as exc:
-            if exc.args == ('I/O operation on closed file.',):
-                pass
-            else:
-                raise
-        except (BrokenPipeError, ConnectionResetError):
-            pass
-
     def do_DELETE(self):
         q = self.parse_url(self.path)
         try:
@@ -112,17 +147,6 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         else:
             self.send_response(204)
             self.end_headers()
-
-    def _check_encoding(self) -> int | None:
-        encoding = self.headers['Content-Encoding']
-        if 'Content-Length' not in self.headers:
-            self.send_error(400, message='Missing Content-Length', code='MissingContentLength')
-            return None
-        elif encoding and encoding != 'identity':
-            self.send_error(501, message='Unsupported encoding', code='NotImplemented')
-            return None
-
-        return int(self.headers['Content-Length'])
 
     def _get_meta(self):
         meta = dict()
@@ -221,9 +245,6 @@ class S3CRequestHandler(BaseHTTPRequestHandler):
         self.send_header('ETag', '"%s"' % md5.hexdigest())
         self.end_headers()
         self.send_data(data)
-
-    def send_data(self, data):
-        self.wfile.write(data)
 
     def do_list(self, q):
         marker = q.params['marker'][0] if 'marker' in q.params else None
@@ -636,13 +657,26 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
         send_response(200)
 
 
-#: A list of the available mock request handlers with
-#: corresponding storage urls
-handler_list = [
-    (S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
-    (S3C4RequestHandler, 's3c4://%(host)s:%(port)d/s3ql_test'),
+@dataclass(frozen=True)
+class MockBackendSpec:
+    '''How to run a mock server and connect a backend to it'''
+
+    handler: type[MockRequestHandler]
+
+    #: Storage URL template, interpolated with the server's `host` and `port`.
+    storage_url: str
+
+    # Mock servers speak plain HTTP unless configured otherwise.
+    backend_options: dict[str, str | bool] = field(default_factory=lambda: {'no-ssl': True})
+    login: str = 'joe'
+    password: str = 'swordfish'
+
+
+mock_backends = [
+    MockBackendSpec(S3CRequestHandler, 's3c://%(host)s:%(port)d/s3ql_test'),
+    MockBackendSpec(S3C4RequestHandler, 's3c4://%(host)s:%(port)d/s3ql_test'),
     # Special syntax only for testing against mock server
-    (BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
-    (CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
-    (BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    MockBackendSpec(BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    MockBackendSpec(CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    MockBackendSpec(BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
 ]

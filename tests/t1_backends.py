@@ -103,13 +103,12 @@ def _get_backend_info():
         info.append(bi)
 
     # Backends talking to local mock servers
-    for request_handler, storage_url in mock_server.handler_list:
-        name = re.match(r'^([a-zA-Z0-9]+)://', storage_url).group(1)
+    for spec in mock_server.mock_backends:
+        name = re.match(r'^([a-zA-Z0-9]+)://', spec.storage_url).group(1)
         bi = Namespace()
         bi.name = 'mock-' + name
         bi.classname = name
-        bi.request_handler = request_handler
-        bi.storage_url = storage_url
+        bi.mock_spec = spec
         info.append(bi)
 
     return info
@@ -150,7 +149,7 @@ def pytest_generate_tests(metafunc, _info_cache=[]):  # noqa: B006
 
         # Filter
         if with_backend_mark.kwargs.get('require_mock_server', False):
-            test_bi = [x for x in test_bi if 'request_handler' in x]
+            test_bi = [x for x in test_bi if 'mock_spec' in x]
 
         for comprenc_kind in comprenc_kinds:
             for bi in test_bi:
@@ -170,7 +169,7 @@ async def backend(request):
 
     if backend_info.classname == 'local':
         gen = yield_local_backend(backend_info)
-    elif 'request_handler' in backend_info:
+    elif 'mock_spec' in backend_info:
         gen = yield_mock_backend(backend_info)
     else:
         gen = yield_remote_backend(backend_info)
@@ -217,20 +216,21 @@ async def yield_local_backend(bi):
 
 async def yield_mock_backend(bi):
     backend_class = backends.async_prefix_map[bi.classname]
-    server = mock_server.StorageServer(bi.request_handler, ('localhost', 0))
+    spec = bi.mock_spec
+    server = mock_server.StorageServer(spec.handler, ('localhost', 0))
     thread = threading.Thread(target=server.serve_forever)
     thread.daemon = True
     thread.start()
 
-    storage_url = bi.storage_url % {
+    storage_url = spec.storage_url % {
         'host': server.server_address[0],
         'port': server.server_address[1],
     }
     backend = await backend_class.create(
         storage_url=storage_url,
-        backend_login='joe',
-        backend_password='swordfish',
-        backend_options={'no-ssl': True},
+        backend_login=spec.login,
+        backend_password=spec.password,
+        backend_options=spec.backend_options,
     )
 
     # Enable OAuth when using Google Backend
