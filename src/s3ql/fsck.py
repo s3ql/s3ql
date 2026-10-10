@@ -45,6 +45,7 @@ from .common import (
 )
 from .database import (
     Connection,
+    DownloadMetadata,
     FsAttributes,
     NoSuchRowError,
     download_metadata,
@@ -1550,28 +1551,41 @@ async def verify_metadata_snapshots(
     else:
         to_check = backups[1 : count + 1]
 
-    for seq_no in to_check:
-        d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % seq_no))[0])
-        if d['revision'] != CURRENT_FS_REV:
-            break
-        params = FsAttributes(**d)  # type: ignore
-        assert params.seq_no == seq_no
-        date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
-        if params.is_mounted:
-            log.info(
-                'Skipping check of backup %010x (from %s): not unmounted cleanly.', seq_no, date
+    # Consecutive snapshots share most of their blocks, so download them all into
+    # the same file and fetch only the blocks that differ from the previous one.
+    cached_blocks: dict[int, int] = {}
+    with NamedTemporaryFile() as fh:
+        for seq_no in to_check:
+            d = thaw_basic_mapping((await backend.fetch('s3ql_params_%010x' % seq_no))[0])
+            if d['revision'] != CURRENT_FS_REV:
+                break
+            params = FsAttributes(**d)  # type: ignore
+            assert params.seq_no == seq_no
+            date = datetime.fromtimestamp(params.last_modified).strftime('%Y-%m-%d %H:%M:%S')
+            if params.is_mounted:
+                log.info(
+                    'Skipping check of backup %010x (from %s): not unmounted cleanly.',
+                    seq_no,
+                    date,
+                )
+                continue
+            log.info('Checking backup %010x (from %s)...', seq_no, date)
+            op = DownloadMetadata(
+                backend=backend, db_file=fh.name, params=params, cached_blocks=cached_blocks
             )
-            continue
-        log.info('Checking backup %010x (from %s)...', seq_no, date)
-        with NamedTemporaryFile() as fh:
-            conn = await download_metadata(backend, fh.name, params)
-            res = conn.get_list('PRAGMA integrity_check(20)')
+            await op.run(n_workers=backend.max_connections + backend.max_threads)
+            # Open read-only, so that nothing can modify the blocks that the next snapshot
+            # reuses.
+            conn = apsw.Connection(fh.name, flags=apsw.SQLITE_OPEN_READONLY)
+            try:
+                res = conn.execute('PRAGMA integrity_check(20)').fetchall()
+            finally:
+                conn.close()
             if res[0][0] != 'ok':
                 log.error('\n'.join(str(x[0]) for x in res))
                 raise RuntimeError(
                     'Metadata backup is corrupted. Please report this as a bug',
                 )
-            conn.close()
 
 
 if __name__ == '__main__':

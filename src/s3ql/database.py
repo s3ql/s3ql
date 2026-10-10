@@ -914,6 +914,11 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
     into per-worker file handles seeking to distinct offsets. After all workers
     complete, `finalize` truncates the file and (unless *failsafe*) verifies
     the checksum.
+
+    Blocks listed in *cached_blocks* are assumed to be already present in
+    *db_file* and not downloaded again. After a successful run, *cached_blocks*
+    describes the new contents of *db_file*, so the same mapping can be passed
+    to a subsequent download of a different snapshot into the same file.
     '''
 
     backend: AsyncComprencBackend
@@ -921,28 +926,33 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
     params: FsAttributes
     failsafe: bool = False
 
-    # Populated in discover_blocks().
+    # Maps block number to the seq_no of the object whose contents *db_file* already holds at
+    # that block's offset. Emptied when the download starts and refilled once it has completed
+    # successfully, so that it never describes blocks that may have been overwritten.
+    cached_blocks: dict[int, int] = dataclasses.field(default_factory=dict)
+
+    # Populated in produce().
     total: int = dataclasses.field(init=False, default=0)
+    selected: dict[int, int] = dataclasses.field(init=False, default_factory=dict)
     counter: Iterator[int] = dataclasses.field(
         init=False, default_factory=lambda: itertools.count(1)
     )
 
+    def __post_init__(self) -> None:
+        if self.failsafe and self.cached_blocks:
+            raise ValueError('cached_blocks cannot be used in failsafe mode')
+
     async def discover_blocks(self) -> dict[int, list[int]]:
         # Workers seek into this file independently, so it must exist before
-        # they run.
-        with open(self.db_file, 'w+b', buffering=0):
+        # they run. Truncate it unless we are going to reuse its contents.
+        with open(self.db_file, 'ab' if self.cached_blocks else 'w+b', buffering=0):
             pass
-        block_list = await get_block_objects(self.backend)
-        self.total = len(block_list)
-        return block_list
+        return await get_block_objects(self.backend)
 
     async def produce(self) -> list[_BlockJob]:
         block_list = await self.discover_blocks()
-        log.debug(
-            'download_metadata: %d blocks, %d workers',
-            self.total,
-            self.backend.max_connections,
-        )
+        cached_blocks = self.cached_blocks.copy()
+        self.cached_blocks.clear()
         blocksize = self.params.metadata_block_size
         file_size = self.params.db_size
         jobs: list[_BlockJob] = []
@@ -970,8 +980,21 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
                         f'No metadata block found for block {blockno} '
                         f'with seq_no <= {self.params.seq_no:x}'
                     )
+            self.selected[blockno] = seq_no
+            if cached_blocks.get(blockno) == seq_no:
+                log.debug('Producer reusing block %d (seq_no %x)', blockno, seq_no)
+                continue
             log.debug('Producer queuing block %d (seq_no %x)', blockno, seq_no)
             jobs.append(_BlockJob(blockno=blockno, seq_no=seq_no, offset=off))
+
+        self.total = len(jobs)
+        log.debug(
+            'download_metadata: %d blocks to download, %d workers',
+            self.total,
+            self.backend.max_connections,
+        )
+        if reused := len(self.selected) - self.total:
+            log.info('Reusing %d unchanged metadata blocks', reused)
         return jobs
 
     async def consume(self, jobs: AsyncIterable[_BlockJob]) -> None:
@@ -1013,6 +1036,15 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
             # Callers may mark the file as valid (via write_params) right after this
             # returns, so its contents must reach the disk first.
             os.fsync(fh.fileno())
+
+        # Truncation may have cut off the end of the last block, so only blocks that
+        # lie entirely within the file can be reused.
+        blocksize = self.params.metadata_block_size
+        self.cached_blocks.update(
+            (blockno, seq_no)
+            for (blockno, seq_no) in self.selected.items()
+            if (blockno + 1) * blocksize <= self.params.db_size
+        )
 
 
 async def download_metadata(
