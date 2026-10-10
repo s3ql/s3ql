@@ -217,10 +217,15 @@ async def yield_local_backend(bi):
 async def yield_mock_backend(bi):
     backend_class = backends.async_prefix_map[bi.classname]
     spec = bi.mock_spec
-    server = mock_server.StorageServer(spec.handler, ('localhost', 0))
+    server = mock_server.StorageServer(spec.handler, ('localhost', 0), use_tls=spec.use_tls)
     thread = threading.Thread(target=server.serve_forever)
     thread.daemon = True
     thread.start()
+
+    # Pre-seed the (class-level) access token cache, so that the Google Storage backend
+    # does not try to contact the real OAuth server.
+    if backend_class is gs.AsyncBackend:
+        gs.AsyncBackend._tokens[spec.password] = gs._Token(bearer='foobar', deadline=float('inf'))
 
     storage_url = spec.storage_url % {
         'host': server.server_address[0],
@@ -233,13 +238,8 @@ async def yield_mock_backend(bi):
         backend_options=spec.backend_options,
     )
 
-    # Enable OAuth when using Google Backend
-    if isinstance(backend, gs.AsyncBackend):
-        backend.use_oauth2 = True
-        backend.hdr_prefix = 'x-goog-'  # Normally set in __init__
-        backend._tokens[backend.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
-
     backend.unittest_info = Namespace()
+    backend.unittest_info.handler = spec.handler
 
     # Mock server should not have temporary failures by default
     is_temp_failure = backend.is_temp_failure
@@ -1018,7 +1018,7 @@ async def test_expired_token_get(backend, monkeypatch):
     # Monkeypatch backend class to check if token is refreshed
     token_refreshed = False
 
-    def _get_access_token(self):
+    async def _get_access_token(self):
         nonlocal token_refreshed
         token_refreshed = True
         self._tokens[self.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
@@ -1041,6 +1041,7 @@ async def test_expired_token_get(backend, monkeypatch):
     monkeypatch.setattr(handler_class, 'do_GET', do_GET)
 
     token_refreshed = False
+    enable_temp_fail(backend)
     assert (await backend.fetch(key))[0] == data
     assert token_refreshed
 
@@ -1056,7 +1057,7 @@ async def test_expired_token_put(backend, monkeypatch):
     # Monkeypatch backend class to check if token is refreshed
     token_refreshed = False
 
-    def _get_access_token(self):
+    async def _get_access_token(self):
         nonlocal token_refreshed
         token_refreshed = True
         self._tokens[self.refresh_token] = gs._Token(bearer='foobar', deadline=float('inf'))
@@ -1066,7 +1067,7 @@ async def test_expired_token_put(backend, monkeypatch):
     # Monkeypatch request handler to produce error
     handler_class = mock_server.GSRequestHandler
 
-    def do_PUT(self, real=handler_class.do_PUT, count=[0]):  # noqa: B006
+    def do_POST(self, real=handler_class.do_POST, count=[0]):  # noqa: B006
         count[0] += 1
         if count[0] > 1:
             return real(self)
@@ -1074,15 +1075,16 @@ async def test_expired_token_put(backend, monkeypatch):
             self.rfile.read(int(self.headers['Content-Length']))
             self.send_error(401, code='AuthenticationRequired')
 
-    monkeypatch.setattr(handler_class, 'do_PUT', do_PUT)
+    monkeypatch.setattr(handler_class, 'do_POST', do_POST)
 
     token_refreshed = False
+    enable_temp_fail(backend)
     await backend.store(key, data)
     assert token_refreshed
 
 
 @pytest.mark.trio
-@pytest.mark.with_backend('s3c/aes+zlib', require_mock_server=True)
+@pytest.mark.with_backend('{s3c,gs}/aes+zlib', require_mock_server=True)
 async def test_conn_abort(backend, monkeypatch):
     '''Close connection while sending data'''
 
@@ -1091,7 +1093,7 @@ async def test_conn_abort(backend, monkeypatch):
     await backend.store(key, data)
 
     # Monkeypatch request handler
-    handler_class = mock_server.S3CRequestHandler
+    handler_class = backend.unittest_info.handler
 
     def send_data(self, data, count=[0]):  # noqa: B006
         count[0] += 1

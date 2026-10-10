@@ -11,8 +11,10 @@ This work can be distributed under the terms of the GNU GPLv3.
 import hashlib
 import json
 import logging
+import os
 import re
 import socketserver
+import ssl
 import urllib.parse
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -20,6 +22,15 @@ from http.server import BaseHTTPRequestHandler
 from xml.sax.saxutils import escape as xml_escape
 
 log = logging.getLogger(__name__)
+
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+
+#: Certificate (valid for localhost and 127.0.0.1) and key used by TLS mock servers
+SERVER_CERT = os.path.join(TEST_DIR, 'server.crt')
+SERVER_KEY = os.path.join(TEST_DIR, 'server.key')
+
+#: CA certificate used to sign `SERVER_CERT`
+CA_CERT = os.path.join(TEST_DIR, 'ca.crt')
 
 ERROR_RESPONSE_TEMPLATE = '''\
 <?xml version="1.0" encoding="UTF-8"?>
@@ -47,12 +58,28 @@ DELETE_RESULT_TEMPLATE = '''\
 
 
 class StorageServer(socketserver.TCPServer):
-    def __init__(self, request_handler, server_address):
+    def __init__(self, request_handler, server_address, use_tls: bool = False):
+        '''If *use_tls* is true, serve TLS using the certificate in `SERVER_CERT`.'''
+
         super().__init__(server_address, request_handler)
         self.data = dict()
         self.metadata = dict()
         self.hostname = self.server_address[0]
         self.port = self.server_address[1]
+
+        self.ssl_context: ssl.SSLContext | None
+        if use_tls:
+            self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self.ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            self.ssl_context.load_cert_chain(SERVER_CERT, SERVER_KEY)
+        else:
+            self.ssl_context = None
+
+    def get_request(self):
+        (sock, addr) = super().get_request()
+        if self.ssl_context:
+            sock = self.ssl_context.wrap_socket(sock, server_side=True)
+        return (sock, addr)
 
 
 class ParsedURL:
@@ -657,6 +684,180 @@ class BulkDeleteSwiftRequestHandler(BasicSwiftRequestHandler):
         send_response(200)
 
 
+class GSRequestHandler(MockRequestHandler):
+    '''A request handler implementing a subset of the Google Cloud Storage JSON API
+
+    Bucket names are ignored; all keys share the same global namespace. Access tokens are not
+    checked.
+    '''
+
+    # The `bucket` and `key` groups are still URL-quoted.
+    path_re = re.compile(
+        r'^(?:/upload)?/storage/v1/b/(?P<bucket>[^/]+)(?P<collection>/o(?:/(?P<key>.+))?)?$'
+    )
+
+    def parse_url(self, path: str) -> ParsedURL | None:
+        '''Return `ParsedURL` for *path*, or `None` if it is not a storage API path
+
+        The `key` attribute is `None` for bucket requests and `''` for requests to the object
+        collection (listing and upload).
+        '''
+
+        q = urllib.parse.urlsplit(path)
+        hit = self.path_re.match(q.path)
+        if not hit:
+            return None
+
+        p = ParsedURL()
+        p.bucket = urllib.parse.unquote(hit['bucket'])
+        if hit['collection'] is None:
+            p.key = None
+        else:
+            p.key = urllib.parse.unquote(hit['key'] or '')
+        p.params = urllib.parse.parse_qs(q.query)
+        p.fragment = q.fragment
+        return p
+
+    def send_json(self, obj: object, status: int = 200):
+        # *obj* is anything that `json.dumps` can serialize.
+        content = json.dumps(obj).encode('utf-8')
+        self.send_response(status)
+        self.send_header('Content-Type', 'application/json; charset=UTF-8')
+        self.send_header('Content-Length', str(len(content)))
+        self.end_headers()
+        self.wfile.write(content)
+
+    def do_GET(self):
+        q = self.parse_url(self.path)
+        if q is None:
+            self.send_error(404)
+        elif q.key is None:
+            self.send_json({'kind': 'storage#bucket', 'name': q.bucket})
+        elif not q.key:
+            self.do_list(q)
+        elif q.key not in self.server.data:
+            self.send_error(404, message='No such object: %s' % q.key)
+        elif q.params.get('alt') == ['media']:
+            data = self.server.data[q.key]
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/octet-stream')
+            self.send_header('Content-Length', str(len(data)))
+            self.end_headers()
+            self.send_data(data)
+        else:
+            resource = {
+                'kind': 'storage#object',
+                'name': q.key,
+                'size': str(len(self.server.data[q.key])),
+            }
+            if meta := self.server.metadata[q.key]:
+                resource['metadata'] = meta
+            self.send_json(resource)
+
+    def do_list(self, q: ParsedURL):
+        prefix = q.params.get('prefix', [''])[0]
+        max_results = int(q.params.get('maxResults', ['1000'])[0])
+        page_token = q.params.get('pageToken', [None])[0]
+
+        keys = [
+            key
+            for key in sorted(self.server.data)
+            if key.startswith(prefix) and (page_token is None or key > page_token)
+        ]
+
+        resp = {'kind': 'storage#objects'}
+        if keys:
+            resp['items'] = [{'kind': 'storage#object', 'name': key} for key in keys[:max_results]]
+        if len(keys) > max_results:
+            resp['nextPageToken'] = keys[max_results - 1]
+        self.send_json(resp)
+
+    def do_DELETE(self):
+        q = self.parse_url(self.path)
+        if q is None or not q.key:
+            self.send_error(404)
+            return
+        try:
+            del self.server.data[q.key]
+            del self.server.metadata[q.key]
+        except KeyError:
+            self.send_error(404, message='No such object: %s' % q.key)
+            return
+        self.send_response(204)
+        self.send_header('Content-Length', '0')
+        self.end_headers()
+
+    def do_POST(self):
+        '''Handle a multipart upload
+
+        The request body consists of a JSON part with the object resource (name and metadata),
+        followed by a part with the object data.
+        '''
+
+        q = self.parse_url(self.path)
+        len_ = self._check_encoding()
+        if len_ is None:
+            return
+        body = self.rfile.read(len_)
+
+        if q is None or q.key != '' or q.params.get('uploadType') != ['multipart']:
+            self.send_error(400, message='Unsupported POST request')
+            return
+
+        hit = re.match(r'multipart/related;\s*boundary=(.+)$', self.headers['Content-Type'])
+        if not hit:
+            self.send_error(400, message='Expected multipart/related body')
+            return
+        delimiter = b'--' + hit.group(1).encode()
+
+        # The data part comes last and may contain arbitrary bytes, so locate the parts
+        # by position instead of splitting at every delimiter.
+        suffix = b'\n' + delimiter + b'--\n'
+        try:
+            (_, json_part, data_part) = body.removesuffix(suffix).split(delimiter + b'\n', 2)
+            (_, json_body) = json_part.split(b'\n\n', 1)
+            (_, data) = data_part.split(b'\n\n', 1)
+            resource = json.loads(json_body)
+        except ValueError:
+            self.send_error(400, message='Malformed multipart body')
+            return
+
+        key = resource['name']
+        self.server.data[key] = data
+        self.server.metadata[key] = resource.get('metadata', {})
+        self.send_json({'kind': 'storage#object', 'name': key, 'size': str(len(data))})
+
+    def send_error(
+        self,
+        status: int,
+        message: str | None = None,
+        code: str = '',
+        resource: str = '',
+        extra_headers: dict[str, str] | None = None,
+    ):
+        # The JSON API error format has no fields for *code* and *resource*, so they are ignored.
+        try:
+            (reason, _) = self.responses[status]
+        except KeyError:
+            reason = 'Unknown'
+        if not message:
+            message = reason
+
+        self.log_error("code %d, message %s", status, message)
+        content = json.dumps({'error': {'code': status, 'message': message}}).encode('utf-8')
+        # *message* may contain an object name, which need not be encodable as latin-1, so it
+        # only goes into the body.
+        self.send_response(status, reason)
+        self.send_header('Content-Type', 'application/json; charset=UTF-8')
+        self.send_header('Content-Length', str(len(content)))
+        if extra_headers:
+            for name, value in extra_headers.items():
+                self.send_header(name, value)
+        self.end_headers()
+        if self.command != 'HEAD' and status >= 200 and status not in (204, 304):
+            self.wfile.write(content)
+
+
 @dataclass(frozen=True)
 class MockBackendSpec:
     '''How to run a mock server and connect a backend to it'''
@@ -670,6 +871,7 @@ class MockBackendSpec:
     backend_options: dict[str, str | bool] = field(default_factory=lambda: {'no-ssl': True})
     login: str = 'joe'
     password: str = 'swordfish'
+    use_tls: bool = False
 
 
 mock_backends = [
@@ -679,4 +881,14 @@ mock_backends = [
     MockBackendSpec(BasicSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
     MockBackendSpec(CopySwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
     MockBackendSpec(BulkDeleteSwiftRequestHandler, 'swift://%(host)s:%(port)d/s3ql_test'),
+    # The Google Storage backend always uses TLS and needs OAuth2 login. The `!unittest!`
+    # storage URL prefix allows it to connect to a host other than Google's.
+    MockBackendSpec(
+        GSRequestHandler,
+        'gs://!unittest!%(host)s:%(port)d/s3ql_test',
+        backend_options={'ssl-ca-path': CA_CERT},
+        login='oauth2',
+        password='refresh-token',
+        use_tls=True,
+    ),
 ]
