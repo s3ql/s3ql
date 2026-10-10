@@ -624,6 +624,10 @@ async def get_metadata(
         if os.path.exists(cachepath + '-cache'):
             shutil.rmtree(cachepath + '-cache')
 
+        # The checksum has been verified and stale cache entries are gone, so the cached
+        # database now matches *param* and later invocations can reuse it.
+        write_params(cachepath, param)
+
     assert db is not None
     return (param, db)
 

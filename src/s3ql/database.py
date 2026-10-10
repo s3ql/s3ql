@@ -1010,6 +1010,9 @@ class DownloadMetadata(ParallelPipeline[_BlockJob]):
             log.debug('download_metadata: digest is %s', digest)
             if self.params.db_md5 != digest:
                 raise DatabaseChecksumError(self.db_file, self.params.db_md5, digest)
+            # Callers may mark the file as valid (via write_params) right after this
+            # returns, so its contents must reach the disk first.
+            os.fsync(fh.fileno())
 
 
 async def download_metadata(
