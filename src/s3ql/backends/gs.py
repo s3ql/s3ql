@@ -446,6 +446,7 @@ class AsyncBackend(AsyncBackendBase):
         try:
             async with self._pool.get() as conn:
                 await self._do_request(conn, 'GET', path, query_string={'alt': 'media'})
+                fh.seek(off)
                 await conn.readinto_fh(fh)
         except RequestError as exc:
             mapped_exc = _map_request_error(exc, key)
