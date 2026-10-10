@@ -59,6 +59,7 @@ class ObjectToVerify:
     obj_id: int
     exp_hash: bytes
     exp_size: int
+    phys_size: int
 
 
 def _open_new_file(path: str, encoding: str = 'utf-8') -> IO[str]:
@@ -178,6 +179,10 @@ class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
     full: bool = False
     offset: int = 0
 
+    # Number and total size of objects that have been checked or skipped.
+    checked_count: int = dataclasses.field(init=False, default=0)
+    checked_size: int = dataclasses.field(init=False, default=0)
+
     # Populated in compute_totals().
     total_count: int = dataclasses.field(init=False, default=0)
     total_size: int = dataclasses.field(init=False, default=0)
@@ -196,7 +201,6 @@ class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
 
     def _iter_objects(self) -> Iterator[tuple[int, bytes, int]]:
         sql = 'SELECT id, phys_size, hash, length FROM objects ORDER BY id'
-        size_acc = 0
         # Can't use query_typed because hash_ may be None.
         for i, (obj_id, obj_size, hash_, block_size) in enumerate(self.db.query(sql), start=1):
             assert isinstance(obj_id, int)
@@ -210,80 +214,101 @@ class RetrieveObjects(ParallelPipeline[ObjectToVerify]):
                 )
             assert isinstance(hash_, bytes)
 
-            extra = {
-                'rate_limit': 1,
-                'update_console': True,
-                'is_last': i == self.total_count,
-            }
-            if self.full:
-                log.info(
-                    'Checked %d objects (%.2f%%) / %s (%.2f%%)',
-                    i,
-                    i / self.total_count * 100 if self.total_count else 0,
-                    delay_eval(pretty_print_size, size_acc),
-                    size_acc / self.total_size * 100 if self.total_size else 0,
-                    extra=extra,
-                )
-            else:
-                log.info(
-                    'Checked %d objects (%.2f%%)',
-                    i,
-                    i / self.total_count * 100 if self.total_count else 0,
-                    extra=extra,
-                )
-
-            size_acc += obj_size
+            # phys_size is -1 while the size is not yet known, and such objects
+            # are not included in total_size either.
+            phys_size = max(obj_size, 0)
             if i <= self.offset:
+                self.checked_count += 1
+                self.checked_size += phys_size
                 continue
-            yield ObjectToVerify(obj_id=obj_id, exp_hash=hash_, exp_size=block_size)
+            yield ObjectToVerify(
+                obj_id=obj_id, exp_hash=hash_, exp_size=block_size, phys_size=phys_size
+            )
+
+    def _report_checked(self, obj: ObjectToVerify) -> None:
+        '''Count *obj* as checked and log progress.'''
+
+        self.checked_count += 1
+        self.checked_size += obj.phys_size
+
+        extra = {
+            'rate_limit': 1,
+            'update_console': True,
+            'is_last': self.checked_count == self.total_count,
+        }
+        count_pct = self.checked_count / self.total_count * 100 if self.total_count else 0
+        if self.full:
+            log.info(
+                'Checked %d/%d objects (%.2f%%), %s/%s (%.2f%%)',
+                self.checked_count,
+                self.total_count,
+                count_pct,
+                delay_eval(pretty_print_size, self.checked_size),
+                delay_eval(pretty_print_size, self.total_size),
+                self.checked_size / self.total_size * 100 if self.total_size else 0,
+                extra=extra,
+            )
+        else:
+            log.info(
+                'Checked %d/%d objects (%.2f%%)',
+                self.checked_count,
+                self.total_count,
+                count_pct,
+                extra=extra,
+            )
 
     async def consume(self, jobs: AsyncIterable[ObjectToVerify]) -> None:
         buf = io.BytesIO()
         async for obj in jobs:
-            log.debug('reading object %s', obj.obj_id)
-            key = 's3ql_data_%d' % obj.obj_id
-            try:
-                if self.full:
-                    buf.seek(0)
-                    await self.backend.readinto_fh(key, buf, size_hint=obj.exp_size)
-                    buf.truncate()
-                else:
-                    await self.backend.lookup(key)
-            except NoSuchObject:
-                log.warning('Backend seems to have lost object %d', obj.obj_id)
-                print(key, file=self.missing_fh)
-                continue
-            except CorruptedObjectError:
-                log.warning('Object %d is corrupted', obj.obj_id)
-                print(key, file=self.corrupted_fh)
-                continue
+            await self._verify_object(obj, buf)
+            self._report_checked(obj)
 
-            if not self.full:
-                continue
+    async def _verify_object(self, obj: ObjectToVerify, buf: io.BytesIO) -> None:
+        '''Retrieve *obj* from the backend (into *buf* if `full` is set) and record problems.'''
 
-            size = buf.tell()
-            buf.seek(0)
-            hash_ = sha256_fh(buf).digest()
+        log.debug('reading object %s', obj.obj_id)
+        key = 's3ql_data_%d' % obj.obj_id
+        try:
+            if self.full:
+                buf.seek(0)
+                await self.backend.readinto_fh(key, buf, size_hint=obj.exp_size)
+                buf.truncate()
+            else:
+                await self.backend.lookup(key)
+        except NoSuchObject:
+            log.warning('Backend seems to have lost object %d', obj.obj_id)
+            print(key, file=self.missing_fh)
+            return
+        except CorruptedObjectError:
+            log.warning('Object %d is corrupted', obj.obj_id)
+            print(key, file=self.corrupted_fh)
+            return
 
-            if obj.exp_size != size:
-                log.warning(
-                    'Object %d is corrupted (expected size %d, actual size %d)',
-                    obj.obj_id,
-                    obj.exp_size,
-                    size,
-                )
-                print(key, file=self.corrupted_fh)
-                continue
+        if not self.full:
+            return
 
-            if obj.exp_hash != hash_:
-                log.warning(
-                    'Object %d is corrupted (expected hash %s, got %s)',
-                    obj.obj_id,
-                    obj.exp_hash,
-                    hash_,
-                )
-                print(key, file=self.corrupted_fh)
-                continue
+        size = buf.tell()
+        buf.seek(0)
+        hash_ = sha256_fh(buf).digest()
+
+        if obj.exp_size != size:
+            log.warning(
+                'Object %d is corrupted (expected size %d, actual size %d)',
+                obj.obj_id,
+                obj.exp_size,
+                size,
+            )
+            print(key, file=self.corrupted_fh)
+            return
+
+        if obj.exp_hash != hash_:
+            log.warning(
+                'Object %d is corrupted (expected hash %s, got %s)',
+                obj.obj_id,
+                obj.exp_hash,
+                hash_,
+            )
+            print(key, file=self.corrupted_fh)
 
     def finalize(self) -> None:
         log.info('Verified all %d storage objects.', self.total_count)
