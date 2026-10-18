@@ -174,6 +174,17 @@ def test_checkpoint():
         db.close()
 
 
+def test_vacuum_after_execute():
+    # A statement that returns a row must not stay active after execute() returns, or it blocks
+    # VACUUM. Only fails with APSW versions that leak cursors (3.54.0), see
+    # https://github.com/s3ql/s3ql/issues/469.
+    with tempfile.NamedTemporaryFile() as tmpfh:
+        db = Connection(tmpfh.name)
+        db.execute('PRAGMA wal_autocheckpoint = 8192')
+        db.execute('VACUUM')
+        db.close()
+
+
 async def test_versioning(backend):
     sqlite3ext.reset()
     rows = 11
