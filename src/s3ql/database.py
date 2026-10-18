@@ -193,8 +193,6 @@ class Connection:
         # Set to a trio.Event while inhibit_writes is active, None otherwise.
         self._inhibit_writes_event: trio.Event | None = None
 
-        cur = self.conn.cursor()
-
         # We initialize in NORMAL locking mode before entering WAL mode, then switch to
         # EXCLUSIVE. This creates the shared-memory wal-index, which allows us to later switch
         # back to NORMAL mode temporarily in inhibit_writes(). If we entered WAL mode while
@@ -204,9 +202,9 @@ class Connection:
         assert isinstance(res, str)
         if res.lower() != 'wal':
             raise RuntimeError(f'Unable to set WAL journaling mode, got: {res}')
-        cur.execute('PRAGMA locking_mode = EXCLUSIVE')
+        self.execute('PRAGMA locking_mode = EXCLUSIVE')
         # Perform a read to actually acquire the exclusive lock
-        cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+        self.execute('SELECT 1 FROM sqlite_master LIMIT 1')
 
         for s in (
             'PRAGMA synchronous = NORMAL',
@@ -221,7 +219,7 @@ class Connection:
             # to 32 MB. See https://github.com/s3ql/s3ql/issues/324 for discussion.
             'PRAGMA wal_autocheckpoint = 8192',
         ):
-            cur.execute(s)
+            self.execute(s)
 
         # Disable bloom filter optimization when we detect that sqlite is a buggy version
         # https://sqlite.org/forum/forumpost/031e262a89b6a9d2
@@ -233,7 +231,7 @@ class Connection:
             )
             self.fixes = {'dbf': '+'}
             # https://sqlite.org/forum/forumpost/0d3200f4f3bcd3a3
-            cur.execute('PRAGMA automatic_index = off')
+            self.execute('PRAGMA automatic_index = off')
         else:
             self.fixes = {'dbf': ''}
 
@@ -265,13 +263,16 @@ class Connection:
     def execute(self, *a, **kw) -> int:
         '''Execute the given SQL statement. Return number of affected rows'''
 
-        self.conn.cursor().execute(*a, **kw)
+        # Close the cursor explicitly: if the statement returns rows, it stays active (and
+        # blocks e.g. VACUUM) until the cursor is closed, and APSW 3.54.0 never frees some
+        # cursors (https://github.com/s3ql/s3ql/issues/469).
+        self.conn.cursor().execute(*a, **kw).close()
         return self.changes()
 
     def rowid(self, *a, **kw) -> int:
         """Execute SQL statement and return last inserted rowid"""
 
-        self.conn.cursor().execute(*a, **kw)
+        self.conn.cursor().execute(*a, **kw).close()
         return self.conn.last_insert_rowid()
 
     def has_val(self, *a, **kw) -> bool:
