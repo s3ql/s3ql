@@ -16,6 +16,7 @@ if __name__ == '__main__':
 
 
 import contextlib
+import functools
 import hashlib
 import html
 import http.client
@@ -31,6 +32,7 @@ from base64 import b64encode
 from http.server import BaseHTTPRequestHandler
 
 import pytest
+import trio
 
 import s3ql.http
 from s3ql.http import (
@@ -41,6 +43,7 @@ from s3ql.http import (
     HostnameNotResolvable,
     HTTPConnection,
     InvalidResponse,
+    Pool,
     StateError,
 )
 
@@ -617,6 +620,59 @@ async def test_empty_response(conn):
     assert resp.path == '/send_512_bytes'
     assert resp.length == 512
     assert await conn.readall() == DUMMY_DATA[:512]
+
+
+@pytest.mark.parametrize('use_ssl', (False, True), ids=('plain', 'ssl'))
+async def test_pool_discards_server_closed_conn(use_ssl, nursery):
+    '''A pooled connection that the server closed while idle must not be reused.'''
+
+    if use_ssl:
+        server_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        server_ctx.load_cert_chain(
+            os.path.join(TEST_DIR, 'server.crt'), os.path.join(TEST_DIR, 'server.key')
+        )
+        client_ctx = _client_ssl_context()
+        client_ctx.load_verify_locations(cafile=os.path.join(TEST_DIR, 'ca.crt'))
+    else:
+        client_ctx = None
+    accepted = 0
+    keepalive_expired = trio.Event()
+
+    async def handler(stream):
+        # Answer one request, then close the connection (with close_notify for TLS) once
+        # *keepalive_expired* is set, like a server whose keep-alive timeout has expired.
+        nonlocal accepted
+        accepted += 1
+        if use_ssl:
+            stream = trio.SSLStream(stream, server_ctx, server_side=True)
+        async with stream:
+            buf = b''
+            while b'\r\n\r\n' not in buf:
+                buf += await stream.receive_some(4096)
+            await stream.send_all(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok')
+            await keepalive_expired.wait()
+
+    listeners = await nursery.start(functools.partial(trio.serve_tcp, handler, 0, host='localhost'))
+    port = listeners[0].socket.getsockname()[1]
+
+    async with Pool('localhost', port, ssl_context=client_ctx) as pool:
+        async with pool.get() as stale:
+            await stale.send_request('GET', '/one')
+            assert await stale.readall() == b'ok'
+        assert pool._idle == [stale]
+        assert stale.is_idle
+
+        # The client never reads the server's close from the socket, but has to notice it.
+        keepalive_expired.set()
+        with trio.fail_after(5):
+            while stale.is_idle:
+                await trio.sleep(0.01)
+
+        async with pool.get() as conn:
+            assert conn is not stale
+            await conn.send_request('GET', '/two')
+            assert await conn.readall() == b'ok'
+        assert accepted == 2
 
 
 DUMMY_DATA = ','.join(str(x) for x in range(10000)).encode()

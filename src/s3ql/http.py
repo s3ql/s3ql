@@ -871,6 +871,10 @@ class HTTPConnection:
             and self._h11 is not None
             and self._h11.our_state is h11.IDLE
             and self._h11.their_state is h11.IDLE
+            # h11 only learns that the server has closed the connection when the socket is
+            # next read. Between requests the server sends nothing, so if there is something
+            # to read now, it is the server's close (EOF, or a TLS close_notify).
+            and not self._stream.get_extra_info('is_readable')
         )
 
     async def __aenter__(self) -> HTTPConnection:
