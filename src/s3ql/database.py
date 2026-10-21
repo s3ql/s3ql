@@ -198,28 +198,28 @@ class Connection:
         # back to NORMAL mode temporarily in inhibit_writes(). If we entered WAL mode while
         # already in EXCLUSIVE mode, SQLite would not create the wal-index and we'd be
         # permanently locked into EXCLUSIVE mode (per SQLite documentation).
-        res = self.get_val('PRAGMA journal_mode = WAL')
+        res = self.conn.pragma('journal_mode', 'WAL')
         assert isinstance(res, str)
         if res.lower() != 'wal':
             raise RuntimeError(f'Unable to set WAL journaling mode, got: {res}')
-        self.execute('PRAGMA locking_mode = EXCLUSIVE')
+        self.conn.pragma('locking_mode', 'EXCLUSIVE')
         # Perform a read to actually acquire the exclusive lock
-        self.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+        self.conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchall()
 
-        for s in (
-            'PRAGMA synchronous = NORMAL',
-            'PRAGMA foreign_keys = OFF',
-            'PRAGMA recursive_triggers = on',
-            'PRAGMA temp_store = FILE',
-            'PRAGMA legacy_file_format = off',
+        for name, value in (
+            ('synchronous', 'NORMAL'),
+            ('foreign_keys', False),
+            ('recursive_triggers', True),
+            ('temp_store', 'FILE'),
+            ('legacy_file_format', False),
             # Read performance decreases linearly with increasing WAL size, so we do not
             # want the WAL to grow too much. However, every checkpointing operation requires
             # fsync(), so we can speed up writes by having them as rarely as possible.
             # The default value of 1000 pages (i.e, 4 MB) seems a little low, so increase
             # to 32 MB. See https://github.com/s3ql/s3ql/issues/324 for discussion.
-            'PRAGMA wal_autocheckpoint = 8192',
+            ('wal_autocheckpoint', 8192),
         ):
-            self.execute(s)
+            self.conn.pragma(name, value)
 
         # Disable bloom filter optimization when we detect that sqlite is a buggy version
         # https://sqlite.org/forum/forumpost/031e262a89b6a9d2
@@ -231,14 +231,14 @@ class Connection:
             )
             self.fixes = {'dbf': '+'}
             # https://sqlite.org/forum/forumpost/0d3200f4f3bcd3a3
-            self.execute('PRAGMA automatic_index = off')
+            self.conn.pragma('automatic_index', value=False)
         else:
             self.fixes = {'dbf': ''}
 
     def close(self) -> None:
         # As recommended in https://www.sqlite.org/lang_analyze.html
-        self.execute('PRAGMA analysis_limit=0')
-        self.execute('PRAGMA optimize')
+        self.conn.pragma('analysis_limit', value=0)
+        self.conn.pragma('optimize')
         self.conn.close()
 
     def get_size(self) -> int:
@@ -291,7 +291,7 @@ class Connection:
     def _do_checkpoint(self) -> None:
         '''Internal checkpoint implementation.'''
         try:
-            row = self.get_row('PRAGMA main.wal_checkpoint(RESTART)')
+            row = self.conn.pragma('wal_checkpoint', 'RESTART')
         except apsw.LockedError:  # https://sqlite.org/forum/forumpost/9e1ad35f07
             row = (1, 0, 0)
         if row[0] != 0 or row[1] == -1:
@@ -341,8 +341,8 @@ class Connection:
 
         # Switch to NORMAL locking mode temporarily so we can open a second connection.
         # We need to do a read after changing the mode to actually release the exclusive lock.
-        self.conn.cursor().execute('PRAGMA locking_mode = NORMAL')
-        self.conn.cursor().execute('SELECT 1 FROM sqlite_master LIMIT 1')
+        self.conn.pragma('locking_mode', 'NORMAL')
+        self.conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchall()
 
         # Open a second connection and start a read transaction.
         # This establishes a WAL "end mark" that prevents checkpointing past this point,
@@ -350,7 +350,7 @@ class Connection:
         second_conn = apsw.Connection(self.file)
         second_cur = second_conn.cursor()
         second_cur.execute('BEGIN DEFERRED')
-        second_cur.execute('SELECT 1 FROM sqlite_master LIMIT 1')
+        second_cur.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchall()
 
         log.debug('inhibit_writes: active, writes to main DB file will be rejected')
 
@@ -364,8 +364,8 @@ class Connection:
             second_conn.close()
 
             # Switch back to EXCLUSIVE locking mode and acquire the lock
-            self.conn.cursor().execute('PRAGMA locking_mode = EXCLUSIVE')
-            self.conn.cursor().execute('SELECT 1 FROM sqlite_master LIMIT 1')
+            self.conn.pragma('locking_mode', 'EXCLUSIVE')
+            self.conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchall()
             sqlite3ext.set_writes_inhibited(False)
 
             # Signal any waiting checkpoint() calls
