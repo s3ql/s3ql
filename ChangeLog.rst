@@ -1,3 +1,28 @@
+S3QL 6.4.0 (2026-11-20)
+=======================
+
+* Fixed ``VACUUM`` failing with "cannot VACUUM - SQL statements in progress"
+  when S3QL is used with APSW 3.54.0. (#469)
+
+* Fixed the Google Cloud Storage backend reporting intact objects as corrupted
+  after a download was interrupted and retried (for example, a burst of
+  "Object N is corrupted" warnings from ``s3ql_verify --data`` when switching
+  networks).
+
+* When ``fsck.s3ql`` checks the most recent metadata backups, it now downloads
+  only the blocks that differ from the previously checked backup instead of
+  downloading every backup in full.
+
+* The progress output of ``s3ql_verify`` now includes the totals, for example
+  ``Checked 97863/414321 objects (23.62%), 275 GiB/430 GiB (64.03%)``. Objects
+  are counted once their check has completed, so the percentages no longer run
+  ahead of the real progress. Without ``--data``, the size part is left out.
+
+* Metadata downloaded by ``s3ql_verify`` or ``s3qladm`` is now cached locally
+  and reused by later commands. Previously only ``mount.s3ql`` did this, and
+  only after the mount had succeeded.
+
+
 S3QL 6.3.1 (2026-09-24)
 =======================
 
