@@ -62,6 +62,7 @@ from .parse_args import (
     QuietFlag,
     StorageUrl,
     init_cachedir,
+    lock_cachepath,
     make_app,
     pick,
     run_app,
@@ -121,9 +122,10 @@ def _setup(
     )
 
 
-def _resolve(args: SharedArgs, storage_url: str) -> tuple[Authinfo, str]:
+def _resolve(args: SharedArgs, storage_url: str, stack: AsyncExitStack) -> tuple[Authinfo, str]:
     '''Read authinfo2, guard against a mounted file system, size the thread pool, and return the
-    parsed `Authinfo` together with the per-file-system cache path.
+    parsed `Authinfo` together with the per-file-system cache path. The cache path stays
+    locked (see `lock_cachepath`) until *stack* is closed.
     '''
     authinfo = Authinfo.from_file(pick(args.authfile, DEFAULT_AUTHFILE), storage_url)
 
@@ -137,6 +139,8 @@ def _resolve(args: SharedArgs, storage_url: str) -> tuple[Authinfo, str]:
     AsyncComprencBackend.set_max_threads(threads)
 
     cachepath = init_cachedir(pick(args.cachedir, authinfo.cachedir), storage_url)
+    # The mount check above does not see a mount.s3ql process that is still shutting down.
+    stack.enter_context(lock_cachepath(cachepath))
     return (authinfo, cachepath)
 
 
@@ -145,7 +149,7 @@ def _resolve(args: SharedArgs, storage_url: str) -> tuple[Authinfo, str]:
 async def passphrase(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
     '''Change file system passphrase.'''
     args = get_shared_args(ctx)
-    authinfo, _cachepath = _resolve(args, storage_url)
+    authinfo, _cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_backend(
@@ -195,7 +199,7 @@ async def recover_key(
 ) -> None:
     '''Recover master key from offline copy.'''
     args = get_shared_args(ctx)
-    authinfo, _cachepath = _resolve(args, storage_url)
+    authinfo, _cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_raw_backend(
@@ -237,7 +241,7 @@ async def recover_key(
 async def clear(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
     '''Delete file system and all data.'''
     args = get_shared_args(ctx)
-    authinfo, cachepath = _resolve(args, storage_url)
+    authinfo, cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_raw_backend(
@@ -314,7 +318,7 @@ def get_old_rev_msg(rev: int, prog: str) -> str:
 async def shrink_db(ctx: typer.Context, storage_url: StorageUrl, *, stack: AsyncExitStack) -> None:
     '''Recover unused space in the metadata database.'''
     args = get_shared_args(ctx)
-    authinfo, cachepath = _resolve(args, storage_url)
+    authinfo, cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_backend(
@@ -382,7 +386,7 @@ async def upgrade(
 ) -> None:
     '''Upgrade file system to newest revision.'''
     args = get_shared_args(ctx)
-    authinfo, cachepath = _resolve(args, storage_url)
+    authinfo, cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_backend(
@@ -526,7 +530,7 @@ async def restore_metadata(
 ) -> None:
     '''Interactively restore metadata backups.'''
     args = get_shared_args(ctx)
-    authinfo, cachepath = _resolve(args, storage_url)
+    authinfo, cachepath = _resolve(args, storage_url, stack)
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().
     backend = await open_backend(

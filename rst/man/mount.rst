@@ -97,6 +97,9 @@ Exit Codes
 :39:
    Unable to bind file system to mountpoint.
 
+:40:
+   File system is in use by another S3QL process on this computer.
+
 :45:
    Unable to access cache directory.
 

@@ -71,6 +71,7 @@ from .parse_args import (
     QuietFlag,
     StorageUrl,
     init_cachedir,
+    lock_cachepath,
     make_app,
     pick,
     run_app,
@@ -1295,6 +1296,10 @@ async def fsck(
     # common mistakes.
     if is_mounted(storage_url):
         raise QuietError('Can not check mounted file system.', exitcode=40)
+
+    # mount.s3ql keeps using the cached metadata after the file system has disappeared from
+    # /proc/mounts, until its final metadata upload is done.
+    stack.enter_context(lock_cachepath(cachepath))
 
     # Assign before entering the context: ty cannot infer the type through
     # AsyncExitStack.enter_async_context().

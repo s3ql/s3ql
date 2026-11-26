@@ -125,6 +125,9 @@ Exit Codes
 :19:
    Unable to connect to backend, can't resolve hostname.
 
+:40:
+   File system is in use by another S3QL process on this computer.
+
 :45:
    Unable to access cache directory.
 

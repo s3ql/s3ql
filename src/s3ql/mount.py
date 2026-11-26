@@ -66,6 +66,7 @@ from .parse_args import (
     QuietFlag,
     StorageUrl,
     init_cachedir,
+    lock_cachepath,
     make_app,
     pick,
     run_app,
@@ -222,6 +223,8 @@ async def mount(
     debug: DebugFlag = False,
     debug_modules: DebugModules = None,
     quiet: QuietFlag = False,
+    *,
+    stack: AsyncExitStack,
 ) -> None:
     '''Mount an S3QL file system.'''
     # Save handler so that we can remove it when daemonizing
@@ -255,6 +258,8 @@ async def mount(
     max_conns = pick(max_connections, authinfo.max_connections)
     cache_dir = pick(cachedir, authinfo.cachedir)
     cachepath = init_cachedir(cache_dir, storage_url)
+    # Held until this process exits, which can be long after the mount point is gone.
+    stack.enter_context(lock_cachepath(cachepath))
 
     threads = pick(max_threads, authinfo.max_threads) or determine_threads(compress_spec)
     AsyncComprencBackend.set_max_threads(threads)

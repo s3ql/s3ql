@@ -78,7 +78,7 @@ used as-is:
    Unsupported file system revision (too new).
 
 :40:
-   Cannot check mounted file system.
+   File system is in use by another S3QL process on this computer.
 
 :41:
    User input required, but running in batch mode.
