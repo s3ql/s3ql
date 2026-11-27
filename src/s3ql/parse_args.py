@@ -10,6 +10,7 @@ This module provides the shared building blocks for S3QL's Typer-based command-l
 
 from __future__ import annotations
 
+import fcntl
 import functools
 import inspect
 import logging
@@ -17,8 +18,8 @@ import os
 import re
 import stat
 import sys
-from collections.abc import Awaitable, Callable, Sequence
-from contextlib import AsyncExitStack
+from collections.abc import Awaitable, Callable, Iterator, Sequence
+from contextlib import AsyncExitStack, contextmanager
 from typing import Annotated, Any, Literal, ParamSpec
 
 import trio
@@ -302,3 +303,24 @@ def init_cachedir(cachedir: str, storage_url: str) -> str:
     cachedir = os.path.abspath(cachedir)
     os.environ['SQLITE_TMPDIR'] = cachedir
     return os.path.join(cachedir, escape(storage_url))
+
+
+@contextmanager
+def lock_cachepath(cachepath: str) -> Iterator[None]:
+    '''Hold an exclusive flock() lock on *cachepath*``.lock`` for the duration of the context.
+
+    Raises `QuietError` if the lock is already held. The lock is inherited across fork().
+    '''
+    fd = os.open(cachepath + '.lock', os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise QuietError(
+                'File system is still in use by another S3QL process on this machine '
+                '(mount.s3ql keeps running after unmounting until all data has been uploaded).',
+                exitcode=40,
+            ) from None
+        yield
+    finally:
+        os.close(fd)

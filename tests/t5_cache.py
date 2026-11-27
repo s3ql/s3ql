@@ -15,6 +15,7 @@ if __name__ == '__main__':
     sys.exit(pytest.main([__file__] + sys.argv[1:]))
 
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -27,6 +28,27 @@ from s3ql.common import escape
 
 with open(__file__, 'rb') as fh:
     TEST_DATA = fh.read()
+
+
+@pytest.mark.usefixtures('pass_reg_output')
+class TestFsckBusyMount(t4_fuse.TestFuse):
+    def test(self):
+        self.reg_output(r'^ERROR: File system is still in use by another S3QL process', count=1)
+        self.mkfs()
+        self.mount()
+
+        # mount.s3ql keeps running after the mount point is gone. Stop it so that it cannot
+        # finish before fsck.s3ql starts.
+        os.kill(self.mount_process.pid, signal.SIGSTOP)
+        try:
+            self.umount_fuse()
+            assert not os.path.ismount(self.mnt_dir)
+            self.fsck(expect_retcode=40)
+        finally:
+            os.kill(self.mount_process.pid, signal.SIGCONT)
+
+        assert self.mount_process.wait(10) == 0
+        self.fsck()
 
 
 class TestPerstCache(t4_fuse.TestFuse):

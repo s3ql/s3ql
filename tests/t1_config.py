@@ -19,6 +19,8 @@ if __name__ == '__main__':
 
 import os
 import stat
+import subprocess
+import sys
 import tempfile
 
 import pytest
@@ -34,7 +36,7 @@ from s3ql.authinfo import (
 )
 from s3ql.backends import local, open_raw_backend
 from s3ql.logging import QuietError
-from s3ql.parse_args import _canonicalize_storage_url
+from s3ql.parse_args import _canonicalize_storage_url, lock_cachepath
 
 
 def write_authinfo(tmp_path, text: str) -> str:
@@ -248,3 +250,40 @@ async def test_open_raw_backend_valid(tmp_path):
         assert isinstance(backend, local.AsyncBackend)
     finally:
         await backend.close()
+
+
+# Takes the lock on argv[1] and forks. The child holds the lock until stdin is closed, the
+# parent exits (like in `daemonize`).
+_LOCK_HOLDER = """
+import os, sys
+from s3ql.parse_args import lock_cachepath
+with lock_cachepath(sys.argv[1]):
+    if os.fork():
+        os._exit(0)
+    print('locked', flush=True)
+    sys.stdin.read()
+"""
+
+
+def test_lock_cachepath(tmp_path):
+    cachepath = os.path.join(tmp_path, 'fs')
+    with subprocess.Popen(
+        [sys.executable, '-c', _LOCK_HOLDER, cachepath],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    ) as holder:
+        assert holder.stdout is not None and holder.stdin is not None
+        assert holder.stdout.readline() == 'locked\n'
+        assert holder.wait(timeout=10) == 0
+
+        with assert_raises(QuietError) as exc, lock_cachepath(cachepath):
+            pass
+        assert exc.value.exitcode == 40
+
+        holder.stdin.close()
+        # EOF on stdout means that the child has exited.
+        assert holder.stdout.read() == ''
+
+    with lock_cachepath(cachepath):
+        pass
